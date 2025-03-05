@@ -43,11 +43,6 @@ async def convert_link_to_button(message: types.Message):
     if message.entities:
         text = message.text
         ca = None
-        url_to_preserve = None
-        ca_original_offset = None
-        ca_length = None
-
-        # Step 1: Extract CA and its position from the original message
         for entity in message.entities:
             if entity.type in ["url", "text_link"]:
                 url = entity.url if entity.type == "text_link" else text[entity.offset:entity.offset + entity.length]
@@ -55,14 +50,8 @@ async def convert_link_to_button(message: types.Message):
                 ca_match = re.search(r'[A-Za-z0-9]{44}', url)
                 if ca_match:
                     ca = ca_match.group(0)
-                    url_to_preserve = url
                     logger.info(f"Extracted CA: {ca}")
                 break
-            elif entity.type == "code":  # Capture CA's original position if it has a code entity
-                ca_text = text[entity.offset:entity.offset + entity.length]
-                if ca_text == ca:  # Ensure this matches the CA from the URL
-                    ca_original_offset = entity.offset
-                    ca_length = entity.length
 
         if ca:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -72,25 +61,31 @@ async def convert_link_to_button(message: types.Message):
                     InlineKeyboardButton(text="Fasol", url=f"https://t.me/fasol_robot?start=ref_beinghumbleguy_ca_{ca}")
                 ]
             ])
-            # Step 2: Clean the text but keep the URL
+            # Clean the text (remove "Forwarded from" and "Buy token on Fasol Reflink")
             text = re.sub(r'Forwarded from .*\n', '', text, flags=re.IGNORECASE)
-            text = re.sub(r'Buy token on Fasol Reflink', '', text, flags=re.IGNORECASE).strip()
-            text = f"{text}\n\n🔗 {url_to_preserve}"
+            text = re.sub(r'Buy token on Fasol Reflink', '', text, flags=re.IGNORECASE)
+            # Find the CA line and add emoji before it
+            lines = text.splitlines()
+            for i, line in enumerate(lines):
+                if ca in line:
+                    lines[i] = f"🔗 {line}"
+                    break
+            text = "\n".join(line.strip() for line in lines if line.strip())
             logger.info(f"Final text to send: {text}")
 
-            # Step 3: Calculate the new offset of the CA in the final text
+            # Apply the code entity to the CA
             entities = []
-            if ca_length:  # If CA had a code entity in the original message
-                # Find the CA's new position in the cleaned text
-                ca_new_offset = text.rfind(ca)  # Find the last occurrence of CA in the final text
-                if ca_new_offset >= 0:
-                    # Validate the offset in UTF-16 (Telegram uses UTF-16 for offsets)
-                    text_length_utf16 = len(text.encode('utf-16-le')) // 2
-                    if ca_new_offset + ca_length <= text_length_utf16:
-                        entities.append(MessageEntity(type="code", offset=ca_new_offset, length=ca_length))
-                        logger.info(f"Applied code entity: Offset {ca_new_offset}, Length {ca_length}")
-                    else:
-                        logger.warning(f"Skipping invalid code entity: Offset {ca_new_offset}, Length {ca_length}")
+            ca_new_offset = text.rfind(ca)  # Find CA's position in final text
+            if ca_new_offset >= 0:
+                ca_length = 44  # Hardcode length since CA is always 44 characters
+                # Adjust offset for the emoji (🔗 is 2 UTF-16 chars) and space
+                ca_new_offset += 3  # 2 for emoji, 1 for space
+                text_length_utf16 = len(text.encode('utf-16-le')) // 2
+                if ca_new_offset + ca_length <= text_length_utf16:
+                    entities.append(MessageEntity(type="code", offset=ca_new_offset, length=ca_length))
+                    logger.info(f"Applied code entity: Offset {ca_new_offset}, Length {ca_length}")
+                else:
+                    logger.warning(f"Skipping invalid code entity: Offset {ca_new_offset}, Length {ca_length}")
 
             try:
                 await message.answer(text, reply_markup=keyboard, entities=entities)
