@@ -34,6 +34,7 @@ def run_flask():
 async def convert_link_to_button(message: types.Message):
     logger.info(f"Received message: {message.text}")
     logger.info(f"Chat type: {message.chat.type}")
+    logger.info(f"Original message ID: {message.message_id}")
     logger.info(f"Forwarded from: {message.forward_from_chat}")
     logger.info(f"Entities: {message.entities}")
 
@@ -54,11 +55,10 @@ async def convert_link_to_button(message: types.Message):
                 break
 
         if ca:
-            # Create a 2x2 grid of buttons: [Fasol] [Bloom] on top row, [Maestro] [Trojan] on bottom row
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="Fasol", url=f"https://t.me/fasol_robot?start=ref_beinghumbleguy_ca_{ca}"),
-                    InlineKeyboardButton(text="Bloom", url=f"https://t.me/BloomSolana_bot?start=ref_humbleguy_ca_{ca}")
+                    InlineKeyboardButton(text="Bloom", url=f"https://t.me/BloomSolana_bot?start=ref_humbleguy_ca_{ca}"),
+                    InlineKeyboardButton(text="Fasol", url=f"https://t.me/fasol_robot?start=ref_humbleguy_ca_{ca}")  
                 ],
                 [
                     InlineKeyboardButton(text="Maestro", url=f"http://t.me/maestro?start={ca}-beinghumbleguy"),
@@ -68,22 +68,22 @@ async def convert_link_to_button(message: types.Message):
             # Clean the text (remove "Forwarded from" and "Buy token on Fasol Reflink")
             text = re.sub(r'Forwarded from .*\n', '', text, flags=re.IGNORECASE)
             text = re.sub(r'Buy token on Fasol Reflink', '', text, flags=re.IGNORECASE)
-            # Add emoji before the CA on the same line
+            # Format the CA line to match the alignment of other lines
             lines = text.splitlines()
             for i, line in enumerate(lines):
                 if ca in line:
-                    lines[i] = line.replace(ca, f"🔗 {ca}")
+                    lines[i] = f"🔗 CA: {ca}"  # Align with other lines like "💎 MC: $29.5k"
                     break
             text = "\n".join(line.strip() for line in lines if line.strip())
             logger.info(f"Final text to send: {text}")
 
-            # Apply the code entity to the CA
+            # Apply the code entity to the CA only (excluding the emoji and "CA: ")
             entities = []
             ca_new_offset = text.find(ca)  # Find CA's position in final text
             if ca_new_offset >= 0:
                 ca_length = 44  # Hardcode length since CA is always 44 characters
-                # Adjust offset for the emoji (🔗 is 2 UTF-16 chars) and space
-                ca_new_offset += 3  # 2 for emoji, 1 for space
+                # Adjust offset for "🔗 CA: " (emoji is 2 UTF-16 chars, " CA: " is 5 chars)
+                ca_new_offset += 7  # 2 for emoji, 5 for " CA: "
                 text_length_utf16 = len(text.encode('utf-16-le')) // 2
                 if ca_new_offset + ca_length <= text_length_utf16:
                     entities.append(MessageEntity(type="code", offset=ca_new_offset, length=ca_length))
@@ -92,11 +92,10 @@ async def convert_link_to_button(message: types.Message):
                     logger.warning(f"Skipping invalid code entity: Offset {ca_new_offset}, Length {ca_length}")
 
             try:
-                # Edit the original message instead of posting a new one
-                await message.edit_text(text, reply_markup=keyboard, entities=entities)
+                edited_message = await message.edit_text(text, reply_markup=keyboard, entities=entities)
+                logger.info(f"Edited message ID: {edited_message.message_id}")
             except Exception as e:
                 logger.error(f"Error editing message: {e}")
-                # Fallback: If editing fails (e.g., message already deleted), post a new message
                 await message.answer(text, reply_markup=keyboard, entities=entities)
                 try:
                     await message.delete()
