@@ -57,8 +57,8 @@ async def convert_link_to_button(message: types.Message):
         if ca:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="Bloom", url=f"https://t.me/BloomSolana_bot?start=ref_humbleguy_ca_{ca}"),
-                    InlineKeyboardButton(text="Fasol", url=f"https://t.me/fasol_robot?start=ref_humbleguy_ca_{ca}")  
+                    InlineKeyboardButton(text="Bloom", url=f"https://t.me/BloomSolana_bot?start=ref_humbleguy_ca_{ca}"),  # Bloom first
+                    InlineKeyboardButton(text="Fasol", url=f"https://t.me/fasol_robot?start=ref_humbleguy_ca_{ca}"),  # Fasol second
                 ],
                 [
                     InlineKeyboardButton(text="Maestro", url=f"http://t.me/maestro?start={ca}-beinghumbleguy"),
@@ -79,11 +79,13 @@ async def convert_link_to_button(message: types.Message):
 
             # Apply the code entity to the CA only (excluding the emoji and "CA: ")
             entities = []
-            ca_new_offset = text.find(ca)  # Find CA's position in final text
+            text_before_ca = text[:text.find(ca)]
+            ca_new_offset = len(text_before_ca.encode('utf-16-le')) // 2  # UTF-16 offset
+            logger.info(f"CA position in final text: {text.find(ca)}")
+            logger.info(f"Text before CA: {text_before_ca}")
+            logger.info(f"Calculated CA UTF-16 offset: {ca_new_offset}")
             if ca_new_offset >= 0:
                 ca_length = 44  # Hardcode length since CA is always 44 characters
-                # Adjust offset for "🔗 CA: " (emoji is 2 UTF-16 chars, " CA: " is 5 chars)
-                ca_new_offset += 7  # 2 for emoji, 5 for " CA: "
                 text_length_utf16 = len(text.encode('utf-16-le')) // 2
                 if ca_new_offset + ca_length <= text_length_utf16:
                     entities.append(MessageEntity(type="code", offset=ca_new_offset, length=ca_length))
@@ -92,15 +94,14 @@ async def convert_link_to_button(message: types.Message):
                     logger.warning(f"Skipping invalid code entity: Offset {ca_new_offset}, Length {ca_length}")
 
             try:
+                logger.info("Attempting to edit the original message")
                 edited_message = await message.edit_text(text, reply_markup=keyboard, entities=entities)
-                logger.info(f"Edited message ID: {edited_message.message_id}")
+                logger.info(f"Successfully edited message ID: {edited_message.message_id}")
             except Exception as e:
                 logger.error(f"Error editing message: {e}")
-                await message.answer(text, reply_markup=keyboard, entities=entities)
-                try:
-                    await message.delete()
-                except Exception as delete_error:
-                    logger.warning(f"Could not delete original message: {delete_error}")
+                logger.info("Falling back to posting a new message without deleting the original")
+                new_message = await message.answer(text, reply_markup=keyboard, entities=entities)
+                logger.info(f"New message ID: {new_message.message_id}")
         else:
             logger.info("No CA found in URL")
 
