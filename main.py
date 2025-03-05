@@ -54,28 +54,32 @@ async def convert_link_to_button(message: types.Message):
                 break
 
         if ca:
+            # Create a 2x2 grid of buttons: [Fasol] [Bloom] on top row, [Maestro] [Trojan] on bottom row
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="Trojan", url=f"https://t.me/solana_trojanbot?start=r-beinghumbleguy-{ca}"),
+                    InlineKeyboardButton(text="Fasol", url=f"https://t.me/fasol_robot?start=ref_beinghumbleguy_ca_{ca}"),
+                    InlineKeyboardButton(text="Bloom", url=f"https://t.me/BloomSolana_bot?start=ref_humbleguy_ca_{ca}")
+                ],
+                [
                     InlineKeyboardButton(text="Maestro", url=f"http://t.me/maestro?start={ca}-beinghumbleguy"),
-                    InlineKeyboardButton(text="Fasol", url=f"https://t.me/fasol_robot?start=ref_beinghumbleguy_ca_{ca}")
+                    InlineKeyboardButton(text="Trojan", url=f"https://t.me/solana_trojanbot?start=r-beinghumbleguy-{ca}")
                 ]
             ])
             # Clean the text (remove "Forwarded from" and "Buy token on Fasol Reflink")
             text = re.sub(r'Forwarded from .*\n', '', text, flags=re.IGNORECASE)
             text = re.sub(r'Buy token on Fasol Reflink', '', text, flags=re.IGNORECASE)
-            # Find the CA line and add emoji before it
+            # Add emoji before the CA on the same line
             lines = text.splitlines()
             for i, line in enumerate(lines):
                 if ca in line:
-                    lines[i] = f"🔗 {line}"
+                    lines[i] = line.replace(ca, f"🔗 {ca}")
                     break
             text = "\n".join(line.strip() for line in lines if line.strip())
             logger.info(f"Final text to send: {text}")
 
             # Apply the code entity to the CA
             entities = []
-            ca_new_offset = text.rfind(ca)  # Find CA's position in final text
+            ca_new_offset = text.find(ca)  # Find CA's position in final text
             if ca_new_offset >= 0:
                 ca_length = 44  # Hardcode length since CA is always 44 characters
                 # Adjust offset for the emoji (🔗 is 2 UTF-16 chars) and space
