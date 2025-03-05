@@ -92,10 +92,16 @@ async def convert_link_to_button(message: types.Message):
                     logger.warning(f"Skipping invalid code entity: Offset {ca_new_offset}, Length {ca_length}")
 
             try:
-                await message.answer(text, reply_markup=keyboard, entities=entities)
-                await message.delete()
+                # Edit the original message instead of posting a new one
+                await message.edit_text(text, reply_markup=keyboard, entities=entities)
             except Exception as e:
-                logger.error(f"Error processing message: {e}")
+                logger.error(f"Error editing message: {e}")
+                # Fallback: If editing fails (e.g., message already deleted), post a new message
+                await message.answer(text, reply_markup=keyboard, entities=entities)
+                try:
+                    await message.delete()
+                except Exception as delete_error:
+                    logger.warning(f"Could not delete original message: {delete_error}")
         else:
             logger.info("No CA found in URL")
 
