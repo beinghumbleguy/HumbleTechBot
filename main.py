@@ -1,5 +1,10 @@
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity
+from aiogram.filters import Command, Text
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram import Router
 import asyncio
 import logging
 import os
@@ -17,9 +22,10 @@ if not TOKEN:
     logger.error("BOT_TOKEN not set!")
     raise ValueError("BOT_TOKEN is required")
 
-# Initialize Bot and Dispatcher
+# Initialize Bot and Dispatcher with MemoryStorage for FSM
 bot = Bot(token=TOKEN)
-dp = Dispatcher()
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -32,6 +38,9 @@ setup_vals = {"1100745143": 1.0}  # Default SETUP_VAL for chat ID 1100745143
 def home():
     logger.info("Flask route '/' accessed")
     return "Bot is running!"
+
+# Create a router for message handling
+router = Router()
 
 # Filter function to process messages
 async def process_filter(message: types.Message, text: str, ca: str):
@@ -131,8 +140,8 @@ async def process_filter(message: types.Message, text: str, ca: str):
     else:
         logger.info(f"BSRatio ({bs_ratio}) < SetupVal ({setup_val}), doing nothing")
 
-# Handler to process incoming messages
-@dp.message_handler()
+# Handler to process all messages
+@router.message()
 async def handle_message(message: types.Message):
     text = message.text or ""
     # Extract CA from the message (example logic - adjust based on your needs)
@@ -144,6 +153,9 @@ async def handle_message(message: types.Message):
     ca = ca or "HLENkC2uZToEa41L63EYj8fuWszxLNbkmTBm7K56pump"  # Fallback CA
     logger.info(f"Extracted CA: {ca}")
     await process_filter(message, text, ca)
+
+# Include the router in the dispatcher
+dp.include_router(router)
 
 # Function to run Flask app in a separate thread
 def run_flask():
