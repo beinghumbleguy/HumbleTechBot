@@ -2,6 +2,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity
 from aiogram import Router
 from aiogram.filters import Command
+from aiogram.exceptions import StopPropagation  # Import StopPropagation
 import asyncio
 import logging
 import os
@@ -63,6 +64,8 @@ async def toggle_filter(message: types.Message):
         await message.answer("Please specify Yes or No after /filter (e.g., /filter Yes)")
         logger.info("Sent response: Please specify Yes or No after /filter (e.g., /filter Yes)")
         logger.info("Invalid /filter input or no value provided")
+
+    raise StopPropagation  # Stop further handlers from processing this message
 
 # Handler for messages (acting as /button and /filter logic)
 @dp.message(F.text)
