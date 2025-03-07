@@ -64,7 +64,7 @@ async def toggle_filter(message: types.Message):
 @dp.message(F.text)
 @dp.channel_post(F.text)
 async def convert_link_to_button(message: types.Message):
-    logger.info(f"Received message: {message.text}")
+    logger.info(f"Received full message text: {message.text}")  # Log full text for debugging
     logger.info(f"Chat type: {message.chat.type}")
     logger.info(f"Original message ID: {message.message_id}")
     logger.info(f"Forwarded from: {message.forward_from_chat}")
@@ -91,19 +91,21 @@ async def convert_link_to_button(message: types.Message):
     # Check for BuyPercent and SellPercent
     has_buy_sell = False
     lines = [line.strip() for line in text.replace('\r\n', '\n').split('\n') if line.strip()]
+    logger.info(f"Lines to check for Buy/Sell percent: {lines}")  # Debug all lines
     for line in lines:
-        if "├Sum 🅑:" in line and "Sum 🅢:" in line:
-            match = re.search(r'├Sum 🅑:(\d+\.?\d*)%\s*\|\s*Sum 🅢:(\d+\.?\d*)%', line)
-            if match:
-                has_buy_sell = True
-                logger.info(f"Found BuyPercent and SellPercent: {match.group(0)}")
-                break
-            else:
-                logger.warning(f"No match for regex on line: '{line}'")  # Debug regex failure
+        logger.info(f"Checking line: '{line}'")  # Debug each line
+        # More flexible regex to handle variations in whitespace or formatting
+        match = re.search(r'├?Sum\s*🅑:\s*(\d+\.?\d*)%\s*[\|]\s*Sum\s*🅢:\s*(\d+\.?\d*)%', line)
+        if match:
+            has_buy_sell = True
+            logger.info(f"Found BuyPercent and SellPercent: {match.group(0)} with groups: {match.groups()}")
+            break
+        else:
+            logger.warning(f"No match for regex on line: '{line}'")  # Debug regex failure
 
-    # If BuyPercent/SellPercent exists and filter is enabled, produce /filter output as a new message
-    if has_buy_sell and filter_enabled:
-        logger.info("Message contains BuyPercent/SellPercent and filter is enabled, producing /filter output")
+    # If BuyPercent/SellPercent exists, produce /filter output and skip /button
+    if has_buy_sell:
+        logger.info("Message contains BuyPercent/SellPercent, producing /filter output")
         output_text = (
             "Filter Passed:\n"
             "New Durham Bulls Mascot (Champ)\n"
@@ -127,9 +129,9 @@ async def convert_link_to_button(message: types.Message):
             logger.info(f"New message ID: {new_message.message_id}")
         except Exception as e:
             logger.error(f"Error creating new message for /filter: {e}")
-        return  # Skip /button functionality
+        return  # Skip all further processing, including /button
 
-    # Default /button functionality if no BuyPercent/SellPercent or filter is disabled
+    # Default /button functionality if no BuyPercent/SellPercent
     if ca:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
