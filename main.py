@@ -1,6 +1,7 @@
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity
 from aiogram import Router
+from aiogram.filters import Command  # Import Command filter for /filter
 import asyncio
 import logging
 import os
@@ -42,7 +43,7 @@ def run_flask():
     app.run(host="0.0.0.0", port=port, debug=False)
 
 # Handler for /filter command to enable/disable filter
-@router.message(commands=["filter"])
+@router.message(Command(commands=["filter"]))
 async def toggle_filter(message: types.Message):
     global filter_enabled
     text = message.text.lower().replace('/filter', '').strip()
