@@ -52,13 +52,16 @@ async def toggle_filter(message: types.Message):
     if text == "yes":
         filter_enabled = True
         await message.answer("Filter set to: Yes")
+        logger.info("Sent response: Filter set to: Yes")
         logger.info("Filter enabled")
     elif text == "no":
         filter_enabled = False
         await message.answer("Filter set to: No")
+        logger.info("Sent response: Filter set to: No")
         logger.info("Filter disabled")
     else:
         await message.answer("Please specify Yes or No after /filter (e.g., /filter Yes)")
+        logger.info("Sent response: Please specify Yes or No after /filter (e.g., /filter Yes)")
         logger.info("Invalid /filter input or no value provided")
 
 # Handler for messages (acting as /button and /filter logic)
