@@ -1,7 +1,7 @@
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity
 from aiogram import Router
-from aiogram.filters import Command  # Import Command filter for /filter
+from aiogram.filters import Command
 import asyncio
 import logging
 import os
@@ -99,7 +99,7 @@ async def convert_link_to_button(message: types.Message):
                 logger.info(f"Found BuyPercent and SellPercent: {match.group(0)}")
                 break
 
-    # If BuyPercent/SellPercent exists and filter is enabled, produce /filter output
+    # If BuyPercent/SellPercent exists and filter is enabled, produce /filter output as a new message
     if has_buy_sell and filter_enabled:
         logger.info("Message contains BuyPercent/SellPercent and filter is enabled, producing /filter output")
         output_text = (
@@ -120,14 +120,11 @@ async def convert_link_to_button(message: types.Message):
             logger.warning(f"Skipping invalid code entity: Offset {ca_new_offset}, Length {ca_length}")
 
         try:
-            logger.info("Attempting to edit the original message with /filter output")
-            edited_message = await message.edit_text(output_text, entities=entities)
-            logger.info(f"Successfully edited message ID: {edited_message.message_id}")
-        except Exception as e:
-            logger.error(f"Error editing message: {e}")
-            logger.info("Falling back to posting a new message without deleting the original")
+            logger.info("Creating new message for /filter output")
             new_message = await message.answer(output_text, entities=entities)
             logger.info(f"New message ID: {new_message.message_id}")
+        except Exception as e:
+            logger.error(f"Error creating new message for /filter: {e}")
         return  # Skip /button functionality
 
     # Default /button functionality if no BuyPercent/SellPercent or filter is disabled
