@@ -94,7 +94,7 @@ async def convert_link_to_button(message: types.Message):
     logger.info(f"Lines to check for Buy/Sell percent: {lines}")  # Debug all lines
     for line in lines:
         logger.info(f"Checking line: '{line}'")  # Debug each line
-        # More flexible regex to handle variations in whitespace or formatting
+        # Flexible regex to handle variations in whitespace or formatting
         match = re.search(r'├?Sum\s*🅑:\s*(\d+\.?\d*)%\s*[\|]\s*Sum\s*🅢:\s*(\d+\.?\d*)%', line)
         if match:
             has_buy_sell = True
@@ -103,25 +103,37 @@ async def convert_link_to_button(message: types.Message):
         else:
             logger.warning(f"No match for regex on line: '{line}'")  # Debug regex failure
 
-    # If BuyPercent/SellPercent exists, produce /filter output and skip /button
+    # If BuyPercent/SellPercent exists, produce /filter output with dynamic lines
     if has_buy_sell:
         logger.info("Message contains BuyPercent/SellPercent, producing /filter output")
-        output_text = (
-            "Filter Passed:\n"
-            "New Durham Bulls Mascot (Champ)\n"
-            "CA: EABqeDRLv6B2iGzdytnjBaifHDqyEu5XZonGoqDupump"
-        )
-        # Apply code entity to the CA
-        entities = []
-        text_before_ca = "Filter Passed:\nNew Durham Bulls Mascot (Champ)\nCA: "
-        ca_new_offset = len(text_before_ca.encode('utf-16-le')) // 2  # UTF-16 offset
-        ca_length = 44  # Hardcode length since CA is always 44 characters
-        text_length_utf16 = len(output_text.encode('utf-16-le')) // 2
-        if ca_new_offset >= 0 and ca_new_offset + ca_length <= text_length_utf16:
-            entities.append(MessageEntity(type="code", offset=ca_new_offset, length=ca_length))
-            logger.info(f"Applied code entity: Offset {ca_new_offset}, Length {ca_length}")
+        # Use the first two lines of the source message
+        if len(lines) >= 2:
+            first_line = lines[0]
+            second_line = lines[1]
+            logger.info(f"Using first line: '{first_line}'")
+            logger.info(f"Using second line: '{second_line}'")
         else:
-            logger.warning(f"Skipping invalid code entity: Offset {ca_new_offset}, Length {ca_length}")
+            logger.warning("Source message has fewer than 2 lines, using defaults")
+            first_line = "Unknown Token"
+            second_line = "🔗 CA: UnknownCA"
+
+        output_text = f"Filter Passed:\n{first_line}\n{second_line}"
+        # Apply code entity to the CA in the second line
+        entities = []
+        ca_match = re.search(r'[A-Za-z0-9]{44}', second_line)
+        if ca_match:
+            ca = ca_match.group(0)
+            text_before_ca = output_text[:output_text.find(ca)]
+            ca_new_offset = len(text_before_ca.encode('utf-16-le')) // 2  # UTF-16 offset
+            ca_length = 44
+            text_length_utf16 = len(output_text.encode('utf-16-le')) // 2
+            if ca_new_offset >= 0 and ca_new_offset + ca_length <= text_length_utf16:
+                entities.append(MessageEntity(type="code", offset=ca_new_offset, length=ca_length))
+                logger.info(f"Applied code entity: Offset {ca_new_offset}, Length {ca_length}")
+            else:
+                logger.warning(f"Skipping invalid code entity: Offset {ca_new_offset}, Length {ca_length}")
+        else:
+            logger.warning("No CA found in second line for code entity")
 
         try:
             logger.info("Creating new message for /filter output")
