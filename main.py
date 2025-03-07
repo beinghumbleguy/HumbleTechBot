@@ -87,7 +87,7 @@ async def process_buttons(message: types.Message, text: str, ca: str):
         new_message = await message.answer(text, reply_markup=keyboard, entities=entities)
         logger.info(f"New message ID for Buttons: {new_message.message_id}")
 
-# Filter function (new functionality)
+# Filter function (new functionality with custom output)
 async def process_filter(message: types.Message, text: str, ca: str):
     logger.info("Processing Filter function")
     # Extract BuyPercent and SellPercent from the line "├Sum 🅑:144.7% | Sum 🅢: 143% "
@@ -112,8 +112,40 @@ async def process_filter(message: types.Message, text: str, ca: str):
         logger.info(f"Using SETUP_VAL for chat {chat_id}: {setup_val}")
         # Compare BSRatio with SetupVal
         if bs_ratio >= setup_val:
-            logger.info(f"BSRatio ({bs_ratio}) >= SetupVal ({setup_val}), calling Buttons function")
-            await process_buttons(message, text, ca)
+            logger.info(f"BSRatio ({bs_ratio}) >= SetupVal ({setup_val}), preparing Filter output")
+            # Get the first two lines of the original message
+            lines = text.splitlines()
+            first_line = "Filter Passed"
+            second_line = lines[1].strip() if len(lines) > 1 else ""
+            # Prepare the output text
+            output_text = f"{first_line}\n{second_line}\nCA: {ca}"
+            logger.info(f"Filter output text: {output_text}")
+
+            # Apply code entity to the CA
+            entities = []
+            text_before_ca = f"{first_line}\n{second_line}\nCA: "
+            ca_new_offset = len(text_before_ca.encode('utf-16-le')) // 2  # UTF-16 offset
+            logger.info(f"CA position in final text: {len(text_before_ca)}")
+            logger.info(f"Text before CA: {text_before_ca}")
+            logger.info(f"Calculated CA UTF-16 offset: {ca_new_offset}")
+            if ca_new_offset >= 0:
+                ca_length = 44
+                text_length_utf16 = len(output_text.encode('utf-16-le')) // 2
+                if ca_new_offset + ca_length <= text_length_utf16:
+                    entities.append(MessageEntity(type="code", offset=ca_new_offset, length=ca_length))
+                    logger.info(f"Applied code entity: Offset {ca_new_offset}, Length {ca_length}")
+                else:
+                    logger.warning(f"Skipping invalid code entity: Offset {ca_new_offset}, Length {ca_length}")
+
+            try:
+                logger.info("Attempting to edit the original message for Filter")
+                edited_message = await message.edit_text(output_text, entities=entities)
+                logger.info(f"Successfully edited message ID for Filter: {edited_message.message_id}")
+            except Exception as e:
+                logger.error(f"Error editing message for Filter: {e}")
+                logger.info("Falling back to posting a new message without deleting the original")
+                new_message = await message.answer(output_text, entities=entities)
+                logger.info(f"New message ID for Filter: {new_message.message_id}")
         else:
             logger.info(f"BSRatio ({bs_ratio}) < SetupVal ({setup_val}), doing nothing")
     else:
