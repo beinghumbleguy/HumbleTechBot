@@ -1,6 +1,5 @@
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity
-from aiogram import Router
 from aiogram.filters import Command
 import asyncio
 import logging
@@ -27,9 +26,6 @@ app = Flask(__name__)
 # Global variable to track filter state
 filter_enabled = False
 
-# Create a router for handling commands and messages
-router = Router()
-
 # Flask route
 @app.route('/')
 def home():
@@ -43,7 +39,7 @@ def run_flask():
     app.run(host="0.0.0.0", port=port, debug=False)
 
 # Handler for /filter command to enable/disable filter
-@router.message(Command(commands=["filter"]))
+@dp.message(Command(commands=["filter"]))
 async def toggle_filter(message: types.Message):
     global filter_enabled
     text = message.text.lower().replace('/filter', '').strip()
@@ -63,8 +59,6 @@ async def toggle_filter(message: types.Message):
         await message.answer("Please specify Yes or No after /filter (e.g., /filter Yes)")
         logger.info("Sent response: Please specify Yes or No after /filter (e.g., /filter Yes)")
         logger.info("Invalid /filter input or no value provided")
-
-    return True  # Return True to stop event propagation
 
 # Handler for messages (acting as /button and /filter logic)
 @dp.message(F.text)
@@ -187,9 +181,6 @@ async def convert_link_to_button(message: types.Message):
 
     else:
         logger.info("No CA found in URL")
-
-# Include the router in the dispatcher
-dp.include_router(router)
 
 async def main():
     flask_thread = Thread(target=run_flask, daemon=True)
