@@ -1,3 +1,20 @@
+import logging
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import MessageEntity
+import re
+import asyncio
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Global variables (example setup)
+setup_vals = {"1100745143": 1.0}  # Default SETUP_VAL for chat ID 1100745143
+
+# Initialize Bot and Dispatcher
+bot = Bot(token="YOUR_BOT_TOKEN")  # Replace with your actual Telegram bot token
+dp = Dispatcher(bot)
+
 async def process_filter(message: types.Message, text: str, ca: str):
     logger.info("Processing Filter function")
     logger.info(f"Full text received: {repr(text)}")  # Debug: Log the full text with repr
@@ -94,3 +111,20 @@ async def process_filter(message: types.Message, text: str, ca: str):
             logger.error(f"Error creating new message for Filter: {e}")
     else:
         logger.info(f"BSRatio ({bs_ratio}) < SetupVal ({setup_val}), doing nothing")
+
+# Handler to process incoming messages
+@dp.message_handler()
+async def handle_message(message: types.Message):
+    text = message.text or ""
+    # Extract CA from the message (example logic - adjust based on your needs)
+    ca = None
+    for entity in message.entities or []:
+        if entity.type == "text_link" and "pump.fun/coin/" in entity.url:
+            ca = entity.url.split("pump.fun/coin/")[1]
+            break
+    ca = ca or "HLENkC2uZToEa41L63EYj8fuWszxLNbkmTBm7K56pump"  # Fallback CA
+    logger.info(f"Extracted CA: {ca}")
+    await process_filter(message, text, ca)
+
+if __name__ == "__main__":
+    asyncio.run(dp.start_polling())
