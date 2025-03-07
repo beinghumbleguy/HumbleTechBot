@@ -51,15 +51,15 @@ async def toggle_filter(message: types.Message):
 
     if text == "yes":
         filter_enabled = True
-        await message.answer("Filter enabled.")
+        await message.answer("Filter set to: Yes")
         logger.info("Filter enabled")
     elif text == "no":
         filter_enabled = False
-        await message.answer("Filter disabled.")
+        await message.answer("Filter set to: No")
         logger.info("Filter disabled")
     else:
-        await message.answer("Please use /filter Yes or /filter No to enable or disable the filter.")
-        logger.info("Invalid /filter input")
+        await message.answer("Please specify Yes or No after /filter (e.g., /filter Yes)")
+        logger.info("Invalid /filter input or no value provided")
 
 # Handler for messages (acting as /button and /filter logic)
 @dp.message(F.text)
@@ -70,6 +70,7 @@ async def convert_link_to_button(message: types.Message):
     logger.info(f"Original message ID: {message.message_id}")
     logger.info(f"Forwarded from: {message.forward_from_chat}")
     logger.info(f"Entities: {message.entities}")
+    logger.info(f"Filter enabled state: {filter_enabled}")  # Debug filter state
 
     if message.forward_from_chat:
         logger.info(f"Message is forwarded from chat: {message.forward_from_chat.title}")
@@ -98,6 +99,8 @@ async def convert_link_to_button(message: types.Message):
                 has_buy_sell = True
                 logger.info(f"Found BuyPercent and SellPercent: {match.group(0)}")
                 break
+            else:
+                logger.warning(f"No match for regex on line: '{line}'")  # Debug regex failure
 
     # If BuyPercent/SellPercent exists and filter is enabled, produce /filter output as a new message
     if has_buy_sell and filter_enabled:
@@ -173,9 +176,10 @@ async def convert_link_to_button(message: types.Message):
             logger.info(f"Successfully edited message ID: {edited_message.message_id}")
         except Exception as e:
             logger.error(f"Error editing message: {e}")
-            logger.info("Falling back to posting a new message without deleting the original")
+            logger.info("Falling back to posting a new message")
             new_message = await message.answer(text, reply_markup=keyboard, entities=entities)
             logger.info(f"New message ID: {new_message.message_id}")
+
     else:
         logger.info("No CA found in URL")
 
