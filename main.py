@@ -21,7 +21,6 @@ app = Flask(__name__)
 
 # Define the specific chat ID or username where "Filter" can be toggled
 FILTER_CHAT_ID = 123456789  # Replace with the actual chat ID or username (e.g., "@FilterChannel")
-# Note: Use chat ID (integer) for groups/channels, or username (string) for public channels
 
 # In-memory storage for SETUP_VAL and FILTER state per chat
 setup_vals = {}  # {chat_id: value}
@@ -83,14 +82,12 @@ async def process_buttons(message: types.Message, text: str, ca: str):
         logger.info(f"Successfully edited message ID for Buttons: {edited_message.message_id}")
     except Exception as e:
         logger.error(f"Error editing message for Buttons: {e}")
-        logger.info("Falling back to posting a new message without deleting the original")
-        new_message = await message.answer(text, reply_markup=keyboard, entities=entities)
-        logger.info(f"New message ID for Buttons: {new_message.message_id}")
+        logger.info("Editing failed, skipping to avoid duplicates")
 
-# Filter function (new functionality with custom output)
+# Filter function (custom output)
 async def process_filter(message: types.Message, text: str, ca: str):
     logger.info("Processing Filter function")
-    # Extract BuyPercent and SellPercent from the line "├Sum 🅑:144.7% | Sum 🅢: 143% "
+    # Extract BuyPercent and SellPercent
     buy_percent = None
     sell_percent = None
     for line in text.splitlines():
@@ -116,7 +113,7 @@ async def process_filter(message: types.Message, text: str, ca: str):
             # Get the first two lines of the original message
             lines = text.splitlines()
             first_line = "Filter Passed"
-            second_line = lines[1].strip() if len(lines) > 1 else ""
+            second_line = lines[1].strip() if len(lines) > 1 else ""  # Handle cases with fewer than 2 lines
             # Prepare the output text
             output_text = f"{first_line}\n{second_line}\nCA: {ca}"
             logger.info(f"Filter output text: {output_text}")
@@ -143,9 +140,7 @@ async def process_filter(message: types.Message, text: str, ca: str):
                 logger.info(f"Successfully edited message ID for Filter: {edited_message.message_id}")
             except Exception as e:
                 logger.error(f"Error editing message for Filter: {e}")
-                logger.info("Falling back to posting a new message without deleting the original")
-                new_message = await message.answer(output_text, entities=entities)
-                logger.info(f"New message ID for Filter: {new_message.message_id}")
+                logger.info("Editing failed, skipping to avoid duplicates")
         else:
             logger.info(f"BSRatio ({bs_ratio}) < SetupVal ({setup_val}), doing nothing")
     else:
