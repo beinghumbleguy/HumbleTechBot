@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import re
+import signal
 from flask import Flask
 from threading import Thread
 
@@ -20,7 +21,7 @@ dp = Dispatcher()
 app = Flask(__name__)
 
 # Define the specific chat ID or username where "Filter" can be toggled
-FILTER_CHAT_ID = 123456789  # Replace with the actual chat ID or username (e.g., "@FilterChannel")
+FILTER_CHAT_ID = 123456789  # Replace with the actual chat ID (e.g., 1100745143)
 
 # In-memory storage for SETUP_VAL and FILTER state per chat
 setup_vals = {}  # {chat_id: value}
@@ -36,7 +37,7 @@ def run_flask():
     logger.info(f"Starting Flask on port {port}")
     app.run(host="0.0.0.0", port=port, debug=False)
 
-# Buttons function (original functionality)
+# Buttons function (optimized)
 async def process_buttons(message: types.Message, text: str, ca: str):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -48,33 +49,29 @@ async def process_buttons(message: types.Message, text: str, ca: str):
             InlineKeyboardButton(text="Trojan", url=f"https://t.me/solana_trojanbot?start=r-beinghumbleguy-{ca}")
         ]
     ])
-    # Clean the text
-    text = re.sub(r'Forwarded from .*\n', '', text, flags=re.IGNORECASE)
-    text = re.sub(r'Buy token on Fasol Reflink', '', text, flags=re.IGNORECASE)
-    # Format the CA line
-    lines = text.splitlines()
-    for i, line in enumerate(lines):
-        if ca in line:
-            lines[i] = f"🔗 CA: {ca}"
-            break
-    text = "\n".join(line.strip() for line in lines if line.strip())
+    # Clean the text (optimized)
+    text = re.sub(r'Forwarded from .*\n|Buy token on Fasol Reflink', '', text, flags=re.IGNORECASE)
+    # Replace the CA line efficiently
+    text = text.replace(ca, f"🔗 CA: {ca}")
+    text = "\n".join(line.strip() for line in text.splitlines() if line.strip())
     logger.info(f"Final text for Buttons: {text}")
 
     # Apply code entity to the CA
     entities = []
-    text_before_ca = text[:text.find(ca)]
-    ca_new_offset = len(text_before_ca.encode('utf-16-le')) // 2  # UTF-16 offset
-    logger.info(f"CA position in final text: {text.find(ca)}")
+    ca_new_offset = text.find(ca)
+    text_before_ca = text[:ca_new_offset]
+    ca_new_offset_utf16 = len(text_before_ca.encode('utf-16-le')) // 2  # UTF-16 offset
+    logger.info(f"CA position in final text: {ca_new_offset}")
     logger.info(f"Text before CA: {text_before_ca}")
-    logger.info(f"Calculated CA UTF-16 offset: {ca_new_offset}")
+    logger.info(f"Calculated CA UTF-16 offset: {ca_new_offset_utf16}")
     if ca_new_offset >= 0:
         ca_length = 44
         text_length_utf16 = len(text.encode('utf-16-le')) // 2
-        if ca_new_offset + ca_length <= text_length_utf16:
-            entities.append(MessageEntity(type="code", offset=ca_new_offset, length=ca_length))
-            logger.info(f"Applied code entity: Offset {ca_new_offset}, Length {ca_length}")
+        if ca_new_offset_utf16 + ca_length <= text_length_utf16:
+            entities.append(MessageEntity(type="code", offset=ca_new_offset_utf16, length=ca_length))
+            logger.info(f"Applied code entity: Offset {ca_new_offset_utf16}, Length {ca_length}")
         else:
-            logger.warning(f"Skipping invalid code entity: Offset {ca_new_offset}, Length {ca_length}")
+            logger.warning(f"Skipping invalid code entity: Offset {ca_new_offset_utf16}, Length {ca_length}")
 
     try:
         logger.info("Attempting to edit the original message for Buttons")
@@ -220,11 +217,26 @@ async def handle_message(message: types.Message):
         else:
             logger.info("No CA found in URL")
 
+async def shutdown(dispatcher: Dispatcher):
+    logger.info("Shutting down bot gracefully...")
+    await dispatcher.storage.close()
+    await dispatcher.storage.wait_closed()
+    await bot.session.close()
+    logger.info("Bot shutdown complete.")
+
 async def main():
+    # Handle SIGTERM for graceful shutdown
+    loop = asyncio.get_event_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown(dp)))
+
     flask_thread = Thread(target=run_flask, daemon=True)
     flask_thread.start()
     logger.info("Starting bot polling...")
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await shutdown(dp)
 
 if __name__ == "__main__":
     asyncio.run(main())
