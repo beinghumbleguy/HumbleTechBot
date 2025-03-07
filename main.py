@@ -1,5 +1,6 @@
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity
+from aiogram import Router
 import asyncio
 import logging
 import os
@@ -25,6 +26,9 @@ app = Flask(__name__)
 # Global variable to track filter state
 filter_enabled = False
 
+# Create a router for handling commands and messages
+router = Router()
+
 # Flask route
 @app.route('/')
 def home():
@@ -38,7 +42,7 @@ def run_flask():
     app.run(host="0.0.0.0", port=port, debug=False)
 
 # Handler for /filter command to enable/disable filter
-@dp.message_handler(commands=["filter"])
+@router.message(commands=["filter"])
 async def toggle_filter(message: types.Message):
     global filter_enabled
     text = message.text.lower().replace('/filter', '').strip()
@@ -176,6 +180,9 @@ async def convert_link_to_button(message: types.Message):
             logger.info(f"New message ID: {new_message.message_id}")
     else:
         logger.info("No CA found in URL")
+
+# Include the router in the dispatcher
+dp.include_router(router)
 
 async def main():
     flask_thread = Thread(target=run_flask, daemon=True)
