@@ -84,7 +84,7 @@ async def process_buttons(message: types.Message, text: str, ca: str):
         logger.error(f"Error editing message for Buttons: {e}")
         logger.info("Editing failed, skipping to avoid duplicates")
 
-# Filter function (custom output)
+# Filter function (new message creation)
 async def process_filter(message: types.Message, text: str, ca: str):
     logger.info("Processing Filter function")
     # Extract BuyPercent and SellPercent
@@ -135,12 +135,11 @@ async def process_filter(message: types.Message, text: str, ca: str):
                     logger.warning(f"Skipping invalid code entity: Offset {ca_new_offset}, Length {ca_length}")
 
             try:
-                logger.info("Attempting to edit the original message for Filter")
-                edited_message = await message.edit_text(output_text, entities=entities)
-                logger.info(f"Successfully edited message ID for Filter: {edited_message.message_id}")
+                logger.info("Creating new message for Filter output")
+                await message.answer(output_text, entities=entities)
+                logger.info("Successfully created new message for Filter")
             except Exception as e:
-                logger.error(f"Error editing message for Filter: {e}")
-                logger.info("Editing failed, skipping to avoid duplicates")
+                logger.error(f"Error creating new message for Filter: {e}")
         else:
             logger.info(f"BSRatio ({bs_ratio}) < SetupVal ({setup_val}), doing nothing")
     else:
