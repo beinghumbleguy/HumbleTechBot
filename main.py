@@ -1,20 +1,39 @@
-import logging
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import MessageEntity
-import re
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity
 import asyncio
+import logging
+import os
+import re
+from flask import Flask
+from threading import Thread
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Global variables (example setup)
-setup_vals = {"1100745143": 1.0}  # Default SETUP_VAL for chat ID 1100745143
+# Load bot token from environment variable (Railway app)
+TOKEN = os.getenv("BOT_TOKEN")
+if not TOKEN:
+    logger.error("BOT_TOKEN not set!")
+    raise ValueError("BOT_TOKEN is required")
 
 # Initialize Bot and Dispatcher
-bot = Bot(token="YOUR_BOT_TOKEN")  # Replace with your actual Telegram bot token
-dp = Dispatcher(bot)
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
 
+# Initialize Flask app
+app = Flask(__name__)
+
+# Global variables for setup values
+setup_vals = {"1100745143": 1.0}  # Default SETUP_VAL for chat ID 1100745143
+
+# Flask route
+@app.route('/')
+def home():
+    logger.info("Flask route '/' accessed")
+    return "Bot is running!"
+
+# Filter function to process messages
 async def process_filter(message: types.Message, text: str, ca: str):
     logger.info("Processing Filter function")
     logger.info(f"Full text received: {repr(text)}")  # Debug: Log the full text with repr
@@ -126,5 +145,16 @@ async def handle_message(message: types.Message):
     logger.info(f"Extracted CA: {ca}")
     await process_filter(message, text, ca)
 
+# Function to run Flask app in a separate thread
+def run_flask():
+    logger.info("Starting Flask app")
+    app.run(host='0.0.0.0', port=int(os.getenv("PORT", 5000)))
+
 if __name__ == "__main__":
+    # Start Flask in a separate thread
+    flask_thread = Thread(target=run_flask)
+    flask_thread.start()
+    
+    # Start the bot polling
+    logger.info("Starting bot polling")
     asyncio.run(dp.start_polling())
