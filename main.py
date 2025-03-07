@@ -23,8 +23,9 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 app = Flask(__name__)
 
-# Global variable to track filter state
+# Global variables
 filter_enabled = False
+PassValue = None  # Initialize PassValue as None
 
 # Flask route
 @app.route('/')
@@ -47,18 +48,37 @@ async def toggle_filter(message: types.Message):
 
     if text == "yes":
         filter_enabled = True
-        await message.answer("Filter set to: Yes")
-        logger.info("Sent response: Filter set to: Yes")
+        await message.answer("Filter set to: Yes ✅")
+        logger.info("Sent response: Filter set to: Yes ✅")
         logger.info("Filter enabled")
     elif text == "no":
         filter_enabled = False
-        await message.answer("Filter set to: No")
-        logger.info("Sent response: Filter set to: No")
+        await message.answer("Filter set to: No 🚫")
+        logger.info("Sent response: Filter set to: No 🚫")
         logger.info("Filter disabled")
     else:
-        await message.answer("Please specify Yes or No after /filter (e.g., /filter Yes)")
-        logger.info("Sent response: Please specify Yes or No after /filter (e.g., /filter Yes)")
+        await message.answer("Please specify Yes or No after /filter (e.g., /filter Yes) 🤔")
+        logger.info("Sent response: Please specify Yes or No after /filter (e.g., /filter Yes) 🤔")
         logger.info("Invalid /filter input or no value provided")
+
+# Handler for /setupval command to set PassValue
+@dp.message(Command(commands=["setupval"]))
+async def setup_val(message: types.Message):
+    global PassValue
+    text = message.text.lower().replace('/setupval', '').strip()
+    logger.info(f"Received /setupval command with text: {text}")
+
+    try:
+        # Attempt to convert the input to a float
+        value = float(text)
+        PassValue = value
+        await message.answer(f"PassValue set to: {PassValue} ✅")
+        logger.info(f"Sent response: PassValue set to: {PassValue} ✅")
+        logger.info(f"PassValue updated to: {PassValue}")
+    except ValueError:
+        await message.answer("Please provide a valid numerical value (e.g., /setupval 1.2) 🚫")
+        logger.info("Sent response: Please provide a valid numerical value (e.g., /setupval 1.2) 🚫")
+        logger.info("Invalid /setupval input: not a number")
 
 # Handler for messages (acting as /button and /filter logic)
 @dp.message(F.text)
@@ -70,6 +90,7 @@ async def convert_link_to_button(message: types.Message):
     logger.info(f"Forwarded from: {message.forward_from_chat}")
     logger.info(f"Entities: {message.entities}")
     logger.info(f"Filter enabled state: {filter_enabled}")  # Debug filter state
+    logger.info(f"Current PassValue: {PassValue}")  # Debug PassValue
 
     if message.forward_from_chat:
         logger.info(f"Message is forwarded from chat: {message.forward_from_chat.title}")
@@ -90,6 +111,8 @@ async def convert_link_to_button(message: types.Message):
 
     # Check for BuyPercent and SellPercent
     has_buy_sell = False
+    buy_percent = None
+    sell_percent = None
     lines = [line.strip() for line in text.replace('\r\n', '\n').split('\n') if line.strip()]
     logger.info(f"Lines to check for Buy/Sell percent: {lines}")  # Debug all lines
     for line in lines:
@@ -98,14 +121,16 @@ async def convert_link_to_button(message: types.Message):
         match = re.search(r'├?Sum\s*🅑:\s*(\d+\.?\d*)%\s*[\|]\s*Sum\s*🅢:\s*(\d+\.?\d*)%', line)
         if match:
             has_buy_sell = True
+            buy_percent = float(match.group(1))
+            sell_percent = float(match.group(2))
             logger.info(f"Found BuyPercent and SellPercent: {match.group(0)} with groups: {match.groups()}")
             break
         else:
             logger.warning(f"No match for regex on line: '{line}'")  # Debug regex failure
 
-    # If BuyPercent/SellPercent exists, produce /filter output with dynamic lines
+    # If BuyPercent/SellPercent exists, calculate BSRatio and compare with PassValue
     if has_buy_sell:
-        logger.info("Message contains BuyPercent/SellPercent, producing /filter output")
+        logger.info("Message contains BuyPercent/SellPercent, processing BSRatio")
         # Use the first two lines of the source message
         if len(lines) >= 2:
             first_line = lines[0]
@@ -117,10 +142,34 @@ async def convert_link_to_button(message: types.Message):
             first_line = "Unknown Token"
             second_line = "🔗 CA: UnknownCA"
 
-        output_text = f"Filter Passed:\n{first_line}\n{second_line}"
-        # Apply code entity to the CA in the second line
+        # Calculate BSRatio
+        try:
+            if sell_percent == 0:
+                logger.warning("SellPercent is 0, cannot calculate BSRatio, assuming infinity")
+                bs_ratio = float('inf')  # Handle division by zero
+            else:
+                bs_ratio = buy_percent / sell_percent
+                logger.info(f"Calculated BSRatio: {buy_percent} / {sell_percent} = {bs_ratio}")
+        except Exception as e:
+            logger.error(f"Error calculating BSRatio: {e}")
+            bs_ratio = 0  # Fallback in case of error
+
+        # Compare BSRatio with PassValue
+        if PassValue is None:
+            logger.warning("PassValue is not set, cannot compare BSRatio")
+            await message.answer("⚠️ Please set PassValue using /setupval (e.g., /setupval 1.2) before filtering.")
+            return
+
+        if bs_ratio >= PassValue:
+            logger.info(f"BSRatio ({bs_ratio}) >= PassValue ({PassValue}), producing /filter output")
+            output_text = f"Filter Passed: 🎉\n{first_line}\n{second_line}"
+        else:
+            logger.info(f"BSRatio ({bs_ratio}) < PassValue ({PassValue}), CA did not qualify")
+            output_text = f"CA did not qualify: 🚫 BSRatio {bs_ratio:.2f}"
+
+        # Apply code entity to the CA in the output (if present)
         entities = []
-        ca_match = re.search(r'[A-Za-z0-9]{44}', second_line)
+        ca_match = re.search(r'[A-Za-z0-9]{44}', output_text)
         if ca_match:
             ca = ca_match.group(0)
             text_before_ca = output_text[:output_text.find(ca)]
@@ -133,14 +182,14 @@ async def convert_link_to_button(message: types.Message):
             else:
                 logger.warning(f"Skipping invalid code entity: Offset {ca_new_offset}, Length {ca_length}")
         else:
-            logger.warning("No CA found in second line for code entity")
+            logger.warning("No CA found in output for code entity")
 
         try:
-            logger.info("Creating new message for /filter output")
+            logger.info("Creating new message for output")
             new_message = await message.answer(output_text, entities=entities)
             logger.info(f"New message ID: {new_message.message_id}")
         except Exception as e:
-            logger.error(f"Error creating new message for /filter: {e}")
+            logger.error(f"Error creating new message: {e}")
         return  # Skip all further processing, including /button
 
     # Default /button functionality if no BuyPercent/SellPercent
