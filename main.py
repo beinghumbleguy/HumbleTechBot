@@ -26,6 +26,7 @@ app = Flask(__name__)
 # Global variables
 filter_enabled = False
 PassValue = None  # Initialize PassValue as None
+RangeLow = None   # Initialize RangeLow as None
 
 # Flask route
 @app.route('/')
@@ -80,6 +81,25 @@ async def setup_val(message: types.Message):
         logger.info("Sent response: Please provide a valid numerical value (e.g., /setupval 1.2) 🚫")
         logger.info("Invalid /setupval input: not a number")
 
+# Handler for /setrangelow command to set RangeLow
+@dp.message(Command(commands=["setrangelow"]))
+async def set_range_low(message: types.Message):
+    global RangeLow
+    text = message.text.lower().replace('/setrangelow', '').strip()
+    logger.info(f"Received /setrangelow command with text: {text}")
+
+    try:
+        # Attempt to convert the input to a float
+        value = float(text)
+        RangeLow = value
+        await message.answer(f"RangeLow set to: {RangeLow} ✅")
+        logger.info(f"Sent response: RangeLow set to: {RangeLow} ✅")
+        logger.info(f"RangeLow updated to: {RangeLow}")
+    except ValueError:
+        await message.answer("Please provide a valid numerical value (e.g., /setrangelow 1.1) 🚫")
+        logger.info("Sent response: Please provide a valid numerical value (e.g., /setrangelow 1.1) 🚫")
+        logger.info("Invalid /setrangelow input: not a number")
+
 # Handler for messages (acting as /button and /filter logic)
 @dp.message(F.text)
 @dp.channel_post(F.text)
@@ -91,6 +111,7 @@ async def convert_link_to_button(message: types.Message):
     logger.info(f"Entities: {message.entities}")
     logger.info(f"Filter enabled state: {filter_enabled}")  # Debug filter state
     logger.info(f"Current PassValue: {PassValue}")  # Debug PassValue
+    logger.info(f"Current RangeLow: {RangeLow}")  # Debug RangeLow
 
     if message.forward_from_chat:
         logger.info(f"Message is forwarded from chat: {message.forward_from_chat.title}")
@@ -128,7 +149,7 @@ async def convert_link_to_button(message: types.Message):
         else:
             logger.warning(f"No match for regex on line: '{line}'")  # Debug regex failure
 
-    # If BuyPercent/SellPercent exists, calculate BSRatio and compare with PassValue
+    # If BuyPercent/SellPercent exists, calculate BSRatio and compare with PassValue and RangeLow
     if has_buy_sell:
         logger.info("Message contains BuyPercent/SellPercent, processing BSRatio")
         # Use the first two lines of the source message
@@ -154,17 +175,24 @@ async def convert_link_to_button(message: types.Message):
             logger.error(f"Error calculating BSRatio: {e}")
             bs_ratio = 0  # Fallback in case of error
 
-        # Compare BSRatio with PassValue
-        if PassValue is None:
-            logger.warning("PassValue is not set, cannot compare BSRatio")
-            await message.answer("⚠️ Please set PassValue using /setupval (e.g., /setupval 1.2) before filtering.")
+        # Check if PassValue and RangeLow are set
+        if PassValue is None or RangeLow is None:
+            logger.warning("PassValue or RangeLow is not set, cannot compare BSRatio")
+            missing_vars = []
+            if PassValue is None:
+                missing_vars.append("PassValue")
+            if RangeLow is None:
+                missing_vars.append("RangeLow")
+            await message.answer(f"⚠️ Please set {', '.join(missing_vars)} using /setupval and /setrangelow before filtering.")
             return
 
-        if bs_ratio >= PassValue:
-            logger.info(f"BSRatio ({bs_ratio}) >= PassValue ({PassValue}), producing /filter output")
-            output_text = f"Filter Passed: 🎉\n{first_line}\n{second_line}"
+        # Check filter conditions: BSRatio >= PassValue OR (1 <= BSRatio <= RangeLow)
+        if bs_ratio >= PassValue or (1 <= bs_ratio <= RangeLow):
+            logger.info(f"Filter passed - BSRatio: {bs_ratio}, PassValue: {PassValue}, RangeLow: {RangeLow}")
+            logger.info(f"Condition met: BSRatio >= PassValue: {bs_ratio >= PassValue}, or 1 <= BSRatio <= RangeLow: {1 <= bs_ratio <= RangeLow}")
+            output_text = f"Filter Passed: 🎉 BSRatio {bs_ratio:.2f}\n{first_line}\n{second_line}"
         else:
-            logger.info(f"BSRatio ({bs_ratio}) < PassValue ({PassValue}), CA did not qualify")
+            logger.info(f"Filter failed - BSRatio: {bs_ratio}, PassValue: {PassValue}, RangeLow: {RangeLow}")
             output_text = f"CA did not qualify: 🚫 BSRatio {bs_ratio:.2f}"
 
         # Apply code entity to the CA in the output (if present)
