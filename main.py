@@ -104,6 +104,11 @@ async def set_range_low(message: types.Message):
 @dp.message(F.text)
 @dp.channel_post(F.text)
 async def convert_link_to_button(message: types.Message):
+    # Skip if the message is a command (starts with /)
+    if message.text.startswith('/'):
+        logger.info(f"Skipping command message: {message.text}")
+        return
+
     logger.info(f"Received full message text: {message.text}")  # Log full text for debugging
     logger.info(f"Chat type: {message.chat.type}")
     logger.info(f"Original message ID: {message.message_id}")
