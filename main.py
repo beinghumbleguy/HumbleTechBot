@@ -27,6 +27,8 @@ app = Flask(__name__)
 filter_enabled = False
 PassValue = None  # Initialize PassValue as None
 RangeLow = None   # Initialize RangeLow as None
+authorized_users = ["@BeingHumbleGuy"]  # List of authorized users, starting with the super user
+additional_user_added = False  # Flag to track if the additional user has been added
 
 # Flask route
 @app.route('/')
@@ -40,9 +42,61 @@ def run_flask():
     logger.info(f"Starting Flask on port {port}")
     app.run(host="0.0.0.0", port=port, debug=False)
 
+# Function to check if the user is authorized
+def is_authorized(username: str) -> bool:
+    return username in authorized_users
+
+# Handler for /adduser command to add an authorized user (only for super user)
+@dp.message(Command(commands=["adduser"]))
+async def add_user(message: types.Message):
+    global additional_user_added
+    username = message.from_user.username
+    logger.info(f"Received /adduser command from user: @{username}")
+
+    # Check if the user is the super user
+    if username != "BeingHumbleGuy":
+        await message.answer("⚠️ Only @BeingHumbleGuy can add authorized users.")
+        logger.info(f"Unauthorized /adduser attempt by @{username}")
+        return
+
+    # Check if an additional user has already been added
+    if additional_user_added:
+        await message.answer("⚠️ An additional user has already been added. Only one additional user is allowed.")
+        logger.info("Additional user already added, rejecting new addition")
+        return
+
+    # Extract the new username from the command
+    text = message.text.lower().replace('/adduser', '').strip()
+    if not text:
+        await message.answer("Please provide a username to add (e.g., /adduser @NewUser) 🤔")
+        logger.info("No username provided for /adduser")
+        return
+
+    # Ensure the username starts with @
+    new_user = text if text.startswith('@') else f"@{text}"
+    if new_user == "@BeingHumbleGuy":
+        await message.answer("⚠️ @BeingHumbleGuy is already the super user.")
+        logger.info("Attempt to add @BeingHumbleGuy, already a super user")
+        return
+
+    # Add the new user to the authorized list
+    authorized_users.append(new_user)
+    additional_user_added = True
+    await message.answer(f"Authorized user added: {new_user} ✅")
+    logger.info(f"Authorized user added: {new_user}, Authorized users: {authorized_users}")
+
 # Handler for /filter command to enable/disable filter
 @dp.message(Command(commands=["filter"]))
 async def toggle_filter(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /filter command from user: @{username}")
+
+    # Check if the user is authorized
+    if not is_authorized(f"@{username}"):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /filter attempt by @{username}")
+        return
+
     global filter_enabled
     text = message.text.lower().replace('/filter', '').strip()
     logger.info(f"Received /filter command with text: {text}")
@@ -65,6 +119,15 @@ async def toggle_filter(message: types.Message):
 # Handler for /setupval command to set PassValue
 @dp.message(Command(commands=["setupval"]))
 async def setup_val(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setupval command from user: @{username}")
+
+    # Check if the user is authorized
+    if not is_authorized(f"@{username}"):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /setupval attempt by @{username}")
+        return
+
     global PassValue
     text = message.text.lower().replace('/setupval', '').strip()
     logger.info(f"Received /setupval command with text: {text}")
@@ -84,6 +147,15 @@ async def setup_val(message: types.Message):
 # Handler for /setrangelow command to set RangeLow
 @dp.message(Command(commands=["setrangelow"]))
 async def set_range_low(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setrangelow command from user: @{username}")
+
+    # Check if the user is authorized
+    if not is_authorized(f"@{username}"):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /setrangelow attempt by @{username}")
+        return
+
     global RangeLow
     text = message.text.lower().replace('/setrangelow', '').strip()
     logger.info(f"Received /setrangelow command with text: {text}")
@@ -226,7 +298,8 @@ async def convert_link_to_button(message: types.Message):
         return  # Skip all further processing, including /button
 
     # Default /button functionality if no BuyPercent/SellPercent
-    if ca:
+    if ca and "reflink" in message.text.lower():  # Only add buttons if "reflink" is present
+        logger.info(f"Adding buttons because 'reflink' found in message: {message.text}")
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text="Bloom", url=f"https://t.me/BloomSolana_bot?start=ref_humbleguy_ca_{ca}"),
@@ -276,7 +349,7 @@ async def convert_link_to_button(message: types.Message):
             logger.info(f"New message ID: {new_message.message_id}")
 
     else:
-        logger.info("No CA found in URL")
+        logger.info("No CA found in URL or 'reflink' not present, skipping button addition")
 
 async def main():
     flask_thread = Thread(target=run_flask, daemon=True)
