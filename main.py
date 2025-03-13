@@ -1,5 +1,5 @@
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, BotCommand
 from aiogram.filters import Command
 import asyncio
 import logging
@@ -352,6 +352,21 @@ async def convert_link_to_button(message: types.Message):
         logger.info("No CA found in URL or 'reflink' not present, skipping button addition")
 
 async def main():
+    # Define the commands with descriptions
+    commands = [
+        BotCommand(command="filter", description="Enable or disable the filter (Yes/No)"),
+        BotCommand(command="setupval", description="Set the PassValue for filtering (e.g., /setupval 1.2)"),
+        BotCommand(command="setrangelow", description="Set the RangeLow for filtering (e.g., /setrangelow 1.1)"),
+        BotCommand(command="adduser", description="Add an authorized user (only for @BeingHumbleGuy)")
+    ]
+    
+    # Set the bot commands
+    try:
+        await bot.set_my_commands(commands)
+        logger.info("Successfully set bot commands for suggestions")
+    except Exception as e:
+        logger.error(f"Failed to set bot commands: {e}")
+
     flask_thread = Thread(target=run_flask, daemon=True)
     flask_thread.start()
     logger.info("Starting bot polling...")
