@@ -7,12 +7,14 @@ import os
 import re
 from flask import Flask
 from threading import Thread
+import requests
+from bs4 import BeautifulSoup
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Load bot token from environment variable (Railway app)
+# Load environment variables
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
     logger.error("BOT_TOKEN not set!")
@@ -45,6 +47,39 @@ def run_flask():
 # Function to check if the user is authorized
 def is_authorized(username: str) -> bool:
     return username in authorized_users
+
+# Web scraping function to get token data (without proxy)
+def get_gmgn_token_data(mint_address):
+    url = f"https://gmgn.ai/sol/token/{mint_address}"
+    headers = {"User-Agent": "Mozilla/5.0"}  # Prevents basic bot blocking
+
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, "html.parser")
+
+            try:
+                # Extract Market Cap
+                market_cap = soup.find("div", text="Market Cap").find_next_sibling("div").text.strip()
+
+                # Extract Liquidity
+                liquidity = soup.find("div", text="Liquidity").find_next_sibling("div").text.strip()
+
+                # Extract Price
+                price = soup.find("div", text="Price").find_next_sibling("div").text.strip()
+
+                return {
+                    "market_cap": market_cap,
+                    "liquidity": liquidity,
+                    "price": price,
+                    "contract": mint_address
+                }
+            except AttributeError:
+                return {"error": "Failed to extract data. Structure may have changed."}
+        else:
+            return {"error": f"Request failed with status {response.status_code}"}
+    except requests.RequestException as e:
+        return {"error": f"Network error: {str(e)}"}
 
 # Handler for /adduser command to add an authorized user (only for super user)
 @dp.message(Command(commands=["adduser"]))
@@ -351,13 +386,45 @@ async def convert_link_to_button(message: types.Message):
     else:
         logger.info("No CA found in URL or 'reflink' not present, skipping button addition")
 
+# New handler for \ca <token_ca> command
+@dp.message(commands=["ca"])
+async def cmd_ca(message: types.Message):
+    logger.info(f"Received \ca command from {message.from_user.username}")
+    if not is_authorized(message.from_user.username):
+        await message.answer("You are not authorized to use this command.")
+        return
+
+    # Extract token CA from message
+    text = message.text
+    parts = text.split()
+    if len(parts) != 2:
+        await message.answer("Usage: \\ca <token_ca>")
+        return
+
+    token_ca = parts[1].strip()
+    logger.info(f"Processing token CA: {token_ca}")
+
+    # Get token data
+    token_data = get_gmgn_token_data(token_ca)
+    if "error" in token_data:
+        await message.reply(f"Error: {token_data['error']}")
+    else:
+        response = (
+            f"Token Data for CA: {token_data['contract']}\n"
+            f"📈 Market Cap: {token_data['market_cap']}\n"
+            f"💧 Liquidity: {token_data['liquidity']}\n"
+            f"💰 Price: {token_data['price']}"
+        )
+        await message.reply(response)
+
 async def main():
     # Define the commands with descriptions
     commands = [
         BotCommand(command="filter", description="Enable or disable the filter (Yes/No)"),
         BotCommand(command="setupval", description="Set the PassValue for filtering (e.g., /setupval 1.2)"),
         BotCommand(command="setrangelow", description="Set the RangeLow for filtering (e.g., /setrangelow 1.1)"),
-        BotCommand(command="adduser", description="Add an authorized user (only for @BeingHumbleGuy)")
+        BotCommand(command="adduser", description="Add an authorized user (only for @BeingHumbleGuy)"),
+        BotCommand(command="ca", description="Get token data (e.g., \\ca <token_ca>)")
     ]
     
     # Set the bot commands
