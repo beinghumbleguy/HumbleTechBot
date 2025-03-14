@@ -386,10 +386,10 @@ async def convert_link_to_button(message: types.Message):
     else:
         logger.info("No CA found in URL or 'reflink' not present, skipping button addition")
 
-# New handler for \ca <token_ca> command
-@dp.message(commands=["ca"])
+# New handler for \ca <token_ca> command (fixed for aiogram 3.x)
+@dp.message(Command(commands=["ca"]))
 async def cmd_ca(message: types.Message):
-    logger.info(f"Received \ca command from {message.from_user.username}")
+    logger.info(f"Received \\ca command from {message.from_user.username}")  # Fixed escape sequence
     if not is_authorized(message.from_user.username):
         await message.answer("You are not authorized to use this command.")
         return
@@ -398,7 +398,7 @@ async def cmd_ca(message: types.Message):
     text = message.text
     parts = text.split()
     if len(parts) != 2:
-        await message.answer("Usage: \\ca <token_ca>")
+        await message.answer("Usage: /ca <token_ca>")
         return
 
     token_ca = parts[1].strip()
@@ -424,7 +424,7 @@ async def main():
         BotCommand(command="setupval", description="Set the PassValue for filtering (e.g., /setupval 1.2)"),
         BotCommand(command="setrangelow", description="Set the RangeLow for filtering (e.g., /setrangelow 1.1)"),
         BotCommand(command="adduser", description="Add an authorized user (only for @BeingHumbleGuy)"),
-        BotCommand(command="ca", description="Get token data (e.g., \\ca <token_ca>)")
+        BotCommand(command="ca", description="Get token data (e.g., /ca <token_ca>)")
     ]
     
     # Set the bot commands
