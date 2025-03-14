@@ -46,6 +46,9 @@ def run_flask():
 
 # Function to check if the user is authorized
 def is_authorized(username: str) -> bool:
+    # Ensure username starts with @ for consistency
+    if not username.startswith('@'):
+        username = f"@{username}"
     return username in authorized_users
 
 # Web scraping function to get token data (without proxy)
@@ -127,7 +130,7 @@ async def toggle_filter(message: types.Message):
     logger.info(f"Received /filter command from user: @{username}")
 
     # Check if the user is authorized
-    if not is_authorized(f"@{username}"):
+    if not is_authorized(username):
         await message.answer("⚠️ You are not authorized to use this command.")
         logger.info(f"Unauthorized /filter attempt by @{username}")
         return
@@ -158,7 +161,7 @@ async def setup_val(message: types.Message):
     logger.info(f"Received /setupval command from user: @{username}")
 
     # Check if the user is authorized
-    if not is_authorized(f"@{username}"):
+    if not is_authorized(username):
         await message.answer("⚠️ You are not authorized to use this command.")
         logger.info(f"Unauthorized /setupval attempt by @{username}")
         return
@@ -186,7 +189,7 @@ async def set_range_low(message: types.Message):
     logger.info(f"Received /setrangelow command from user: @{username}")
 
     # Check if the user is authorized
-    if not is_authorized(f"@{username}"):
+    if not is_authorized(username):
         await message.answer("⚠️ You are not authorized to use this command.")
         logger.info(f"Unauthorized /setrangelow attempt by @{username}")
         return
@@ -210,9 +213,13 @@ async def set_range_low(message: types.Message):
 # New handler for /ca <token_ca> command
 @dp.message(Command(commands=["ca"]))
 async def cmd_ca(message: types.Message):
-    logger.info(f"Received /ca command from {message.from_user.username}")
-    if not is_authorized(message.from_user.username):
-        await message.answer("You are not authorized to use this command.")
+    username = message.from_user.username
+    logger.info(f"Received /ca command from {username}")
+
+    # Check if the user is authorized
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /ca attempt by {username}")
         return
 
     # Extract token CA from message
