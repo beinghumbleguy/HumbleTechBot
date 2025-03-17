@@ -73,7 +73,7 @@ def init_csv():
         with open(CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow([
-                "Timestamp", "CA", "BSRatio", "BSRatio_High_Pass", "BSRatio_Low_Pass",
+                "Timestamp", "CA", "BSRatio", "BSRatio_Pass", "BSRatio_Low_Pass",
                 "DevSold", "DevSoldLeftValue", "DevSold_Pass", "Top10", "Top10_Pass",
                 "Snipers", "Snipers_Pass", "Bundles", "Bundles_Pass", "Insiders", "Insiders_Pass",
                 "KOLs", "KOLs_Pass", "Overall_Pass"
@@ -81,7 +81,7 @@ def init_csv():
         logger.info(f"Created CSV file: {CSV_FILE}")
 
 # Log filter results to CSV
-def log_to_csv(ca, bs_ratio, check_high_pass, check_low_pass, dev_sold, dev_sold_left_value, dev_sold_pass,
+def log_to_csv(ca, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold, dev_sold_left_value, dev_sold_pass,
                top_10, top_10_pass, snipers, snipers_pass, bundles, bundles_pass,
                insiders, insiders_pass, kols, kols_pass, overall_pass):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -91,7 +91,7 @@ def log_to_csv(ca, bs_ratio, check_high_pass, check_low_pass, dev_sold, dev_sold
             writer.writerow([
                 timestamp, ca if ca else "N/A",
                 bs_ratio if bs_ratio is not None else "N/A",
-                check_high_pass if CheckHighEnabled else "N/A",
+                bs_ratio_pass if (CheckHighEnabled or CheckLowEnabled) else "N/A",
                 check_low_pass if CheckLowEnabled else "N/A",
                 dev_sold if dev_sold is not None else "N/A",
                 dev_sold_left_value if dev_sold_left_value is not None else "N/A",
@@ -411,7 +411,7 @@ async def set_top10(message: types.Message):
         await message.answer(f"Top10Threshold set to: {Top10Threshold} ✅")
         logger.info(f"Top10Threshold updated to: {Top10Threshold}")
     except ValueError:
-        await message.answer("Please provide a valid numerical value (e.g., /settop10 10) 🚫")
+        await message.answer("Please provide a valid numerical value (e.g., /settop10 20) 🚫")
 
 @dp.message(Command(commands=["top10filter"]))
 async def toggle_top10_filter(message: types.Message):
@@ -495,7 +495,7 @@ async def set_bundles(message: types.Message):
         await message.answer(f"BundlesThreshold set to: {BundlesThreshold} ✅")
         logger.info(f"BundlesThreshold updated to: {BundlesThreshold}")
     except ValueError:
-        await message.answer("Please provide a valid numerical value (e.g., /setbundles 2) 🚫")
+        await message.answer("Please provide a valid numerical value (e.g., /setbundles 1) 🚫")
 
 @dp.message(Command(commands=["bundlesfilter"]))
 async def toggle_bundles_filter(message: types.Message):
@@ -537,7 +537,7 @@ async def set_insiders(message: types.Message):
         await message.answer(f"InsidersThreshold set to: {InsidersThreshold} ✅")
         logger.info(f"InsidersThreshold updated to: {InsidersThreshold}")
     except ValueError:
-        await message.answer("Please provide a valid numerical value (e.g., /setinsiders 1) 🚫")
+        await message.answer("Please provide a valid numerical value (e.g., /setinsiders 10) 🚫")
 
 @dp.message(Command(commands=["insidersfilter"]))
 async def toggle_insiders_filter(message: types.Message):
@@ -579,7 +579,7 @@ async def set_kols(message: types.Message):
         await message.answer(f"KOLsThreshold set to: {KOLsThreshold} ✅")
         logger.info(f"KOLsThreshold updated to: {KOLsThreshold}")
     except ValueError:
-        await message.answer("Please provide a valid numerical value (e.g., /setkols 4) 🚫")
+        await message.answer("Please provide a valid numerical value (e.g., /setkols 1) 🚫")
 
 @dp.message(Command(commands=["kolsfilter"]))
 async def toggle_kols_filter(message: types.Message):
@@ -702,7 +702,13 @@ async def master_setup(message: types.Message):
 
     response += "\n🔍 Use the respective /set* and /filter commands to adjust these settings."
 
-    await message.answer(response, parse_mode="Markdown")
+    try:
+        logger.info(f"Sending master setup response: {response[:100]}...")  # Log first 100 chars to avoid flooding
+        await message.answer(response, parse_mode="Markdown")
+        logger.info("Master setup response sent successfully")
+    except Exception as e:
+        logger.error(f"Failed to send master setup response: {e}")
+        await message.answer("⚠️ An error occurred while displaying the setup. Check logs for details.")
 
 # Handler for messages (acting as /button and /filter logic, excluding commands)
 @dp.message(F.text, ~F.text.startswith('/'))
@@ -835,7 +841,7 @@ async def convert_link_to_button(message: types.Message):
 
         # Check if required thresholds are set for enabled filters
         missing_vars = []
-        if CheckHighEnabled and PassValue is None:
+        if (CheckHighEnabled or CheckLowEnabled) and PassValue is None:
             missing_vars.append("PassValue (use /setupval)")
         if CheckLowEnabled and RangeLow is None:
             missing_vars.append("RangeLow (use /setrangelow)")
@@ -863,8 +869,6 @@ async def convert_link_to_button(message: types.Message):
         all_filters_pass = True
         check_high_pass = None
         check_low_pass = None
-        check_high_enabled = CheckHighEnabled
-        check_low_enabled = CheckLowEnabled
         dev_sold_pass = None
         top_10_pass = None
         snipers_pass = None
@@ -872,25 +876,15 @@ async def convert_link_to_button(message: types.Message):
         insiders_pass = None
         kols_pass = None
 
-        # CheckHigh (BSRatio >= PassValue)
-        if CheckHighEnabled:
-            check_high_pass = bs_ratio >= PassValue
-            filter_results.append(f"BSRatio (High): {bs_ratio:.2f} {'✅' if check_high_pass else '🚫'} (Threshold: {PassValue})")
-            if not check_high_pass:
+        # BSRatio (OR condition: >= PassValue OR 1 <= BSRatio <= RangeLow)
+        if CheckHighEnabled or CheckLowEnabled:
+            bs_ratio_pass = (bs_ratio >= PassValue) or (1 <= bs_ratio <= RangeLow) if RangeLow is not None else (bs_ratio >= PassValue)
+            filter_results.append(f"BSRatio: {bs_ratio:.2f} {'✅' if bs_ratio_pass else '🚫'} (Threshold: >= {PassValue} or 1 to {RangeLow if RangeLow else 'N/A'})")
+            if not bs_ratio_pass:
                 all_filters_pass = False
-            logger.info(f"CheckHigh: {check_high_pass}")
+            logger.info(f"BSRatio check: {bs_ratio_pass} - Condition: >= {PassValue} or 1 <= {bs_ratio} <= {RangeLow if RangeLow else 'N/A'}")
         else:
-            filter_results.append(f"BSRatio (High): {bs_ratio:.2f} (Disabled)")
-
-        # CheckLow (1 <= BSRatio <= RangeLow)
-        if CheckLowEnabled:
-            check_low_pass = 1 <= bs_ratio <= RangeLow
-            filter_results.append(f"BSRatio (Low): {bs_ratio:.2f} {'✅' if check_low_pass else '🚫'} (Range: 1 to {RangeLow})")
-            if not check_low_pass:
-                all_filters_pass = False
-            logger.info(f"CheckLow: {check_low_pass}")
-        else:
-            filter_results.append(f"BSRatio (Low): {bs_ratio:.2f} (Disabled)")
+            filter_results.append(f"BSRatio: {bs_ratio:.2f} (Disabled)")
 
         # DevSold (Yes/No comparison with percentage left check)
         if DevSoldFilterEnabled and dev_sold is not None:
@@ -913,61 +907,61 @@ async def convert_link_to_button(message: types.Message):
         else:
             filter_results.append(f"DevSold: {dev_sold if dev_sold else 'Not found'} (Disabled)")
 
-        # Top10
+        # Top10 (Pass if <= Top10Threshold)
         if Top10FilterEnabled and top_10 is not None:
-            top_10_pass = top_10 >= Top10Threshold
-            filter_results.append(f"Top10: {top_10} {'✅' if top_10_pass else '🚫'} (Threshold: {Top10Threshold})")
+            top_10_pass = top_10 <= Top10Threshold
+            filter_results.append(f"Top10: {top_10} {'✅' if top_10_pass else '🚫'} (Threshold: <= {Top10Threshold})")
             if not top_10_pass:
                 all_filters_pass = False
-            logger.info(f"Top10: {top_10_pass}")
+            logger.info(f"Top10: {top_10_pass} - Condition: <= {Top10Threshold}")
         elif Top10FilterEnabled and top_10 is None:
             filter_results.append("Top10: Not found in message 🚫")
         else:
             filter_results.append(f"Top10: {top_10 if top_10 else 'Not found'} (Disabled)")
 
-        # Snipers
+        # Snipers (Pass if <= SnipersThreshold)
         if SniphersFilterEnabled and snipers is not None:
-            snipers_pass = snipers >= SnipersThreshold
-            filter_results.append(f"Snipers: {snipers} {'✅' if snipers_pass else '🚫'} (Threshold: {SnipersThreshold})")
+            snipers_pass = snipers <= SnipersThreshold
+            filter_results.append(f"Snipers: {snipers} {'✅' if snipers_pass else '🚫'} (Threshold: <= {SnipersThreshold})")
             if not snipers_pass:
                 all_filters_pass = False
-            logger.info(f"Snipers: {snipers_pass}")
+            logger.info(f"Snipers: {snipers_pass} - Condition: <= {SnipersThreshold}")
         elif SniphersFilterEnabled and snipers is None:
             filter_results.append("Snipers: Not found in message 🚫")
         else:
             filter_results.append(f"Snipers: {snipers if snipers else 'Not found'} (Disabled)")
 
-        # Bundles
+        # Bundles (Pass if <= BundlesThreshold)
         if BundlesFilterEnabled and bundles is not None:
-            bundles_pass = bundles >= BundlesThreshold
-            filter_results.append(f"Bundles: {bundles} {'✅' if bundles_pass else '🚫'} (Threshold: {BundlesThreshold})")
+            bundles_pass = bundles <= BundlesThreshold
+            filter_results.append(f"Bundles: {bundles} {'✅' if bundles_pass else '🚫'} (Threshold: <= {BundlesThreshold})")
             if not bundles_pass:
                 all_filters_pass = False
-            logger.info(f"Bundles: {bundles_pass}")
+            logger.info(f"Bundles: {bundles_pass} - Condition: <= {BundlesThreshold}")
         elif BundlesFilterEnabled and bundles is None:
             filter_results.append("Bundles: Not found in message 🚫")
         else:
             filter_results.append(f"Bundles: {bundles if bundles else 'Not found'} (Disabled)")
 
-        # Insiders
+        # Insiders (Fail if >= InsidersThreshold)
         if InsidersFilterEnabled and insiders is not None:
-            insiders_pass = insiders >= InsidersThreshold
-            filter_results.append(f"Insiders: {insiders} {'✅' if insiders_pass else '🚫'} (Threshold: {InsidersThreshold})")
+            insiders_pass = insiders < InsidersThreshold  # Pass if less than threshold, fail if >=
+            filter_results.append(f"Insiders: {insiders} {'✅' if insiders_pass else '🚫'} (Threshold: < {InsidersThreshold})")
             if not insiders_pass:
                 all_filters_pass = False
-            logger.info(f"Insiders: {insiders_pass}")
+            logger.info(f"Insiders: {insiders_pass} - Condition: < {InsidersThreshold}")
         elif InsidersFilterEnabled and insiders is None:
             filter_results.append("Insiders: Not found in message 🚫")
         else:
             filter_results.append(f"Insiders: {insiders if insiders else 'Not found'} (Disabled)")
 
-        # KOLs
+        # KOLs (Fail if >= KOLsThreshold)
         if KOLsFilterEnabled and kols is not None:
-            kols_pass = kols >= KOLsThreshold
-            filter_results.append(f"KOLs: {kols} {'✅' if kols_pass else '🚫'} (Threshold: {KOLsThreshold})")
+            kols_pass = kols < KOLsThreshold  # Pass if less than threshold, fail if >=
+            filter_results.append(f"KOLs: {kols} {'✅' if kols_pass else '🚫'} (Threshold: < {KOLsThreshold})")
             if not kols_pass:
                 all_filters_pass = False
-            logger.info(f"KOLs: {kols_pass}")
+            logger.info(f"KOLs: {kols_pass} - Condition: < {KOLsThreshold}")
         elif KOLsFilterEnabled and kols is None:
             filter_results.append("KOLs: Not found in message 🚫")
         else:
@@ -975,7 +969,7 @@ async def convert_link_to_button(message: types.Message):
 
         # Log to CSV
         log_to_csv(
-            ca, bs_ratio, check_high_pass, check_low_pass,
+            ca, bs_ratio, bs_ratio_pass if (CheckHighEnabled or CheckLowEnabled) else None, None,
             dev_sold, dev_sold_left_value, dev_sold_pass,
             top_10, top_10_pass, snipers, snipers_pass,
             bundles, bundles_pass, insiders, insiders_pass,
@@ -1083,15 +1077,15 @@ async def main():
         BotCommand(command="setdevsold", description="Set DevSold threshold (Yes/No) (e.g., /setdevsold Yes)"),
         BotCommand(command="setdevsoldleft", description="Set DevSoldLeft threshold (e.g., /setdevsoldleft 10)"),
         BotCommand(command="devsoldfilter", description="Enable/disable DevSold filter (Yes/No)"),
-        BotCommand(command="settop10", description="Set Top10 threshold (e.g., /settop10 10)"),
+        BotCommand(command="settop10", description="Set Top10 threshold (e.g., /settop10 20)"),
         BotCommand(command="top10filter", description="Enable/disable Top10 filter (Yes/No)"),
         BotCommand(command="setsnipers", description="Set Snipers threshold (e.g., /setsnipers 3)"),
         BotCommand(command="snipersfilter", description="Enable/disable Snipers filter (Yes/No)"),
-        BotCommand(command="setbundles", description="Set Bundles threshold (e.g., /setbundles 2)"),
+        BotCommand(command="setbundles", description="Set Bundles threshold (e.g., /setbundles 1)"),
         BotCommand(command="bundlesfilter", description="Enable/disable Bundles filter (Yes/No)"),
-        BotCommand(command="setinsiders", description="Set Insiders threshold (e.g., /setinsiders 1)"),
+        BotCommand(command="setinsiders", description="Set Insiders threshold (e.g., /setinsiders 10)"),
         BotCommand(command="insidersfilter", description="Enable/disable Insiders filter (Yes/No)"),
-        BotCommand(command="setkols", description="Set KOLs threshold (e.g., /setkols 4)"),
+        BotCommand(command="setkols", description="Set KOLs threshold (e.g., /setkols 1)"),
         BotCommand(command="kolsfilter", description="Enable/disable KOLs filter (Yes/No)"),
         BotCommand(command="adduser", description="Add an authorized user (only for @BeingHumbleGuy)"),
         BotCommand(command="ca", description="Get token data (e.g., /ca <token_ca>)"),
