@@ -44,7 +44,8 @@ CheckHighEnabled = False
 CheckLowEnabled = False
 
 # New filter thresholds
-DevSoldThreshold = None  # Now "Yes" or "No"
+DevSoldThreshold = None  # "Yes" or "No"
+DevSoldLeft = None  # Numerical percentage (e.g., 10 for 10%)
 Top10Threshold = None
 SnipersThreshold = None
 BundlesThreshold = None
@@ -73,14 +74,14 @@ def init_csv():
             writer = csv.writer(f)
             writer.writerow([
                 "Timestamp", "CA", "BSRatio", "BSRatio_High_Pass", "BSRatio_Low_Pass",
-                "DevSold", "DevSold_Pass", "Top10", "Top10_Pass", "Snipers", "Snipers_Pass",
-                "Bundles", "Bundles_Pass", "Insiders", "Insiders_Pass", "KOLs", "KOLs_Pass",
-                "Overall_Pass"
+                "DevSold", "DevSoldLeftValue", "DevSold_Pass", "Top10", "Top10_Pass",
+                "Snipers", "Snipers_Pass", "Bundles", "Bundles_Pass", "Insiders", "Insiders_Pass",
+                "KOLs", "KOLs_Pass", "Overall_Pass"
             ])
         logger.info(f"Created CSV file: {CSV_FILE}")
 
 # Log filter results to CSV
-def log_to_csv(ca, bs_ratio, check_high_pass, check_low_pass, dev_sold, dev_sold_pass,
+def log_to_csv(ca, bs_ratio, check_high_pass, check_low_pass, dev_sold, dev_sold_left_value, dev_sold_pass,
                top_10, top_10_pass, snipers, snipers_pass, bundles, bundles_pass,
                insiders, insiders_pass, kols, kols_pass, overall_pass):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -93,6 +94,7 @@ def log_to_csv(ca, bs_ratio, check_high_pass, check_low_pass, dev_sold, dev_sold
                 check_high_pass if CheckHighEnabled else "N/A",
                 check_low_pass if CheckLowEnabled else "N/A",
                 dev_sold if dev_sold is not None else "N/A",
+                dev_sold_left_value if dev_sold_left_value is not None else "N/A",
                 dev_sold_pass if DevSoldFilterEnabled and dev_sold is not None else "N/A",
                 top_10 if top_10 is not None else "N/A",
                 top_10_pass if Top10FilterEnabled and top_10 is not None else "N/A",
@@ -326,8 +328,7 @@ async def set_range_low(message: types.Message):
         await message.answer("Please provide a valid numerical value (e.g., /setrangelow 1.1) 🚫")
         logger.info("Invalid /setrangelow input: not a number")
 
-# Handlers for new filter thresholds and toggles
-# DevSold (Now Yes/No)
+# Handler for /setdevsold command (Yes/No)
 @dp.message(Command(commands=["setdevsold"]))
 async def set_devsold(message: types.Message):
     username = message.from_user.username
@@ -346,6 +347,30 @@ async def set_devsold(message: types.Message):
     else:
         await message.answer("Please specify Yes or No (e.g., /setdevsold Yes) 🚫")
 
+# Handler for /setdevsoldleft command (numerical percentage)
+@dp.message(Command(commands=["setdevsoldleft"]))
+async def set_devsoldleft(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setdevsoldleft command from user: @{username}")
+
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        return
+
+    global DevSoldLeft
+    text = message.text.lower().replace('/setdevsoldleft', '').strip()
+    try:
+        value = float(text)
+        if value < 0 or value > 100:
+            await message.answer("Please provide a percentage between 0 and 100 (e.g., /setdevsoldleft 10) 🚫")
+            return
+        DevSoldLeft = value
+        await message.answer(f"DevSoldLeft threshold set to: {DevSoldLeft}% ✅")
+        logger.info(f"DevSoldLeft updated to: {DevSoldLeft}")
+    except ValueError:
+        await message.answer("Please provide a valid numerical percentage (e.g., /setdevsoldleft 10) 🚫")
+
+# Handler for /devsoldfilter command
 @dp.message(Command(commands=["devsoldfilter"]))
 async def toggle_devsold_filter(message: types.Message):
     username = message.from_user.username
@@ -561,7 +586,8 @@ async def toggle_kols_filter(message: types.Message):
     username = message.from_user.username
     logger.info(f"Received /kolsfilter command from user: @{username}")
 
-    if not is_authorized(username):
+    if not is_authorized(username#pragma: no cover
+):
         await message.answer("⚠️ You are not authorized to use this command.")
         return
 
@@ -658,7 +684,7 @@ async def convert_link_to_button(message: types.Message):
     if message.entities:
         for entity in message.entities:
             if entity.type in ["url", "text_link"]:
-                url = entity.url if entity.type == "text_link" else text[entity.offset:entity.offset + entity.length]
+                url = entity.url if entity.type == "text_link" else text[entity.offset F:entity.offset + entity.length]
                 logger.info(f"Found URL: {url}")
                 ca_match = re.search(r'[A-Za-z0-9]{44}', url)
                 if ca_match:
@@ -666,11 +692,19 @@ async def convert_link_to_button(message: types.Message):
                     logger.info(f"Extracted CA: {ca}")
                 break
 
+    # If no URL entity, try to find CA in plain text
+    if not ca:
+        ca_match = re.search(r'[A-Za-z0-9]{44}', text)
+        if ca_match:
+            ca = ca_match.group(0)
+            logger.info(f"Extracted CA from plain text: {ca}")
+
     # Extract BuyPercent, SellPercent, and other filter values
     has_buy_sell = False
     buy_percent = None
     sell_percent = None
-    dev_sold = None  # Now "Yes" or "No"
+    dev_sold = None  # "Yes" or "No"
+    dev_sold_left_value = None  # Percentage left if dev_sold is "No"
     top_10 = None
     snipers = None
     bundles = None
@@ -690,11 +724,17 @@ async def convert_link_to_button(message: types.Message):
             continue
 
         # Dev sold (Yes/No based on emoji)
-        match_dev = re.search(r'├?Dev sold:\s*(✅|🚫)', line)
-        if match_dev:
-            emoji = match_dev.group(1)
-            dev_sold = "Yes" if emoji == "✅" else "No"
+        match_dev_yes = re.search(r'├?Dev:\s*✅\s*\(sold\)', line)
+        match_dev_no = re.search(r'├?Dev:\s*❌\s*\((\d+\.?\d*)%\s*left\)', line)
+        if match_dev_yes:
+            dev_sold = "Yes"
+            dev_sold_left_value = None
             logger.info(f"Found DevSold: {dev_sold}")
+            continue
+        elif match_dev_no:
+            dev_sold = "No"
+            dev_sold_left_value = float(match_dev_no.group(1))
+            logger.info(f"Found DevSold: {dev_sold}, Left: {dev_sold_left_value}%")
             continue
 
         match_top10 = re.search(r'├?Top 10:\s*(\d+\.?\d*)', line)
@@ -703,25 +743,25 @@ async def convert_link_to_button(message: types.Message):
             logger.info(f"Found Top10: {top_10}")
             continue
 
-        match_snipers = re.search(r'├?Snipers:\s*(\d+\.?\d*)', line)
+        match_snipers = re.search(r'├?Sniper:\s*(\d+\.?\d*)', line)
         if match_snipers:
             snipers = float(match_snipers.group(1))
             logger.info(f"Found Snipers: {snipers}")
             continue
 
-        match_bundles = re.search(r'├?Bundles:\s*(\d+\.?\d*)', line)
+        match_bundles = re.search(r'├?Bundle:.*buy\s*(\d+\.?\d*)%', line)
         if match_bundles:
             bundles = float(match_bundles.group(1))
             logger.info(f"Found Bundles: {bundles}")
             continue
 
-        match_insiders = re.search(r'├?Insiders:\s*(\d+\.?\d*)', line)
+        match_insiders = re.search(r'├?🐁Insiders:\s*(\d+\.?\d*)', line)
         if match_insiders:
             insiders = float(match_insiders.group(1))
             logger.info(f"Found Insiders: {insiders}")
             continue
 
-        match_kols = re.search(r'├?KOLs:\s*(\d+\.?\d*)', line)
+        match_kols = re.search(r'└?🌟KOLs:\s*(\d+\.?\d*)', line)
         if match_kols:
             kols = float(match_kols.group(1))
             logger.info(f"Found KOLs: {kols}")
@@ -760,6 +800,8 @@ async def convert_link_to_button(message: types.Message):
             missing_vars.append("RangeLow (use /setrangelow)")
         if DevSoldFilterEnabled and DevSoldThreshold is None:
             missing_vars.append("DevSoldThreshold (use /setdevsold Yes|No)")
+        if DevSoldFilterEnabled and DevSoldThreshold == "Yes" and dev_sold == "No" and DevSoldLeft is None:
+            missing_vars.append("DevSoldLeft (use /setdevsoldleft)")
         if Top10FilterEnabled and Top10Threshold is None:
             missing_vars.append("Top10Threshold (use /settop10)")
         if SniphersFilterEnabled and SnipersThreshold is None:
@@ -803,10 +845,19 @@ async def convert_link_to_button(message: types.Message):
                 all_filters_pass = False
             logger.info(f"CheckLow: {check_low_pass}")
 
-        # DevSold (Yes/No comparison)
+        # DevSold (Yes/No comparison with percentage left check)
         if DevSoldFilterEnabled and dev_sold is not None:
-            dev_sold_pass = dev_sold == DevSoldThreshold
-            filter_results.append(f"DevSold {dev_sold} (Threshold: {DevSoldThreshold})")
+            if dev_sold == DevSoldThreshold:
+                dev_sold_pass = True
+                filter_results.append(f"DevSold {dev_sold} (Threshold: {DevSoldThreshold})")
+            elif dev_sold == "No" and DevSoldThreshold == "Yes" and dev_sold_left_value is not None:
+                dev_sold_pass = dev_sold_left_value <= DevSoldLeft
+                filter_results.append(
+                    f"DevSold {dev_sold} ({dev_sold_left_value}% left) (Threshold: {DevSoldThreshold}, Left <= {DevSoldLeft}%)"
+                )
+            else:
+                dev_sold_pass = False
+                filter_results.append(f"DevSold {dev_sold} (Threshold: {DevSoldThreshold})")
             if not dev_sold_pass:
                 all_filters_pass = False
             logger.info(f"DevSold: {dev_sold_pass}")
@@ -872,9 +923,10 @@ async def convert_link_to_button(message: types.Message):
         # Log to CSV
         log_to_csv(
             ca, bs_ratio, check_high_pass, check_low_pass,
-            dev_sold, dev_sold_pass, top_10, top_10_pass,
-            snipers, snipers_pass, bundles, bundles_pass,
-            insiders, insiders_pass, kols, kols_pass, all_filters_pass
+            dev_sold, dev_sold_left_value, dev_sold_pass,
+            top_10, top_10_pass, snipers, snipers_pass,
+            bundles, bundles_pass, insiders, insiders_pass,
+            kols, kols_pass, all_filters_pass
         )
 
         # Check if any filters are enabled
@@ -893,18 +945,19 @@ async def convert_link_to_button(message: types.Message):
             output_text = f"CA did not qualify: 🚫 {filter_summary}\n{first_line}\n{second_line}"
 
         entities = []
-        ca_match = re.search(r'[A-Za-z0-9]{44}', output_text)
-        if ca_match:
-            ca = ca_match.group(0)
-            text_before_ca = output_text[:output_text.find(ca)]
-            ca_new_offset = len(text_before_ca.encode('utf-16-le')) // 2
-            ca_length = 44
-            text_length_utf16 = len(output_text.encode('utf-16-le')) // 2
-            if ca_new_offset >= 0 and ca_new_offset + ca_length <= text_length_utf16:
-                entities.append(MessageEntity(type="code", offset=ca_new_offset, length=ca_length))
-                logger.info(f"Applied code entity: Offset {ca_new_offset}, Length {ca_length}")
-            else:
-                logger.warning(f"Skipping invalid code entity: Offset {ca_new_offset}, Length {ca_length}")
+        if ca:
+            ca_match = re.search(r'[A-Za-z0-9]{44}', output_text)
+            if ca_match:
+                ca = ca_match.group(0)
+                text_before_ca = output_text[:output_text.find(ca)]
+                ca_new_offset = len(text_before_ca.encode('utf-16-le')) // 2
+                ca_length = 44
+                text_length_utf16 = len(output_text.encode('utf-16-le')) // 2
+                if ca_new_offset >= 0 and ca_new_offset + ca_length <= text_length_utf16:
+                    entities.append(MessageEntity(type="code", offset=ca_new_offset, length=ca_length))
+                    logger.info(f"Applied code entity: Offset {ca_new_offset}, Length {ca_length}")
+                else:
+                    logger.warning(f"Skipping invalid code entity: Offset {ca_new_offset}, Length {ca_length}")
 
         try:
             logger.info("Creating new message for output")
@@ -975,6 +1028,7 @@ async def main():
         BotCommand(command="checkhigh", description="Enable/disable CheckHigh filter (Yes/No)"),
         BotCommand(command="checklow", description="Enable/disable CheckLow filter (Yes/No)"),
         BotCommand(command="setdevsold", description="Set DevSold threshold (Yes/No) (e.g., /setdevsold Yes)"),
+        BotCommand(command="setdevsoldleft", description="Set DevSoldLeft threshold (e.g., /setdevsoldleft 10)"),
         BotCommand(command="devsoldfilter", description="Enable/disable DevSold filter (Yes/No)"),
         BotCommand(command="settop10", description="Set Top10 threshold (e.g., /settop10 10)"),
         BotCommand(command="top10filter", description="Enable/disable Top10 filter (Yes/No)"),
