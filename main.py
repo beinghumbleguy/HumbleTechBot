@@ -690,17 +690,36 @@ async def master_setup(message: types.Message):
 
     # Thresholds
     response += "📊 **Threshold Settings**\n"
-    response += f"- PassValue (CheckHigh): {PassValue if PassValue is not None else 'Not set'}\n"
-    response += f"- RangeLow (CheckLow): {RangeLow if RangeLow is not None else 'Not set'}\n"
-    response += f"- DevSold Threshold: {DevSoldThreshold if DevSoldThreshold is not None else 'Not set'}\n"
-    response += f"- DevSoldLeft Threshold: {DevSoldLeft if DevSoldLeft is not None else 'Not set'}%\n"
-    response += f"- Top10 Threshold: {Top10Threshold if Top10Threshold is not None else 'Not set'}\n"
-    response += f"- Snipers Threshold: {SnipersThreshold if SnipersThreshold is not None else 'Not set'}\n"
-    response += f"- Bundles Threshold: {BundlesThreshold if BundlesThreshold is not None else 'Not set'}\n"
-    response += f"- Insiders Threshold: {InsidersThreshold if InsidersThreshold is not None else 'Not set'}\n"
-    response += f"- KOLs Threshold: {KOLsThreshold if KOLsThreshold is not None else 'Not set'}\n"
+    # Escape special characters in variable values
+    pass_value_str = str(PassValue) if PassValue is not None else "Not set"
+    range_low_str = str(RangeLow) if RangeLow is not None else "Not set"
+    dev_sold_threshold_str = str(DevSoldThreshold) if DevSoldThreshold is not None else "Not set"
+    dev_sold_left_str = str(DevSoldLeft) if DevSoldLeft is not None else "Not set"
+    top_10_threshold_str = str(Top10Threshold) if Top10Threshold is not None else "Not set"
+    snipers_threshold_str = str(SnipersThreshold) if SnipersThreshold is not None else "Not set"
+    bundles_threshold_str = str(BundlesThreshold) if BundlesThreshold is not None else "Not set"
+    insiders_threshold_str = str(InsidersThreshold) if InsidersThreshold is not None else "Not set"
+    kols_threshold_str = str(KOLsThreshold) if KOLsThreshold is not None else "Not set"
+
+    # Function to escape Markdown special characters
+    def escape_markdown(text):
+        special_chars = r'[*_()`>#+\-=!|{}]'
+        return re.sub(f'([{special_chars}])', r'\\\1', text)
+
+    response += f"- PassValue (CheckHigh): {escape_markdown(pass_value_str)}\n"
+    response += f"- RangeLow (CheckLow): {escape_markdown(range_low_str)}\n"
+    response += f"- DevSold Threshold: {escape_markdown(dev_sold_threshold_str)}\n"
+    response += f"- DevSoldLeft Threshold: {escape_markdown(dev_sold_left_str)}%\n"
+    response += f"- Top10 Threshold: {escape_markdown(top_10_threshold_str)}\n"
+    response += f"- Snipers Threshold: {escape_markdown(snipers_threshold_str)}\n"
+    response += f"- Bundles Threshold: {escape_markdown(bundles_threshold_str)}\n"
+    response += f"- Insiders Threshold: {escape_markdown(insiders_threshold_str)}\n"
+    response += f"- KOLs Threshold: {escape_markdown(kols_threshold_str)}\n"
 
     response += "\n🔍 Use the respective /set* and /filter commands to adjust these settings."
+
+    # Log the full response for debugging
+    logger.info(f"Full master setup response: {response}")
 
     try:
         logger.info(f"Sending master setup response: {response[:100]}...")  # Log first 100 chars to avoid flooding
