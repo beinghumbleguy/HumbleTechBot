@@ -5,10 +5,14 @@ import asyncio
 import logging
 import os
 import re
-from flask import Flask
+from flask import Flask, send_file, request, abort
 from threading import Thread
 import requests
 from bs4 import BeautifulSoup
+import csv
+from datetime import datetime
+import threading
+import secrets
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -25,18 +29,102 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 app = Flask(__name__)
 
+# Thread lock for safe CSV writing
+csv_lock = threading.Lock()
+
 # Global variables
 filter_enabled = False
-PassValue = None  # Initialize PassValue as None
-RangeLow = None   # Initialize RangeLow as None
-authorized_users = ["@BeingHumbleGuy"]  # List of authorized users, starting with the super user
-additional_user_added = False  # Flag to track if the additional user has been added
+PassValue = None
+RangeLow = None
+authorized_users = ["@BeingHumbleGuy"]
+additional_user_added = False
 
-# Flask route
+# BSRatio filter toggles
+CheckHighEnabled = False
+CheckLowEnabled = False
+
+# New filter thresholds
+DevSoldThreshold = None  # Now "Yes" or "No"
+Top10Threshold = None
+SnipersThreshold = None
+BundlesThreshold = None
+InsidersThreshold = None
+KOLsThreshold = None
+
+# New filter toggles
+DevSoldFilterEnabled = False
+Top10FilterEnabled = False
+SniphersFilterEnabled = False
+BundlesFilterEnabled = False
+InsidersFilterEnabled = False
+KOLsFilterEnabled = False
+
+# CSV file path
+CSV_FILE = "ca_filter_log.csv"
+
+# Secret token for securing the Flask download route
+DOWNLOAD_TOKEN = secrets.token_urlsafe(32)
+logger.info(f"Generated download token: {DOWNLOAD_TOKEN}")
+
+# Initialize CSV file with headers if it doesn't exist
+def init_csv():
+    if not os.path.exists(CSV_FILE):
+        with open(CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "Timestamp", "CA", "BSRatio", "BSRatio_High_Pass", "BSRatio_Low_Pass",
+                "DevSold", "DevSold_Pass", "Top10", "Top10_Pass", "Snipers", "Snipers_Pass",
+                "Bundles", "Bundles_Pass", "Insiders", "Insiders_Pass", "KOLs", "KOLs_Pass",
+                "Overall_Pass"
+            ])
+        logger.info(f"Created CSV file: {CSV_FILE}")
+
+# Log filter results to CSV
+def log_to_csv(ca, bs_ratio, check_high_pass, check_low_pass, dev_sold, dev_sold_pass,
+               top_10, top_10_pass, snipers, snipers_pass, bundles, bundles_pass,
+               insiders, insiders_pass, kols, kols_pass, overall_pass):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with csv_lock:
+        with open(CSV_FILE, mode='a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                timestamp, ca if ca else "N/A",
+                bs_ratio if bs_ratio is not None else "N/A",
+                check_high_pass if CheckHighEnabled else "N/A",
+                check_low_pass if CheckLowEnabled else "N/A",
+                dev_sold if dev_sold is not None else "N/A",
+                dev_sold_pass if DevSoldFilterEnabled and dev_sold is not None else "N/A",
+                top_10 if top_10 is not None else "N/A",
+                top_10_pass if Top10FilterEnabled and top_10 is not None else "N/A",
+                snipers if snipers is not None else "N/A",
+                snipers_pass if SniphersFilterEnabled and snipers is not None else "N/A",
+                bundles if bundles is not None else "N/A",
+                bundles_pass if BundlesFilterEnabled and bundles is not None else "N/A",
+                insiders if insiders is not None else "N/A",
+                insiders_pass if InsidersFilterEnabled and insiders is not None else "N/A",
+                kols if kols is not None else "N/A",
+                kols_pass if KOLsFilterEnabled and kols is not None else "N/A",
+                overall_pass
+            ])
+    logger.info(f"Logged filter results to CSV for CA: {ca}")
+
+# Flask routes
 @app.route('/')
 def home():
     logger.info("Flask route '/' accessed")
     return "Bot is running!"
+
+@app.route('/download/csv')
+def download_csv():
+    token = request.args.get('token')
+    if token != DOWNLOAD_TOKEN:
+        logger.warning("Unauthorized attempt to access /download/csv")
+        abort(403)  # Forbidden
+    if not os.path.exists(CSV_FILE):
+        logger.warning("CSV file not found for download")
+        return "CSV file not found.", 404
+    logger.info("Serving CSV file for download")
+    return send_file(CSV_FILE, as_attachment=True, download_name="ca_filter_log.csv")
 
 # Function to run Flask app in a separate thread
 def run_flask():
@@ -46,7 +134,6 @@ def run_flask():
 
 # Function to check if the user is authorized
 def is_authorized(username: str) -> bool:
-    # Ensure username starts with @ for consistency
     if not username.startswith('@'):
         username = f"@{username}"
     return username in authorized_users
@@ -54,23 +141,15 @@ def is_authorized(username: str) -> bool:
 # Web scraping function to get token data (without proxy)
 def get_gmgn_token_data(mint_address):
     url = f"https://gmgn.ai/sol/token/{mint_address}"
-    headers = {"User-Agent": "Mozilla/5.0"}  # Prevents basic bot blocking
-
+    headers = {"User-Agent": "Mozilla/5.0"}
     try:
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, "html.parser")
-
             try:
-                # Extract Market Cap
                 market_cap = soup.find("div", text="Market Cap").find_next_sibling("div").text.strip()
-
-                # Extract Liquidity
                 liquidity = soup.find("div", text="Liquidity").find_next_sibling("div").text.strip()
-
-                # Extract Price
                 price = soup.find("div", text="Price").find_next_sibling("div").text.strip()
-
                 return {
                     "market_cap": market_cap,
                     "liquidity": liquidity,
@@ -91,33 +170,28 @@ async def add_user(message: types.Message):
     username = message.from_user.username
     logger.info(f"Received /adduser command from user: @{username}")
 
-    # Check if the user is the super user
     if username != "BeingHumbleGuy":
         await message.answer("⚠️ Only @BeingHumbleGuy can add authorized users.")
         logger.info(f"Unauthorized /adduser attempt by @{username}")
         return
 
-    # Check if an additional user has already been added
     if additional_user_added:
         await message.answer("⚠️ An additional user has already been added. Only one additional user is allowed.")
         logger.info("Additional user already added, rejecting new addition")
         return
 
-    # Extract the new username from the command
     text = message.text.lower().replace('/adduser', '').strip()
     if not text:
         await message.answer("Please provide a username to add (e.g., /adduser @NewUser) 🤔")
         logger.info("No username provided for /adduser")
         return
 
-    # Ensure the username starts with @
     new_user = text if text.startswith('@') else f"@{text}"
     if new_user == "@BeingHumbleGuy":
         await message.answer("⚠️ @BeingHumbleGuy is already the super user.")
         logger.info("Attempt to add @BeingHumbleGuy, already a super user")
         return
 
-    # Add the new user to the authorized list
     authorized_users.append(new_user)
     additional_user_added = True
     await message.answer(f"Authorized user added: {new_user} ✅")
@@ -129,7 +203,6 @@ async def toggle_filter(message: types.Message):
     username = message.from_user.username
     logger.info(f"Received /filter command from user: @{username}")
 
-    # Check if the user is authorized
     if not is_authorized(username):
         await message.answer("⚠️ You are not authorized to use this command.")
         logger.info(f"Unauthorized /filter attempt by @{username}")
@@ -142,25 +215,75 @@ async def toggle_filter(message: types.Message):
     if text == "yes":
         filter_enabled = True
         await message.answer("Filter set to: Yes ✅")
-        logger.info("Sent response: Filter set to: Yes ✅")
         logger.info("Filter enabled")
     elif text == "no":
         filter_enabled = False
         await message.answer("Filter set to: No 🚫")
-        logger.info("Sent response: Filter set to: No 🚫")
         logger.info("Filter disabled")
     else:
         await message.answer("Please specify Yes or No after /filter (e.g., /filter Yes) 🤔")
-        logger.info("Sent response: Please specify Yes or No after /filter (e.g., /filter Yes) 🤔")
-        logger.info("Invalid /filter input or no value provided")
+        logger.info("Invalid /filter input")
 
-# Handler for /setupval command to set PassValue
+# Handler for /checkhigh command to enable/disable CheckHigh filter
+@dp.message(Command(commands=["checkhigh"]))
+async def toggle_checkhigh(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /checkhigh command from user: @{username}")
+
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /checkhigh attempt by @{username}")
+        return
+
+    global CheckHighEnabled
+    text = message.text.lower().replace('/checkhigh', '').strip()
+    logger.info(f"Received /checkhigh command with text: {text}")
+
+    if text == "yes":
+        CheckHighEnabled = True
+        await message.answer("CheckHigh filter set to: Yes ✅")
+        logger.info("CheckHigh filter enabled")
+    elif text == "no":
+        CheckHighEnabled = False
+        await message.answer("CheckHigh filter set to: No 🚫")
+        logger.info("CheckHigh filter disabled")
+    else:
+        await message.answer("Please specify Yes or No after /checkhigh (e.g., /checkhigh Yes) 🤔")
+        logger.info("Invalid /checkhigh input")
+
+# Handler for /checklow command to enable/disable CheckLow filter
+@dp.message(Command(commands=["checklow"]))
+async def toggle_checklow(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /checklow command from user: @{username}")
+
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /checklow attempt by @{username}")
+        return
+
+    global CheckLowEnabled
+    text = message.text.lower().replace('/checklow', '').strip()
+    logger.info(f"Received /checklow command with text: {text}")
+
+    if text == "yes":
+        CheckLowEnabled = True
+        await message.answer("CheckLow filter set to: Yes ✅")
+        logger.info("CheckLow filter enabled")
+    elif text == "no":
+        CheckLowEnabled = False
+        await message.answer("CheckLow filter set to: No 🚫")
+        logger.info("CheckLow filter disabled")
+    else:
+        await message.answer("Please specify Yes or No after /checklow (e.g., /checklow Yes) 🤔")
+        logger.info("Invalid /checklow input")
+
+# Handler for /setupval command to set PassValue (for CheckHigh)
 @dp.message(Command(commands=["setupval"]))
 async def setup_val(message: types.Message):
     username = message.from_user.username
     logger.info(f"Received /setupval command from user: @{username}")
 
-    # Check if the user is authorized
     if not is_authorized(username):
         await message.answer("⚠️ You are not authorized to use this command.")
         logger.info(f"Unauthorized /setupval attempt by @{username}")
@@ -171,24 +294,20 @@ async def setup_val(message: types.Message):
     logger.info(f"Received /setupval command with text: {text}")
 
     try:
-        # Attempt to convert the input to a float
         value = float(text)
         PassValue = value
         await message.answer(f"PassValue set to: {PassValue} ✅")
-        logger.info(f"Sent response: PassValue set to: {PassValue} ✅")
         logger.info(f"PassValue updated to: {PassValue}")
     except ValueError:
         await message.answer("Please provide a valid numerical value (e.g., /setupval 1.2) 🚫")
-        logger.info("Sent response: Please provide a valid numerical value (e.g., /setupval 1.2) 🚫")
         logger.info("Invalid /setupval input: not a number")
 
-# Handler for /setrangelow command to set RangeLow
+# Handler for /setrangelow command to set RangeLow (for CheckLow)
 @dp.message(Command(commands=["setrangelow"]))
 async def set_range_low(message: types.Message):
     username = message.from_user.username
     logger.info(f"Received /setrangelow command from user: @{username}")
 
-    # Check if the user is authorized
     if not is_authorized(username):
         await message.answer("⚠️ You are not authorized to use this command.")
         logger.info(f"Unauthorized /setrangelow attempt by @{username}")
@@ -199,30 +318,304 @@ async def set_range_low(message: types.Message):
     logger.info(f"Received /setrangelow command with text: {text}")
 
     try:
-        # Attempt to convert the input to a float
         value = float(text)
         RangeLow = value
         await message.answer(f"RangeLow set to: {RangeLow} ✅")
-        logger.info(f"Sent response: RangeLow set to: {RangeLow} ✅")
         logger.info(f"RangeLow updated to: {RangeLow}")
     except ValueError:
         await message.answer("Please provide a valid numerical value (e.g., /setrangelow 1.1) 🚫")
-        logger.info("Sent response: Please provide a valid numerical value (e.g., /setrangelow 1.1) 🚫")
         logger.info("Invalid /setrangelow input: not a number")
 
-# New handler for /ca <token_ca> command
+# Handlers for new filter thresholds and toggles
+# DevSold (Now Yes/No)
+@dp.message(Command(commands=["setdevsold"]))
+async def set_devsold(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setdevsold command from user: @{username}")
+
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        return
+
+    global DevSoldThreshold
+    text = message.text.lower().replace('/setdevsold', '').strip()
+    if text in ["yes", "no"]:
+        DevSoldThreshold = text
+        await message.answer(f"DevSoldThreshold set to: {DevSoldThreshold} ✅")
+        logger.info(f"DevSoldThreshold updated to: {DevSoldThreshold}")
+    else:
+        await message.answer("Please specify Yes or No (e.g., /setdevsold Yes) 🚫")
+
+@dp.message(Command(commands=["devsoldfilter"]))
+async def toggle_devsold_filter(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /devsoldfilter command from user: @{username}")
+
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        return
+
+    global DevSoldFilterEnabled
+    text = message.text.lower().replace('/devsoldfilter', '').strip()
+    if text == "yes":
+        DevSoldFilterEnabled = True
+        await message.answer("DevSold filter set to: Yes ✅")
+        logger.info("DevSold filter enabled")
+    elif text == "no":
+        DevSoldFilterEnabled = False
+        await message.answer("DevSold filter set to: No 🚫")
+        logger.info("DevSold filter disabled")
+    else:
+        await message.answer("Please specify Yes or No after /devsoldfilter (e.g., /devsoldfilter Yes) 🤔")
+
+# Top10
+@dp.message(Command(commands=["settop10"]))
+async def set_top10(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /settop10 command from user: @{username}")
+
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        return
+
+    global Top10Threshold
+    text = message.text.lower().replace('/settop10', '').strip()
+    try:
+        value = float(text)
+        Top10Threshold = value
+        await message.answer(f"Top10Threshold set to: {Top10Threshold} ✅")
+        logger.info(f"Top10Threshold updated to: {Top10Threshold}")
+    except ValueError:
+        await message.answer("Please provide a valid numerical value (e.g., /settop10 10) 🚫")
+
+@dp.message(Command(commands=["top10filter"]))
+async def toggle_top10_filter(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /top10filter command from user: @{username}")
+
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        return
+
+    global Top10FilterEnabled
+    text = message.text.lower().replace('/top10filter', '').strip()
+    if text == "yes":
+        Top10FilterEnabled = True
+        await message.answer("Top10 filter set to: Yes ✅")
+        logger.info("Top10 filter enabled")
+    elif text == "no":
+        Top10FilterEnabled = False
+        await message.answer("Top10 filter set to: No 🚫")
+        logger.info("Top10 filter disabled")
+    else:
+        await message.answer("Please specify Yes or No after /top10filter (e.g., /top10filter Yes) 🤔")
+
+# Snipers
+@dp.message(Command(commands=["setsnipers"]))
+async def set_snipers(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setsnipers command from user: @{username}")
+
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        return
+
+    global SnipersThreshold
+    text = message.text.lower().replace('/setsnipers', '').strip()
+    try:
+        value = float(text)
+        SnipersThreshold = value
+        await message.answer(f"SnipersThreshold set to: {SnipersThreshold} ✅")
+        logger.info(f"SnipersThreshold updated to: {SnipersThreshold}")
+    except ValueError:
+        await message.answer("Please provide a valid numerical value (e.g., /setsnipers 3) 🚫")
+
+@dp.message(Command(commands=["snipersfilter"]))
+async def toggle_snipers_filter(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /snipersfilter command from user: @{username}")
+
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        return
+
+    global SniphersFilterEnabled
+    text = message.text.lower().replace('/snipersfilter', '').strip()
+    if text == "yes":
+        SniphersFilterEnabled = True
+        await message.answer("Snipers filter set to: Yes ✅")
+        logger.info("Snipers filter enabled")
+    elif text == "no":
+        SniphersFilterEnabled = False
+        await message.answer("Snipers filter set to: No 🚫")
+        logger.info("Snipers filter disabled")
+    else:
+        await message.answer("Please specify Yes or No after /snipersfilter (e.g., /snipersfilter Yes) 🤔")
+
+# Bundles
+@dp.message(Command(commands=["setbundles"]))
+async def set_bundles(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setbundles command from user: @{username}")
+
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        return
+
+    global BundlesThreshold
+    text = message.text.lower().replace('/setbundles', '').strip()
+    try:
+        value = float(text)
+        BundlesThreshold = value
+        await message.answer(f"BundlesThreshold set to: {BundlesThreshold} ✅")
+        logger.info(f"BundlesThreshold updated to: {BundlesThreshold}")
+    except ValueError:
+        await message.answer("Please provide a valid numerical value (e.g., /setbundles 2) 🚫")
+
+@dp.message(Command(commands=["bundlesfilter"]))
+async def toggle_bundles_filter(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /bundlesfilter command from user: @{username}")
+
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        return
+
+    global BundlesFilterEnabled
+    text = message.text.lower().replace('/bundlesfilter', '').strip()
+    if text == "yes":
+        BundlesFilterEnabled = True
+        await message.answer("Bundles filter set to: Yes ✅")
+        logger.info("Bundles filter enabled")
+    elif text == "no":
+        BundlesFilterEnabled = False
+        await message.answer("Bundles filter set to: No 🚫")
+        logger.info("Bundles filter disabled")
+    else:
+        await message.answer("Please specify Yes or No after /bundlesfilter (e.g., /bundlesfilter Yes) 🤔")
+
+# Insiders
+@dp.message(Command(commands=["setinsiders"]))
+async def set_insiders(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setinsiders command from user: @{username}")
+
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        return
+
+    global InsidersThreshold
+    text = message.text.lower().replace('/setinsiders', '').strip()
+    try:
+        value = float(text)
+        InsidersThreshold = value
+        await message.answer(f"InsidersThreshold set to: {InsidersThreshold} ✅")
+        logger.info(f"InsidersThreshold updated to: {InsidersThreshold}")
+    except ValueError:
+        await message.answer("Please provide a valid numerical value (e.g., /setinsiders 1) 🚫")
+
+@dp.message(Command(commands=["insidersfilter"]))
+async def toggle_insiders_filter(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /insidersfilter command from user: @{username}")
+
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        return
+
+    global InsidersFilterEnabled
+    text = message.text.lower().replace('/insidersfilter', '').strip()
+    if text == "yes":
+        InsidersFilterEnabled = True
+        await message.answer("Insiders filter set to: Yes ✅")
+        logger.info("Insiders filter enabled")
+    elif text == "no":
+        InsidersFilterEnabled = False
+        await message.answer("Insiders filter set to: No 🚫")
+        logger.info("Insiders filter disabled")
+    else:
+        await message.answer("Please specify Yes or No after /insidersfilter (e.g., /insidersfilter Yes) 🤔")
+
+# KOLs
+@dp.message(Command(commands=["setkols"]))
+async def set_kols(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setkols command from user: @{username}")
+
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        return
+
+    global KOLsThreshold
+    text = message.text.lower().replace('/setkols', '').strip()
+    try:
+        value = float(text)
+        KOLsThreshold = value
+        await message.answer(f"KOLsThreshold set to: {KOLsThreshold} ✅")
+        logger.info(f"KOLsThreshold updated to: {KOLsThreshold}")
+    except ValueError:
+        await message.answer("Please provide a valid numerical value (e.g., /setkols 4) 🚫")
+
+@dp.message(Command(commands=["kolsfilter"]))
+async def toggle_kols_filter(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /kolsfilter command from user: @{username}")
+
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        return
+
+    global KOLsFilterEnabled
+    text = message.text.lower().replace('/kolsfilter', '').strip()
+    if text == "yes":
+        KOLsFilterEnabled = True
+        await message.answer("KOLs filter set to: Yes ✅")
+        logger.info("KOLs filter enabled")
+    elif text == "no":
+        KOLsFilterEnabled = False
+        await message.answer("KOLs filter set to: No 🚫")
+        logger.info("KOLs filter disabled")
+    else:
+        await message.answer("Please specify Yes or No after /kolsfilter (e.g., /kolsfilter Yes) 🤔")
+
+# Handler for /downloadcsv command
+@dp.message(Command(commands=["downloadcsv"]))
+async def download_csv_command(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /downloadcsv command from user: @{username}")
+
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /downloadcsv attempt by @{username}")
+        return
+
+    base_url = os.getenv("RAILWAY_PUBLIC_DOMAIN", "http://localhost:5000")
+    if base_url == "http://localhost:5000" and "RAILWAY_PUBLIC_DOMAIN" not in os.environ:
+        logger.warning("RAILWAY_PUBLIC_DOMAIN not set, using localhost:5000 (this won't work on Railway)")
+    download_url = f"{base_url}/download/csv?token={DOWNLOAD_TOKEN}"
+
+    if not os.path.exists(CSV_FILE):
+        await message.answer("⚠️ No CSV file exists yet. Process some messages to generate data.")
+        logger.info("CSV file not found for /downloadcsv")
+        return
+
+    await message.answer(
+        f"Click the link to download or view the CSV file:\n{download_url}\n"
+        "Note: This link is private and should not be shared."
+    )
+    logger.info(f"Provided CSV download link to @{username}: {download_url}")
+
+# Handler for /ca <token_ca> command
 @dp.message(Command(commands=["ca"]))
 async def cmd_ca(message: types.Message):
     username = message.from_user.username
     logger.info(f"Received /ca command from {username}")
 
-    # Check if the user is authorized
     if not is_authorized(username):
         await message.answer("⚠️ You are not authorized to use this command.")
         logger.info(f"Unauthorized /ca attempt by {username}")
         return
 
-    # Extract token CA from message
     text = message.text
     parts = text.split()
     if len(parts) != 2:
@@ -232,7 +625,6 @@ async def cmd_ca(message: types.Message):
     token_ca = parts[1].strip()
     logger.info(f"Processing token CA: {token_ca}")
 
-    # Get token data
     token_data = get_gmgn_token_data(token_ca)
     if "error" in token_data:
         await message.reply(f"Error: {token_data['error']}")
@@ -246,22 +638,21 @@ async def cmd_ca(message: types.Message):
         await message.reply(response)
 
 # Handler for messages (acting as /button and /filter logic, excluding commands)
-@dp.message(F.text, ~F.text.startswith('/'))  # Exclude messages starting with /
+@dp.message(F.text, ~F.text.startswith('/'))
 @dp.channel_post(F.text, ~F.text.startswith('/'))
 async def convert_link_to_button(message: types.Message):
-    logger.info(f"Received full message text: {message.text}")  # Log full text for debugging
+    logger.info(f"Received full message text: {message.text}")
     logger.info(f"Chat type: {message.chat.type}")
     logger.info(f"Original message ID: {message.message_id}")
     logger.info(f"Forwarded from: {message.forward_from_chat}")
     logger.info(f"Entities: {message.entities}")
-    logger.info(f"Filter enabled state: {filter_enabled}")  # Debug filter state
-    logger.info(f"Current PassValue: {PassValue}")  # Debug PassValue
-    logger.info(f"Current RangeLow: {RangeLow}")  # Debug RangeLow
+    logger.info(f"Filter enabled state: {filter_enabled}")
+    logger.info(f"Current PassValue: {PassValue}")
+    logger.info(f"Current RangeLow: {RangeLow}")
 
     if message.forward_from_chat:
         logger.info(f"Message is forwarded from chat: {message.forward_from_chat.title}")
 
-    # Extract CA from the message
     ca = None
     text = message.text
     if message.entities:
@@ -275,29 +666,70 @@ async def convert_link_to_button(message: types.Message):
                     logger.info(f"Extracted CA: {ca}")
                 break
 
-    # Check for BuyPercent and SellPercent
+    # Extract BuyPercent, SellPercent, and other filter values
     has_buy_sell = False
     buy_percent = None
     sell_percent = None
+    dev_sold = None  # Now "Yes" or "No"
+    top_10 = None
+    snipers = None
+    bundles = None
+    insiders = None
+    kols = None
     lines = [line.strip() for line in text.replace('\r\n', '\n').split('\n') if line.strip()]
-    logger.info(f"Lines to check for Buy/Sell percent: {lines}")  # Debug all lines
-    for line in lines:
-        logger.info(f"Checking line: '{line}'")  # Debug each line
-        # Flexible regex to handle variations in whitespace or formatting
-        match = re.search(r'├?Sum\s*🅑:\s*(\d+\.?\d*)%\s*[\|]\s*Sum\s*🅢:\s*(\d+\.?\d*)%', line)
-        if match:
-            has_buy_sell = True
-            buy_percent = float(match.group(1))
-            sell_percent = float(match.group(2))
-            logger.info(f"Found BuyPercent and SellPercent: {match.group(0)} with groups: {match.groups()}")
-            break
-        else:
-            logger.warning(f"No match for regex on line: '{line}'")  # Debug regex failure
+    logger.info(f"Lines to check: {lines}")
 
-    # If BuyPercent/SellPercent exists, calculate BSRatio and compare with PassValue and RangeLow
+    for line in lines:
+        logger.info(f"Checking line: '{line}'")
+        match_bs = re.search(r'├?Sum\s*🅑:\s*(\d+\.?\d*)%\s*[\|]\s*Sum\s*🅢:\s*(\d+\.?\d*)%', line)
+        if match_bs:
+            has_buy_sell = True
+            buy_percent = float(match_bs.group(1))
+            sell_percent = float(match_bs.group(2))
+            logger.info(f"Found BuyPercent and SellPercent: {match_bs.group(0)} with groups: {match_bs.groups()}")
+            continue
+
+        # Dev sold (Yes/No based on emoji)
+        match_dev = re.search(r'├?Dev sold:\s*(✅|🚫)', line)
+        if match_dev:
+            emoji = match_dev.group(1)
+            dev_sold = "Yes" if emoji == "✅" else "No"
+            logger.info(f"Found DevSold: {dev_sold}")
+            continue
+
+        match_top10 = re.search(r'├?Top 10:\s*(\d+\.?\d*)', line)
+        if match_top10:
+            top_10 = float(match_top10.group(1))
+            logger.info(f"Found Top10: {top_10}")
+            continue
+
+        match_snipers = re.search(r'├?Snipers:\s*(\d+\.?\d*)', line)
+        if match_snipers:
+            snipers = float(match_snipers.group(1))
+            logger.info(f"Found Snipers: {snipers}")
+            continue
+
+        match_bundles = re.search(r'├?Bundles:\s*(\d+\.?\d*)', line)
+        if match_bundles:
+            bundles = float(match_bundles.group(1))
+            logger.info(f"Found Bundles: {bundles}")
+            continue
+
+        match_insiders = re.search(r'├?Insiders:\s*(\d+\.?\d*)', line)
+        if match_insiders:
+            insiders = float(match_insiders.group(1))
+            logger.info(f"Found Insiders: {insiders}")
+            continue
+
+        match_kols = re.search(r'├?KOLs:\s*(\d+\.?\d*)', line)
+        if match_kols:
+            kols = float(match_kols.group(1))
+            logger.info(f"Found KOLs: {kols}")
+            continue
+
+    # Process filters if BuyPercent/SellPercent exists
     if has_buy_sell:
-        logger.info("Message contains BuyPercent/SellPercent, processing BSRatio")
-        # Use the first two lines of the source message
+        logger.info("Message contains BuyPercent/SellPercent, processing filters")
         if len(lines) >= 2:
             first_line = lines[0]
             second_line = lines[1]
@@ -311,42 +743,161 @@ async def convert_link_to_button(message: types.Message):
         # Calculate BSRatio
         try:
             if sell_percent == 0:
-                logger.warning("SellPercent is 0, cannot calculate BSRatio, assuming infinity")
-                bs_ratio = float('inf')  # Handle division by zero
+                logger.warning("SellPercent is 0, assuming infinity")
+                bs_ratio = float('inf')
             else:
                 bs_ratio = buy_percent / sell_percent
                 logger.info(f"Calculated BSRatio: {buy_percent} / {sell_percent} = {bs_ratio}")
         except Exception as e:
             logger.error(f"Error calculating BSRatio: {e}")
-            bs_ratio = 0  # Fallback in case of error
+            bs_ratio = 0
 
-        # Check if PassValue and RangeLow are set
-        if PassValue is None or RangeLow is None:
-            logger.warning("PassValue or RangeLow is not set, cannot compare BSRatio")
-            missing_vars = []
-            if PassValue is None:
-                missing_vars.append("PassValue")
-            if RangeLow is None:
-                missing_vars.append("RangeLow")
-            await message.answer(f"⚠️ Please set {', '.join(missing_vars)} using /setupval and /setrangelow before filtering.")
+        # Check if required thresholds are set for enabled filters
+        missing_vars = []
+        if CheckHighEnabled and PassValue is None:
+            missing_vars.append("PassValue (use /setupval)")
+        if CheckLowEnabled and RangeLow is None:
+            missing_vars.append("RangeLow (use /setrangelow)")
+        if DevSoldFilterEnabled and DevSoldThreshold is None:
+            missing_vars.append("DevSoldThreshold (use /setdevsold Yes|No)")
+        if Top10FilterEnabled and Top10Threshold is None:
+            missing_vars.append("Top10Threshold (use /settop10)")
+        if SniphersFilterEnabled and SnipersThreshold is None:
+            missing_vars.append("SnipersThreshold (use /setsnipers)")
+        if BundlesFilterEnabled and BundlesThreshold is None:
+            missing_vars.append("BundlesThreshold (use /setbundles)")
+        if InsidersFilterEnabled and InsidersThreshold is None:
+            missing_vars.append("InsidersThreshold (use /setinsiders)")
+        if KOLsFilterEnabled and KOLsThreshold is None:
+            missing_vars.append("KOLsThreshold (use /setkols)")
+
+        if missing_vars:
+            await message.answer(f"⚠️ Please set {', '.join(missing_vars)} before filtering.")
             return
 
-        # Check filter conditions: BSRatio >= PassValue OR (1 <= BSRatio <= RangeLow)
-        if bs_ratio >= PassValue or (1 <= bs_ratio <= RangeLow):
-            logger.info(f"Filter passed - BSRatio: {bs_ratio}, PassValue: {PassValue}, RangeLow: {RangeLow}")
-            logger.info(f"Condition met: BSRatio >= PassValue: {bs_ratio >= PassValue}, or 1 <= BSRatio <= RangeLow: {1 <= bs_ratio <= RangeLow}")
-            output_text = f"Filter Passed: 🎉 BSRatio {bs_ratio:.2f}\n{first_line}\n{second_line}"
-        else:
-            logger.info(f"Filter failed - BSRatio: {bs_ratio}, PassValue: {PassValue}, RangeLow: {RangeLow}")
-            output_text = f"CA did not qualify: 🚫 BSRatio {bs_ratio:.2f}"
+        # Evaluate each filter
+        filter_results = []
+        all_filters_pass = True
+        check_high_pass = None
+        check_low_pass = None
+        dev_sold_pass = None
+        top_10_pass = None
+        snipers_pass = None
+        bundles_pass = None
+        insiders_pass = None
+        kols_pass = None
 
-        # Apply code entity to the CA in the output (if present)
+        # CheckHigh (BSRatio >= PassValue)
+        if CheckHighEnabled:
+            check_high_pass = bs_ratio >= PassValue
+            filter_results.append(f"BSRatio (High) {bs_ratio:.2f} (Threshold: {PassValue})")
+            if not check_high_pass:
+                all_filters_pass = False
+            logger.info(f"CheckHigh: {check_high_pass}")
+
+        # CheckLow (1 <= BSRatio <= RangeLow)
+        if CheckLowEnabled:
+            check_low_pass = 1 <= bs_ratio <= RangeLow
+            filter_results.append(f"BSRatio (Low) {bs_ratio:.2f} (Range: 1 to {RangeLow})")
+            if not check_low_pass:
+                all_filters_pass = False
+            logger.info(f"CheckLow: {check_low_pass}")
+
+        # DevSold (Yes/No comparison)
+        if DevSoldFilterEnabled and dev_sold is not None:
+            dev_sold_pass = dev_sold == DevSoldThreshold
+            filter_results.append(f"DevSold {dev_sold} (Threshold: {DevSoldThreshold})")
+            if not dev_sold_pass:
+                all_filters_pass = False
+            logger.info(f"DevSold: {dev_sold_pass}")
+        elif DevSoldFilterEnabled and dev_sold is None:
+            filter_results.append("DevSold: Not found in message 🚫")
+            all_filters_pass = False
+
+        # Top10
+        if Top10FilterEnabled and top_10 is not None:
+            top_10_pass = top_10 >= Top10Threshold
+            filter_results.append(f"Top10 {top_10} (Threshold: {Top10Threshold})")
+            if not top_10_pass:
+                all_filters_pass = False
+            logger.info(f"Top10: {top_10_pass}")
+        elif Top10FilterEnabled and top_10 is None:
+            filter_results.append("Top10: Not found in message 🚫")
+            all_filters_pass = False
+
+        # Snipers
+        if SniphersFilterEnabled and snipers is not None:
+            snipers_pass = snipers >= SnipersThreshold
+            filter_results.append(f"Snipers {snipers} (Threshold: {SnipersThreshold})")
+            if not snipers_pass:
+                all_filters_pass = False
+            logger.info(f"Snipers: {snipers_pass}")
+        elif SniphersFilterEnabled and snipers is None:
+            filter_results.append("Snipers: Not found in message 🚫")
+            all_filters_pass = False
+
+        # Bundles
+        if BundlesFilterEnabled and bundles is not None:
+            bundles_pass = bundles >= BundlesThreshold
+            filter_results.append(f"Bundles {bundles} (Threshold: {BundlesThreshold})")
+            if not bundles_pass:
+                all_filters_pass = False
+            logger.info(f"Bundles: {bundles_pass}")
+        elif BundlesFilterEnabled and bundles is None:
+            filter_results.append("Bundles: Not found in message 🚫")
+            all_filters_pass = False
+
+        # Insiders
+        if InsidersFilterEnabled and insiders is not None:
+            insiders_pass = insiders >= InsidersThreshold
+            filter_results.append(f"Insiders {insiders} (Threshold: {InsidersThreshold})")
+            if not insiders_pass:
+                all_filters_pass = False
+            logger.info(f"Insiders: {insiders_pass}")
+        elif InsidersFilterEnabled and insiders is None:
+            filter_results.append("Insiders: Not found in message 🚫")
+            all_filters_pass = False
+
+        # KOLs
+        if KOLsFilterEnabled and kols is not None:
+            kols_pass = kols >= KOLsThreshold
+            filter_results.append(f"KOLs {kols} (Threshold: {KOLsThreshold})")
+            if not kols_pass:
+                all_filters_pass = False
+            logger.info(f"KOLs: {kols_pass}")
+        elif KOLsFilterEnabled and kols is None:
+            filter_results.append("KOLs: Not found in message 🚫")
+            all_filters_pass = False
+
+        # Log to CSV
+        log_to_csv(
+            ca, bs_ratio, check_high_pass, check_low_pass,
+            dev_sold, dev_sold_pass, top_10, top_10_pass,
+            snipers, snipers_pass, bundles, bundles_pass,
+            insiders, insiders_pass, kols, kols_pass, all_filters_pass
+        )
+
+        # Check if any filters are enabled
+        any_filter_enabled = (CheckHighEnabled or CheckLowEnabled or DevSoldFilterEnabled or
+                             Top10FilterEnabled or SniphersFilterEnabled or BundlesFilterEnabled or
+                             InsidersFilterEnabled or KOLsFilterEnabled)
+
+        # Prepare output
+        if not any_filter_enabled:
+            output_text = f"No filters are enabled. Please enable at least one filter to evaluate CA.\n{first_line}\n{second_line}"
+        elif all_filters_pass:
+            filter_summary = ", ".join(filter_results)
+            output_text = f"Filter Passed: 🎉 {filter_summary}\n{first_line}\n{second_line}"
+        else:
+            filter_summary = ", ".join(filter_results)
+            output_text = f"CA did not qualify: 🚫 {filter_summary}\n{first_line}\n{second_line}"
+
         entities = []
         ca_match = re.search(r'[A-Za-z0-9]{44}', output_text)
         if ca_match:
             ca = ca_match.group(0)
             text_before_ca = output_text[:output_text.find(ca)]
-            ca_new_offset = len(text_before_ca.encode('utf-16-le')) // 2  # UTF-16 offset
+            ca_new_offset = len(text_before_ca.encode('utf-16-le')) // 2
             ca_length = 44
             text_length_utf16 = len(output_text.encode('utf-16-le')) // 2
             if ca_new_offset >= 0 and ca_new_offset + ca_length <= text_length_utf16:
@@ -354,8 +905,6 @@ async def convert_link_to_button(message: types.Message):
                 logger.info(f"Applied code entity: Offset {ca_new_offset}, Length {ca_length}")
             else:
                 logger.warning(f"Skipping invalid code entity: Offset {ca_new_offset}, Length {ca_length}")
-        else:
-            logger.warning("No CA found in output for code entity")
 
         try:
             logger.info("Creating new message for output")
@@ -363,10 +912,10 @@ async def convert_link_to_button(message: types.Message):
             logger.info(f"New message ID: {new_message.message_id}")
         except Exception as e:
             logger.error(f"Error creating new message: {e}")
-        return  # Skip all further processing, including /button
+        return
 
-    # Default /button functionality if no BuyPercent/SellPercent
-    if ca and "reflink" in message.text.lower():  # Only add buttons if "reflink" is present
+    # Default /button functionality
+    if ca and "reflink" in message.text.lower():
         logger.info(f"Adding buttons because 'reflink' found in message: {message.text}")
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
@@ -378,10 +927,8 @@ async def convert_link_to_button(message: types.Message):
                 InlineKeyboardButton(text="Trojan", url=f"https://t.me/solana_trojanbot?start=r-beinghumbleguy-{ca}")
             ]
         ])
-        # Clean the text (remove "Forwarded from" and "Buy token on Fasol Reflink")
         text = re.sub(r'Forwarded from .*\n', '', text, flags=re.IGNORECASE)
         text = re.sub(r'Buy token on Fasol Reflink', '', text, flags=re.IGNORECASE)
-        # Format the CA line to match the alignment of other lines
         lines = text.splitlines()
         for i, line in enumerate(lines):
             if ca in line:
@@ -390,10 +937,9 @@ async def convert_link_to_button(message: types.Message):
         text = "\n".join(line.strip() for line in lines if line.strip())
         logger.info(f"Final text to send: {text}")
 
-        # Apply the code entity to the CA only (excluding the emoji and "CA: ")
         entities = []
         text_before_ca = text[:text.find(ca)]
-        ca_new_offset = len(text_before_ca.encode('utf-16-le')) // 2  # UTF-16 offset
+        ca_new_offset = len(text_before_ca.encode('utf-16-le')) // 2
         logger.info(f"CA position in final text: {text.find(ca)}")
         logger.info(f"Text before CA: {text_before_ca}")
         logger.info(f"Calculated CA UTF-16 offset: {ca_new_offset}")
@@ -415,21 +961,36 @@ async def convert_link_to_button(message: types.Message):
             logger.info("Falling back to posting a new message")
             new_message = await message.answer(text, reply_markup=keyboard, entities=entities)
             logger.info(f"New message ID: {new_message.message_id}")
-
     else:
         logger.info("No CA found in URL or 'reflink' not present, skipping button addition")
 
 async def main():
-    # Define the commands with descriptions
+    # Initialize CSV file
+    init_csv()
+
     commands = [
         BotCommand(command="filter", description="Enable or disable the filter (Yes/No)"),
-        BotCommand(command="setupval", description="Set the PassValue for filtering (e.g., /setupval 1.2)"),
-        BotCommand(command="setrangelow", description="Set the RangeLow for filtering (e.g., /setrangelow 1.1)"),
+        BotCommand(command="setupval", description="Set PassValue for CheckHigh (e.g., /setupval 1.2)"),
+        BotCommand(command="setrangelow", description="Set RangeLow for CheckLow (e.g., /setrangelow 1.1)"),
+        BotCommand(command="checkhigh", description="Enable/disable CheckHigh filter (Yes/No)"),
+        BotCommand(command="checklow", description="Enable/disable CheckLow filter (Yes/No)"),
+        BotCommand(command="setdevsold", description="Set DevSold threshold (Yes/No) (e.g., /setdevsold Yes)"),
+        BotCommand(command="devsoldfilter", description="Enable/disable DevSold filter (Yes/No)"),
+        BotCommand(command="settop10", description="Set Top10 threshold (e.g., /settop10 10)"),
+        BotCommand(command="top10filter", description="Enable/disable Top10 filter (Yes/No)"),
+        BotCommand(command="setsnipers", description="Set Snipers threshold (e.g., /setsnipers 3)"),
+        BotCommand(command="snipersfilter", description="Enable/disable Snipers filter (Yes/No)"),
+        BotCommand(command="setbundles", description="Set Bundles threshold (e.g., /setbundles 2)"),
+        BotCommand(command="bundlesfilter", description="Enable/disable Bundles filter (Yes/No)"),
+        BotCommand(command="setinsiders", description="Set Insiders threshold (e.g., /setinsiders 1)"),
+        BotCommand(command="insidersfilter", description="Enable/disable Insiders filter (Yes/No)"),
+        BotCommand(command="setkols", description="Set KOLs threshold (e.g., /setkols 4)"),
+        BotCommand(command="kolsfilter", description="Enable/disable KOLs filter (Yes/No)"),
         BotCommand(command="adduser", description="Add an authorized user (only for @BeingHumbleGuy)"),
-        BotCommand(command="ca", description="Get token data (e.g., /ca <token_ca>)")
+        BotCommand(command="ca", description="Get token data (e.g., /ca <token_ca>)"),
+        BotCommand(command="downloadcsv", description="Get link to download the CSV log (authorized users only)")
     ]
     
-    # Set the bot commands
     try:
         await bot.set_my_commands(commands)
         logger.info("Successfully set bot commands for suggestions")
