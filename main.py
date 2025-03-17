@@ -341,7 +341,7 @@ async def set_devsold(message: types.Message):
     global DevSoldThreshold
     text = message.text.lower().replace('/setdevsold', '').strip()
     if text in ["yes", "no"]:
-        DevSoldThreshold = text
+        DevSoldThreshold = text.capitalize()  # Convert "yes" to "Yes", "no" to "No"
         await message.answer(f"DevSoldThreshold set to: {DevSoldThreshold} ✅")
         logger.info(f"DevSoldThreshold updated to: {DevSoldThreshold}")
     else:
@@ -930,24 +930,30 @@ async def convert_link_to_button(message: types.Message):
                 logger.info("DevSold: Threshold not set")
             else:
                 logger.info(f"Evaluating DevSold: dev_sold={dev_sold}, DevSoldThreshold={DevSoldThreshold}, dev_sold_left_value={dev_sold_left_value}, DevSoldLeft={DevSoldLeft}")
-                if dev_sold == DevSoldThreshold:
+                if dev_sold == "Yes":
                     dev_sold_pass = True
-                    filter_results.append(f"DevSold: {dev_sold} {'✅' if dev_sold_pass else '🚫'} (Threshold: {DevSoldThreshold})")
-                elif dev_sold == "No" and DevSoldThreshold == "Yes":
-                    if DevSoldLeft is None:
-                        filter_results.append("DevSold: DevSoldLeft threshold not set 🚫 (use /setdevsoldleft)")
-                        dev_sold_pass = False
-                    elif dev_sold_left_value is not None:
-                        dev_sold_pass = dev_sold_left_value <= DevSoldLeft
-                        filter_results.append(
-                            f"DevSold: {dev_sold} ({dev_sold_left_value}% left) {'✅' if dev_sold_pass else '🚫'} (Threshold: {DevSoldThreshold}, Left <= {DevSoldLeft}%)"
-                        )
+                    filter_results.append(f"DevSold: {dev_sold} {'✅' if dev_sold_pass else '🚫'} (Passes because DevSold is Yes)")
+                elif dev_sold == "No":
+                    if DevSoldThreshold == "Yes":
+                        if DevSoldLeft is None:
+                            filter_results.append("DevSold: DevSoldLeft threshold not set 🚫 (use /setdevsoldleft)")
+                            dev_sold_pass = False
+                        elif dev_sold_left_value is not None:
+                            dev_sold_pass = dev_sold_left_value <= DevSoldLeft
+                            filter_results.append(
+                                f"DevSold: {dev_sold} ({dev_sold_left_value}% left) {'✅' if dev_sold_pass else '🚫'} (Threshold: {DevSoldThreshold}, Left <= {DevSoldLeft}%)"
+                            )
+                        else:
+                            dev_sold_pass = False
+                            filter_results.append(f"DevSold: {dev_sold} (No percentage left data) {'✅' if dev_sold_pass else '🚫'} (Threshold: {DevSoldThreshold})")
                     else:
+                        # If DevSoldThreshold is "No" and dev_sold is "No", fail because we're looking for "Yes"
                         dev_sold_pass = False
-                        filter_results.append(f"DevSold: {dev_sold} (No percentage left data) {'✅' if dev_sold_pass else '🚫'} (Threshold: {DevSoldThreshold})")
+                        filter_results.append(f"DevSold: {dev_sold} {'✅' if dev_sold_pass else '🚫'} (Threshold: {DevSoldThreshold})")
                 else:
+                    # Unexpected value for dev_sold
                     dev_sold_pass = False
-                    filter_results.append(f"DevSold: {dev_sold} {'✅' if dev_sold_pass else '🚫'} (Threshold: {DevSoldThreshold})")
+                    filter_results.append(f"DevSold: {dev_sold} {'✅' if dev_sold_pass else '🚫'} (Invalid value)")
                 if not dev_sold_pass:
                     all_filters_pass = False
                 logger.info(f"DevSold: {dev_sold_pass}")
