@@ -786,7 +786,7 @@ async def convert_link_to_button(message: types.Message):
     dev_sold_left_value = None  # Percentage left if dev_sold is "No"
     top_10 = None
     snipers = None
-    bundles = None
+    bundles = None  # Default to 0 if not found
     insiders = None
     kols = None
     lines = [line.strip() for line in text.replace('\r\n', '\n').split('\n') if line.strip()]
@@ -845,6 +845,11 @@ async def convert_link_to_button(message: types.Message):
             kols = float(match_kols.group(1))
             logger.info(f"Found KOLs: {kols}")
             continue
+
+    # Default bundles to 0 if not found
+    if bundles is None:
+        bundles = 0
+        logger.info("No Bundles percentage found, defaulting to 0")
 
     # Process filters if BuyPercent/SellPercent exists
     if has_buy_sell:
@@ -1036,13 +1041,13 @@ async def convert_link_to_button(message: types.Message):
 
         # Prepare output
         if not any_filter_enabled:
-            output_text = f"No filters are enabled. Please enable at least one filter to evaluate CA.\n{first_line}\n{second_line}"
+            output_text = f"No filters are enabled. Please enable at least one filter to evaluate CA.\n**{first_line}**\n**{second_line}**"
         elif all_filters_pass:
             filter_summary = "\n".join(filter_results)
-            output_text = f"Filter Passed: 🎉\n{filter_summary}\n{first_line}\n{second_line}"
+            output_text = f"Filter Passed: 🎉\n**{first_line}**\n**{second_line}**\n{filter_summary}"
         else:
             filter_summary = "\n".join(filter_results)
-            output_text = f"CA did not qualify: 🚫\n{filter_summary}\n{first_line}\n{second_line}"
+            output_text = f"CA did not qualify: 🚫\n**{first_line}**\n**{second_line}**\n{filter_summary}"
 
         entities = []
         if ca:
@@ -1061,7 +1066,7 @@ async def convert_link_to_button(message: types.Message):
 
         try:
             logger.info("Creating new message for output")
-            new_message = await message.answer(output_text, entities=entities)
+            new_message = await message.answer(output_text, entities=entities, parse_mode="Markdown")
             logger.info(f"New message ID: {new_message.message_id}")
         except Exception as e:
             logger.error(f"Error creating new message: {e}")
@@ -1082,29 +1087,19 @@ async def convert_link_to_button(message: types.Message):
         ])
         text = re.sub(r'Forwarded from .*\n', '', text, flags=re.IGNORECASE)
         text = re.sub(r'Buy token on Fasol Reflink', '', text, flags=re.IGNORECASE)
+        # Remove CA from the text to prevent copying
+        if ca in text:
+            text = text.replace(ca, "")
         lines = text.splitlines()
         for i, line in enumerate(lines):
-            if ca in line:
-                lines[i] = f"🔗 CA: {ca}"
+            if "🔗 CA:" in line:
+                lines[i] = "🔗 CA: [Hidden]"
                 break
         text = "\n".join(line.strip() for line in lines if line.strip())
-        logger.info(f"Final text to send: {text}")
+        logger.info(f"Final text to send (CA removed): {text}")
 
         entities = []
-        text_before_ca = text[:text.find(ca)]
-        ca_new_offset = len(text_before_ca.encode('utf-16-le')) // 2
-        logger.info(f"CA position in final text: {text.find(ca)}")
-        logger.info(f"Text before CA: {text_before_ca}")
-        logger.info(f"Calculated CA UTF-16 offset: {ca_new_offset}")
-        if ca_new_offset >= 0:
-            ca_length = 44
-            text_length_utf16 = len(text.encode('utf-16-le')) // 2
-            if ca_new_offset + ca_length <= text_length_utf16:
-                entities.append(MessageEntity(type="code", offset=ca_new_offset, length=ca_length))
-                logger.info(f"Applied code entity: Offset {ca_new_offset}, Length {ca_length}")
-            else:
-                logger.warning(f"Skipping invalid code entity: Offset {ca_new_offset}, Length {ca_length}")
-
+        # No need to add CA entity since we're hiding it
         try:
             logger.info("Attempting to edit the original message")
             edited_message = await message.edit_text(text, reply_markup=keyboard, entities=entities)
