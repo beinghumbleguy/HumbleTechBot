@@ -757,6 +757,7 @@ async def convert_link_to_button(message: types.Message):
     logger.info(f"Filter enabled state: {filter_enabled}")
     logger.info(f"Current PassValue: {PassValue}")
     logger.info(f"Current RangeLow: {RangeLow}")
+    logger.info(f"Chat ID: {message.chat.id}")  # Log the channel ID
 
     if message.forward_from_chat:
         logger.info(f"Message is forwarded from chat: {message.forward_from_chat.title}")
@@ -1061,11 +1062,8 @@ async def convert_link_to_button(message: types.Message):
                 ca_new_offset = len(text_before_ca.encode('utf-16-le')) // 2
                 ca_length = 44
                 text_length_utf16 = len(output_text.encode('utf-16-le')) // 2
-                if ca_new_offset >= 0 and ca_new_offset + ca_length <= text_length_utf16:
-                    entities.append(MessageEntity(type="code", offset=ca_new_offset, length=ca_length))
-                    logger.info(f"Applied code entity: Offset {ca_new_offset}, Length {ca_length}")
-                else:
-                    logger.warning(f"Skipping invalid code entity: Offset {ca_new_offset}, Length {ca_length}")
+                # Do not add a copyable entity for CA to prevent copying
+                logger.info(f"CA present but not added as a copyable entity: {ca}")
 
         try:
             logger.info("Creating new message for output")
@@ -1093,19 +1091,16 @@ async def convert_link_to_button(message: types.Message):
         ])
         text = re.sub(r'Forwarded from .*\n', '', text, flags=re.IGNORECASE)
         text = re.sub(r'Buy token on Fasol Reflink', '', text, flags=re.IGNORECASE)
-        # Remove CA from the text to prevent copying
-        if ca in text:
-            text = text.replace(ca, "")
+        # Keep CA but ensure it's not replaced or made copyable
         lines = text.splitlines()
         for i, line in enumerate(lines):
-            if "🔗 CA:" in line:
-                lines[i] = "🔗 CA: [Hidden]"
+            if re.search(r'[A-Za-z0-9]{44}', line):
+                lines[i] = f"🔗 CA: {ca}"  # Keep CA but format it as plain text
                 break
         text = "\n".join(line.strip() for line in lines if line.strip())
-        logger.info(f"Final text to send (CA removed): {text}")
+        logger.info(f"Final text to send (CA included): {text}")
 
         entities = []
-        # No need to add CA entity since we're hiding it
         try:
             logger.info("Attempting to edit the original message")
             edited_message = await message.edit_text(text, reply_markup=keyboard, entities=entities)
