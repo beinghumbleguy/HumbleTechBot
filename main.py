@@ -1017,13 +1017,13 @@ async def convert_link_to_button(message: types.Message):
         else:
             filter_results.append(f"Insiders: {insiders if insiders else 'Not found'} (Disabled)")
 
-        # KOLs (Fail if >= KOLsThreshold)
+        # KOLs (Pass if >= KOLsThreshold)
         if KOLsFilterEnabled and kols is not None:
-            kols_pass = kols < KOLsThreshold  # Pass if less than threshold, fail if >=
-            filter_results.append(f"KOLs: {kols} {'✅' if kols_pass else '🚫'} (Threshold: < {KOLsThreshold})")
+            kols_pass = kols >= KOLsThreshold  # Pass if greater than or equal to threshold, fail otherwise
+            filter_results.append(f"KOLs: {kols} {'✅' if kols_pass else '🚫'} (Threshold: >= {KOLsThreshold})")
             if not kols_pass:
                 all_filters_pass = False
-            logger.info(f"KOLs: {kols_pass} - Condition: < {KOLsThreshold}")
+            logger.info(f"KOLs: {kols_pass} - Condition: >= {KOLsThreshold}")
         elif KOLsFilterEnabled and kols is None:
             filter_results.append("KOLs: Not found in message 🚫")
         else:
