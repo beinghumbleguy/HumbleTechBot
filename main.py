@@ -68,7 +68,7 @@ DOWNLOAD_TOKEN = secrets.token_urlsafe(32)
 logger.info(f"Generated download token: {DOWNLOAD_TOKEN}")
 
 # Define VIP channels (updated to include the correct negative ID)
-VIP_CHANNEL_IDS = {-1002280798125}  # Replace with the second correct ID if applicable, e.g., {-1002272066154, -1002280798125}
+VIP_CHANNEL_IDS = {-1002272066154, -1002280798125}  # Added both channel IDs {-1002272066154, -1002280798125}
 
 # Initialize CSV file with headers if it doesn't exist
 def init_csv():
