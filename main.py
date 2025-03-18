@@ -1078,7 +1078,7 @@ async def convert_link_to_button(message: types.Message):
         logger.info(f"Adding buttons because 'reflink' found in message: {message.text}")
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             # Add "Join VIP" button if the channel is in VIP_CHANNEL_IDS
-            [InlineKeyboardButton(text="🌟🚀 Join VIP 🚀🌟", url="https://t.me/HumbleMoonshotsPay_bot?start")] 
+            [InlineKeyboardButton(text="🌟🚀 Join VIP 🚀🌟", url="https://t.me/HumbleMoonshotsPay_bot?start=start")] 
             if message.chat.id in VIP_CHANNEL_IDS else [],
             [
                 InlineKeyboardButton(text="Bloom", url=f"https://t.me/BloomSolana_bot?start=ref_humbleguy_ca_{ca}"),
