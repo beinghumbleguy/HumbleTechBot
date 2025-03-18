@@ -1061,9 +1061,13 @@ async def convert_link_to_button(message: types.Message):
                 text_before_ca = output_text[:output_text.find(ca)]
                 ca_new_offset = len(text_before_ca.encode('utf-16-le')) // 2
                 ca_length = 44
-                text_length_utf16 = len(output_text.encode('utf-16-le')) // 2
-                # Do not add a copyable entity for CA to prevent copying
-                logger.info(f"CA present but not added as a copyable entity: {ca}")
+                # Add CA as a copyable entity (using pre-formatted text for easy copying)
+                entities.append(types.MessageEntity(
+                    type="pre",  # Use "pre" to make it selectable and copyable
+                    offset=ca_new_offset,
+                    length=ca_length
+                ))
+                logger.info(f"Added CA as copyable entity: {ca} at offset {ca_new_offset}")
 
         try:
             logger.info("Creating new message for output")
@@ -1095,12 +1099,27 @@ async def convert_link_to_button(message: types.Message):
         lines = text.splitlines()
         for i, line in enumerate(lines):
             if re.search(r'[A-Za-z0-9]{44}', line):
-                lines[i] = f"🔗 CA: {ca}"  # Keep CA but format it as plain text
+                lines[i] = f"🔗 CA: {ca}"  # Keep CA but format it as plain text for editing
                 break
         text = "\n".join(line.strip() for line in lines if line.strip())
         logger.info(f"Final text to send (CA included): {text}")
 
         entities = []
+        if ca:
+            ca_match = re.search(r'[A-Za-z0-9]{44}', text)
+            if ca_match:
+                ca = ca_match.group(0)
+                text_before_ca = text[:text.find(ca)]
+                ca_new_offset = len(text_before_ca.encode('utf-16-le')) // 2
+                ca_length = 44
+                # Add CA as a copyable entity
+                entities.append(types.MessageEntity(
+                    type="pre",  # Use "pre" to make it selectable and copyable
+                    offset=ca_new_offset,
+                    length=ca_length
+                ))
+                logger.info(f"Added CA as copyable entity: {ca} at offset {ca_new_offset}")
+
         try:
             logger.info("Attempting to edit the original message")
             edited_message = await message.edit_text(text, reply_markup=keyboard, entities=entities)
