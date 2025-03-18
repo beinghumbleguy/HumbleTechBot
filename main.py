@@ -67,6 +67,9 @@ CSV_FILE = "ca_filter_log.csv"
 DOWNLOAD_TOKEN = secrets.token_urlsafe(32)
 logger.info(f"Generated download token: {DOWNLOAD_TOKEN}")
 
+# Define VIP channels
+VIP_CHANNEL_IDS = {2272066154, 2280798125}
+
 # Initialize CSV file with headers if it doesn't exist
 def init_csv():
     if not os.path.exists(CSV_FILE):
@@ -1076,6 +1079,9 @@ async def convert_link_to_button(message: types.Message):
     if ca and "reflink" in message.text.lower():
         logger.info(f"Adding buttons because 'reflink' found in message: {message.text}")
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            # Add "Join VIP" button if the channel is in VIP_CHANNEL_IDS
+            [InlineKeyboardButton(text="🌟🚀 Join VIP", url="https://t.me/HumbleMoonshotsPay_bot")] 
+            if message.chat.id in VIP_CHANNEL_IDS else [],
             [
                 InlineKeyboardButton(text="Bloom", url=f"https://t.me/BloomSolana_bot?start=ref_humbleguy_ca_{ca}"),
                 InlineKeyboardButton(text="Fasol", url=f"https://t.me/fasol_robot?start=ref_humbleguy_ca_{ca}"),
