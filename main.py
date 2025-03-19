@@ -42,10 +42,15 @@ class APISessionManager:
         self.retry_delay = 2
         self.base_url = "https://gmgn.ai/api/v1/mutil_window_token_info"
         
-        # Proxy list from original code
+        # Proxy list with explicit host, port, username, password
         self.proxy_list = [
-            "residential.birdproxies.com:7777:pool-p1-cc-us:sf3lefz1yj3zwjvy",
-            "residential.birdproxies.com:7777:pool-p1-cc-us:sf3lefz1yj3zwjvy",
+            {
+                "host": "residential.birdproxies.com",
+                "port": 7777,
+                "username": "pool-p1-cc-us",
+                "password": "sf3lefz1yj3zwjvy"
+            },
+            # Add more proxies if needed
         ]
         self.current_proxy_index = 0
     
@@ -54,7 +59,9 @@ class APISessionManager:
             return None
         proxy = self.proxy_list[self.current_proxy_index]
         self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxy_list)
-        return f"http://{proxy}" if not proxy.startswith("http") else proxy
+        # Return proxy in a format compatible with tls_client and aiohttp
+        proxy_url = f"http://{proxy['username']}:{proxy['password']}@{proxy['host']}:{proxy['port']}"
+        return proxy_url
 
     async def randomize_session(self, force: bool = False):
         current_time = time.time()
@@ -88,13 +95,17 @@ class APISessionManager:
                 proxy_url = await self.get_proxy()
                 if proxy_url:
                     self.session.proxies = {
-                        'http': proxy_url,
-                        'https': proxy_url
+                        "http": proxy_url,
+                        "https": proxy_url
                     }
                     logger.debug(f"Using proxy: {proxy_url}")
                 
                 connector = aiohttp.TCPConnector(ssl=False)
-                self.aio_session = aiohttp.ClientSession(connector=connector, headers=self.session.headers, trust_env=False)
+                self.aio_session = aiohttp.ClientSession(
+                    connector=connector,
+                    headers=self.session.headers,
+                    trust_env=False
+                )
                 self._active_sessions.add(self.aio_session)
                 
                 self._session_created_at = current_time
@@ -103,13 +114,14 @@ class APISessionManager:
             except Exception as e:
                 logger.error(f"Failed to initialize TLS client session: {str(e)}")
                 self.session = None
+                self.aio_session = None  # Ensure reset on failure
 
     async def _run_in_executor(self, func, *args, **kwargs):
         return await asyncio.get_event_loop().run_in_executor(_executor, lambda: func(*args, **kwargs))
 
     async def fetch_token_data(self, mint_address):
         await self.randomize_session()
-        if not self.session:
+        if not self.session or not self.aio_session:
             return {"error": "TLS client session not initialized"}
         
         self._session_requests += 1
@@ -118,19 +130,17 @@ class APISessionManager:
         
         for attempt in range(self.max_retries):
             try:
-                response = await self._run_in_executor(
-                    self.session.post,
+                async with self.aio_session.post(
                     self.base_url,
                     json=payload,
-                    allow_redirects=True
-                )
-                
-                if response.status_code == 200:
-                    return response.json()
-                
-                logger.warning(f"TLS client attempt {attempt + 1} failed with status {response.status_code}")
+                    headers=headers,
+                    proxy=self.session.proxies.get("http") if self.session.proxies else None
+                ) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    logger.warning(f"Attempt {attempt + 1} failed with status {response.status}")
             except Exception as e:
-                logger.warning(f"TLS client attempt {attempt + 1} failed: {str(e)}")
+                logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
             
             await asyncio.sleep(self.retry_delay)
         
