@@ -39,7 +39,7 @@ class APISessionManager:
         self._session_max_age = 3600  # 1 hour
         self._session_max_requests = 100
         self.max_retries = 3
-        self.retry_delay = 2
+        self.retry_delay = 5  # Increased delay
         self.base_url = "https://gmgn.ai/api/v1/mutil_window_token_info"
         
         # Proxy list with explicit host, port, username, password
@@ -50,7 +50,6 @@ class APISessionManager:
                 "username": "pool-p1-cc-us",
                 "password": "sf3lefz1yj3zwjvy"
             },
-            # Add more proxies if needed
         ]
         self.current_proxy_index = 0
     
@@ -59,9 +58,9 @@ class APISessionManager:
             return None
         proxy = self.proxy_list[self.current_proxy_index]
         self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxy_list)
-        # Return proxy in a format compatible with tls_client and aiohttp
         proxy_url = f"http://{proxy['username']}:{proxy['password']}@{proxy['host']}:{proxy['port']}"
-        return proxy_url
+        return proxy_url  # Comment out and return None to test without proxy
+        # return None
 
     async def randomize_session(self, force: bool = False):
         current_time = time.time()
@@ -89,7 +88,8 @@ class APISessionManager:
                 user_agent = UserAgent().random
                 self.session.headers.update({
                     "User-Agent": user_agent,
-                    "Content-Type": "application/json"
+                    "Content-Type": "application/json",
+                    # "Authorization": "Bearer YOUR_API_KEY"  # Uncomment and add key if required
                 })
                 
                 proxy_url = await self.get_proxy()
@@ -114,7 +114,7 @@ class APISessionManager:
             except Exception as e:
                 logger.error(f"Failed to initialize TLS client session: {str(e)}")
                 self.session = None
-                self.aio_session = None  # Ensure reset on failure
+                self.aio_session = None
 
     async def _run_in_executor(self, func, *args, **kwargs):
         return await asyncio.get_event_loop().run_in_executor(_executor, lambda: func(*args, **kwargs))
@@ -134,7 +134,8 @@ class APISessionManager:
                     self.base_url,
                     json=payload,
                     headers=headers,
-                    proxy=self.session.proxies.get("http") if self.session.proxies else None
+                    proxy=self.session.proxies.get("http") if self.session.proxies else None,
+                    timeout=aiohttp.ClientTimeout(total=30)
                 ) as response:
                     if response.status == 200:
                         return await response.json()
