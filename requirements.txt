@@ -4,4 +4,4 @@ requests
 beautifulsoup4
 tls-client
 aiohttp
-fake-useragent
+fake-useragent>=1.0.0  # Ensure version 1.0.0 or higher
