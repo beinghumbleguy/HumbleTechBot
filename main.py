@@ -17,7 +17,7 @@ import time
 import random
 import aiohttp
 import tls_client
-from fake_useragent import UserAgent, __version__ as fake_useragent_version
+from fake_useragent import UserAgent
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Dict
 from packaging import version
@@ -27,7 +27,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Log the fake-useragent version
-logger.info(f"fake-useragent version: {fake_useragent_version}")
+logger.info(f"fake-useragent initialized successfully")
 
 # Load environment variables
 TOKEN = os.getenv("BOT_TOKEN")
