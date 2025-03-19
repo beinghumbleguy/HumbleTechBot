@@ -389,16 +389,27 @@ def is_authorized(username: str) -> bool:
 
 # Updated function to get token data using API session manager
 async def get_gmgn_token_data(mint_address):
-    endpoint = f"sol/token/{mint_address}"
-    logger.info(f"Fetching token data for CA: {mint_address} from endpoint: {endpoint}")
-    try:
-        html_content = await api_session_manager._make_request(endpoint)
-        if not html_content:
-            logger.error("Failed to fetch HTML content after retries.")
-            return {"error": "Failed to fetch data after retries."}
+    url = "https://gmgn.ai/api/v1/mutil_window_token_info"
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+    payload = {
+        "chain": "sol",
+        "addresses": [mint_address]
+    }
 
-        logger.debug(f"Received HTML content (first 500 chars): {html_content[:500]}...")
-        soup = BeautifulSoup(html_content, "html.parser")
+    logger.info(f"Sending API request to {url} with payload: {payload}")
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=payload, headers=headers) as response:
+            if response.status == 200:
+                data = await response.json()
+                logger.info(f"API Response: {data}")
+                return data
+            else:
+                logger.error(f"API request failed with status {response.status}: {await response.text()}")
+                return {"error": f"API request failed with status {response.status}"}
 
         # Helper function to find a value by label
         def find_value_by_label(label, tag="div", value_tag="div"):
