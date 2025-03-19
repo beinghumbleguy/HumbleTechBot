@@ -21,6 +21,9 @@ from fake_useragent import UserAgent
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Dict
 
+# Optional: Uncomment if using Playwright for JavaScript-rendered content
+# from playwright.async_api import async_playwright
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -194,7 +197,7 @@ class APISessionManager:
                 random_tls_extension_order=True
             )
             
-            user_agent = UserAgent().random
+            user_agent = UserAgent(use_cache_server=False).random  # Disable external fetch to avoid runtime errors
             self.headers_dict["User-Agent"] = user_agent
             self.session.headers.update(self.headers_dict)
             
@@ -291,7 +294,7 @@ def init_csv():
         with open(CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow([
-                "Timestamp", "CA", "BSRatio", "BSRatio_Pass", "BSRatio_Low_Pass",
+                "Timestamp", "Token Name", "CA", "BSRatio", "BSRatio_Pass", "BSRatio_Low_Pass",
                 "DevSold", "DevSoldLeftValue", "DevSold_Pass", "Top10", "Top10_Pass",
                 "Snipers", "Snipers_Pass", "Bundles", "Bundles_Pass", "Insiders", "Insiders_Pass",
                 "KOLs", "KOLs_Pass", "Overall_Pass"
@@ -299,7 +302,7 @@ def init_csv():
         logger.info(f"Created CSV file: {CSV_FILE}")
 
 # Log filter results to CSV
-def log_to_csv(ca, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold, dev_sold_left_value, dev_sold_pass,
+def log_to_csv(token_name, ca, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold, dev_sold_left_value, dev_sold_pass,
                top_10, top_10_pass, snipers, snipers_pass, bundles, bundles_pass,
                insiders, insiders_pass, kols, kols_pass, overall_pass):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -307,7 +310,7 @@ def log_to_csv(ca, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold, dev_sold_l
         with open(CSV_FILE, mode='a', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow([
-                timestamp, ca if ca else "N/A",
+                timestamp, token_name if token_name else "N/A", ca if ca else "N/A",
                 bs_ratio if bs_ratio is not None else "N/A",
                 bs_ratio_pass if (CheckHighEnabled or CheckLowEnabled) else "N/A",
                 check_low_pass if CheckLowEnabled else "N/A",
@@ -326,7 +329,7 @@ def log_to_csv(ca, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold, dev_sold_l
                 kols_pass if KOLsFilterEnabled and kols is not None else "N/A",
                 overall_pass
             ])
-    logger.info(f"Logged filter results to CSV for CA: {ca}")
+    logger.info(f"Logged filter results to CSV for Token: {token_name}, CA: {ca}")
 
 # Flask routes
 @app.route('/')
@@ -361,26 +364,140 @@ def is_authorized(username: str) -> bool:
 # Updated function to get token data using API session manager
 async def get_gmgn_token_data(mint_address):
     endpoint = f"sol/token/{mint_address}"
+    logger.info(f"Fetching token data for CA: {mint_address} from endpoint: {endpoint}")
     try:
         html_content = await api_session_manager._make_request(endpoint)
         if not html_content:
+            logger.error("Failed to fetch HTML content after retries.")
             return {"error": "Failed to fetch data after retries."}
 
+        logger.debug(f"Received HTML content (first 500 chars): {html_content[:500]}...")
         soup = BeautifulSoup(html_content, "html.parser")
+
+        # Helper function to find a value by label
+        def find_value_by_label(label, tag="div", value_tag="div"):
+            # Try exact match
+            label_elem = soup.find(tag, text=lambda t: t and label in t)
+            if label_elem:
+                value_elem = label_elem.find_next_sibling(value_tag)
+                if value_elem:
+                    return value_elem.text.strip()
+            # Try partial match with different tags
+            label_elem = soup.find(lambda t: t.name in [tag, "span", "p"] and label in t.text)
+            if label_elem:
+                value_elem = label_elem.find_next_sibling(lambda t: t.name in [value_tag, "span", "p"])
+                if value_elem:
+                    return value_elem.text.strip()
+            logger.warning(f"Could not find {label} in the HTML.")
+            return None
+
+        # Extract Token Name (often in <h1> or a specific class)
+        token_name = None
+        # Try finding token name in <h1> tag (common for token pages)
+        h1_tag = soup.find("h1")
+        if h1_tag:
+            token_name = h1_tag.text.strip()
+        else:
+            # Fallback: Look for a class or other tag that might contain the token name
+            token_name_elem = soup.find(class_=re.compile("token-name|title|name", re.I))
+            if token_name_elem:
+                token_name = token_name_elem.text.strip()
+        if not token_name:
+            logger.warning("Could not find token name in the HTML.")
+
+        # Extract Market Cap, Liquidity, and Price
+        market_cap = find_value_by_label("Market Cap")
+        liquidity = find_value_by_label("Liquidity")
+        price = find_value_by_label("Price")
+
+        # Check if all values were found
+        if market_cap is None or liquidity is None or price is None:
+            logger.error("Failed to extract all required fields. Extracted values: "
+                         f"Market Cap={market_cap}, Liquidity={liquidity}, Price={price}")
+            return {"error": "Failed to extract all required fields. Website structure may have changed."}
+
+        logger.info(f"Successfully extracted token data - Token Name: {token_name}, Market Cap: {market_cap}, Liquidity: {liquidity}, Price: {price}")
+        return {
+            "token_name": token_name,
+            "market_cap": market_cap,
+            "liquidity": liquidity,
+            "price": price,
+            "contract": mint_address
+        }
+
+    except Exception as e:
+        logger.error(f"Error while fetching token data: {str(e)}")
+        return {"error": f"Error: {str(e)}"}
+
+# Alternative implementation using Playwright (uncomment to use)
+"""
+async def get_gmgn_token_data(mint_address):
+    endpoint = f"sol/token/{mint_address}"
+    url = f"https://gmgn.ai/{endpoint}"
+    logger.info(f"Fetching token data for CA: {mint_address} from URL: {url}")
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
         try:
-            market_cap = soup.find("div", text="Market Cap").find_next_sibling("div").text.strip()
-            liquidity = soup.find("div", text="Liquidity").find_next_sibling("div").text.strip()
-            price = soup.find("div", text="Price").find_next_sibling("div").text.strip()
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            html_content = await page.content()
+            logger.debug(f"Received HTML content (first 500 chars): {html_content[:500]}...")
+
+            soup = BeautifulSoup(html_content, "html.parser")
+
+            # Helper function to find a value by label
+            def find_value_by_label(label, tag="div", value_tag="div"):
+                label_elem = soup.find(tag, text=lambda t: t and label in t)
+                if label_elem:
+                    value_elem = label_elem.find_next_sibling(value_tag)
+                    if value_elem:
+                        return value_elem.text.strip()
+                label_elem = soup.find(lambda t: t.name in [tag, "span", "p"] and label in t.text)
+                if label_elem:
+                    value_elem = label_elem.find_next_sibling(lambda t: t.name in [value_tag, "span", "p"])
+                    if value_elem:
+                        return value_elem.text.strip()
+                logger.warning(f"Could not find {label} in the HTML.")
+                return None
+
+            # Extract Token Name
+            token_name = None
+            h1_tag = soup.find("h1")
+            if h1_tag:
+                token_name = h1_tag.text.strip()
+            else:
+                token_name_elem = soup.find(class_=re.compile("token-name|title|name", re.I))
+                if token_name_elem:
+                    token_name = token_name_elem.text.strip()
+            if not token_name:
+                logger.warning("Could not find token name in the HTML.")
+
+            # Extract Market Cap, Liquidity, and Price
+            market_cap = find_value_by_label("Market Cap")
+            liquidity = find_value_by_label("Liquidity")
+            price = find_value_by_label("Price")
+
+            if market_cap is None or liquidity is None or price is None:
+                logger.error("Failed to extract all required fields. Extracted values: "
+                             f"Market Cap={market_cap}, Liquidity={liquidity}, Price={price}")
+                return {"error": "Failed to extract all required fields. Website structure may have changed."}
+
+            logger.info(f"Successfully extracted token data - Token Name: {token_name}, Market Cap: {market_cap}, Liquidity: {liquidity}, Price: {price}")
             return {
+                "token_name": token_name,
                 "market_cap": market_cap,
                 "liquidity": liquidity,
                 "price": price,
                 "contract": mint_address
             }
-        except AttributeError:
-            return {"error": "Failed to extract data. Structure may have changed."}
-    except Exception as e:
-        return {"error": f"Network error: {str(e)}"}
+
+        except Exception as e:
+            logger.error(f"Error while fetching token data with Playwright: {str(e)}")
+            return {"error": f"Error: {str(e)}"}
+        finally:
+            await browser.close()
+"""
 
 # Handler for /adduser command to add an authorized user (only for super user)
 @dp.message(Command(commands=["adduser"]))
@@ -908,14 +1025,16 @@ async def cmd_ca(message: types.Message):
 
     token_data = await get_gmgn_token_data(token_ca)
     if "error" in token_data:
+        logger.warning(f"Error fetching token data: {token_data['error']}")
         await message.reply(f"Error: {token_data['error']}")
     else:
         response = (
-            f"Token Data for CA: {token_data['contract']}\n"
+            f"Token Data for {token_data['token_name'] if token_data['token_name'] else 'Unknown Token'} (CA: {token_data['contract']})\n"
             f"📈 Market Cap: {token_data['market_cap']}\n"
             f"💧 Liquidity: {token_data['liquidity']}\n"
             f"💰 Price: {token_data['price']}"
         )
+        logger.info(f"Sending response: {response}")
         await message.reply(response)
 
 # Handler for /mastersetup command to display all filter settings
@@ -1037,6 +1156,14 @@ async def convert_link_to_button(message: types.Message):
     kols = None
     lines = [line.strip() for line in text.replace('\r\n', '\n').split('\n') if line.strip()]
     logger.info(f"Lines to check: {lines}")
+
+    # Extract token name from the first line (assumed to be the token name)
+    token_name = None
+    if lines:
+        token_name = lines[0].strip()
+        # Clean up token name by removing any emojis or special characters if needed
+        token_name = re.sub(r'[^\w\s]', '', token_name).strip()
+        logger.info(f"Extracted token name from message: {token_name}")
 
     for line in lines:
         logger.info(f"Checking line: '{line}'")
@@ -1257,7 +1384,7 @@ async def convert_link_to_button(message: types.Message):
             filter_results.append(f"KOLs: {kols if kols else 'Not found'} (Disabled)")
 
         log_to_csv(
-            ca, bs_ratio, bs_ratio_pass if (CheckHighEnabled or CheckLowEnabled) else None, None,
+            token_name, ca, bs_ratio, bs_ratio_pass if (CheckHighEnabled or CheckLowEnabled) else None, None,
             dev_sold, dev_sold_left_value, dev_sold_pass,
             top_10, top_10_pass, snipers, snipers_pass,
             bundles, bundles_pass, insiders, insiders_pass,
