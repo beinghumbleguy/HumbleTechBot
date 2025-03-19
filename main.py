@@ -69,42 +69,49 @@ class APISessionManager:
                     logger.error(f"Error closing aiohttp session: {str(e)}")
                 self.aio_session = None
 
-            browser_names = [name for name in tls_client.settings.ClientIdentifiers.__args__ 
-                            if name.startswith(('chrome', 'safari', 'firefox', 'opera'))]
-            identifier = random.choice(browser_names)
-            
-            self.session = tls_client.Session(
-                client_identifier=identifier,
-                random_tls_extension_order=True
-            )
-            
-            user_agent = UserAgent().random
-            self.session.headers.update({
-                "User-Agent": user_agent,
-                "Content-Type": "application/json"
-            })
-            
-            proxy_url = await self.get_proxy()
-            if proxy_url:
-                self.session.proxies = {
-                    'http': proxy_url,
-                    'https': proxy_url
-                }
-                logger.debug(f"Using proxy: {proxy_url}")
-            
-            connector = aiohttp.TCPConnector(ssl=False)
-            self.aio_session = aiohttp.ClientSession(connector=connector, headers=self.session.headers, trust_env=False)
-            self._active_sessions.add(self.aio_session)
-            
-            self._session_created_at = current_time
-            self._session_requests = 0
-            logger.debug("Created new TLS client session")
+            try:
+                browser_names = [name for name in tls_client.settings.ClientIdentifiers.__args__ 
+                                if name.startswith(('chrome', 'safari', 'firefox', 'opera'))]
+                identifier = random.choice(browser_names)
+                
+                self.session = tls_client.Session(
+                    client_identifier=identifier,
+                    random_tls_extension_order=True
+                )
+                
+                user_agent = UserAgent().random
+                self.session.headers.update({
+                    "User-Agent": user_agent,
+                    "Content-Type": "application/json"
+                })
+                
+                proxy_url = await self.get_proxy()
+                if proxy_url:
+                    self.session.proxies = {
+                        'http': proxy_url,
+                        'https': proxy_url
+                    }
+                    logger.debug(f"Using proxy: {proxy_url}")
+                
+                connector = aiohttp.TCPConnector(ssl=False)
+                self.aio_session = aiohttp.ClientSession(connector=connector, headers=self.session.headers, trust_env=False)
+                self._active_sessions.add(self.aio_session)
+                
+                self._session_created_at = current_time
+                self._session_requests = 0
+                logger.debug("Created new TLS client session")
+            except Exception as e:
+                logger.error(f"Failed to initialize TLS client session: {str(e)}")
+                self.session = None
 
     async def _run_in_executor(self, func, *args, **kwargs):
         return await asyncio.get_event_loop().run_in_executor(_executor, lambda: func(*args, **kwargs))
 
     async def fetch_token_data(self, mint_address):
         await self.randomize_session()
+        if not self.session:
+            return {"error": "TLS client session not initialized"}
+        
         self._session_requests += 1
         headers = self.session.headers
         payload = {"chain": "sol", "addresses": [mint_address]}
