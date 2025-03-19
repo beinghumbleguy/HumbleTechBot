@@ -4,4 +4,5 @@ requests
 beautifulsoup4
 tls-client
 aiohttp
-fake-useragent>=1.0.0  # Ensure version 1.0.0 or higher
+fake-useragent==1.5.1  # Pin to a version that supports use_cache_server
+packaging
