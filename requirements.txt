@@ -3,3 +3,5 @@ flask
 requests
 beautifulsoup4
 tls-client
+aiohttp
+fake-useragent
