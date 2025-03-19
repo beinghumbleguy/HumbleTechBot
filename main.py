@@ -17,16 +17,17 @@ import time
 import random
 import aiohttp
 import tls_client
-from fake_useragent import UserAgent
+from fake_useragent import UserAgent, __version__ as fake_useragent_version
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Dict
-
-# Optional: Uncomment if using Playwright for JavaScript-rendered content
-# from playwright.async_api import async_playwright
+from packaging import version
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Log the fake-useragent version
+logger.info(f"fake-useragent version: {fake_useragent_version}")
 
 # Load environment variables
 TOKEN = os.getenv("BOT_TOKEN")
@@ -135,6 +136,14 @@ class APISessionManager:
         self.current_proxy_index = 0
         logger.info(f"Initialized proxy list with {len(self.proxy_list)} proxies")
 
+        # Static list of User-Agents for fallback
+        self.fallback_user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15",
+        ]
+
     async def get_proxy_url(self):
         if not self.proxy_list:
             logger.warning("No proxies available in the proxy list")
@@ -197,7 +206,24 @@ class APISessionManager:
                 random_tls_extension_order=True
             )
             
-            user_agent = UserAgent(use_cache_server=False).random  # Disable external fetch to avoid runtime errors
+            # Check fake-useragent version to determine if use_cache_server is supported
+            try:
+                ua_version = version.parse(fake_useragent_version)
+                use_cache_supported = ua_version >= version.parse("1.0.0")
+            except Exception as e:
+                logger.warning(f"Could not parse fake-useragent version: {str(e)}. Assuming use_cache_server is not supported.")
+                use_cache_supported = False
+
+            # Attempt to generate a User-Agent with fake-useragent
+            try:
+                if use_cache_supported:
+                    user_agent = UserAgent(use_cache_server=False).random
+                else:
+                    user_agent = UserAgent().random
+            except Exception as e:
+                logger.warning(f"Failed to generate User-Agent with fake-useragent: {str(e)}. Using fallback User-Agent.")
+                user_agent = random.choice(self.fallback_user_agents)
+            
             self.headers_dict["User-Agent"] = user_agent
             self.session.headers.update(self.headers_dict)
             
@@ -428,76 +454,6 @@ async def get_gmgn_token_data(mint_address):
     except Exception as e:
         logger.error(f"Error while fetching token data: {str(e)}")
         return {"error": f"Error: {str(e)}"}
-
-# Alternative implementation using Playwright (uncomment to use)
-"""
-async def get_gmgn_token_data(mint_address):
-    endpoint = f"sol/token/{mint_address}"
-    url = f"https://gmgn.ai/{endpoint}"
-    logger.info(f"Fetching token data for CA: {mint_address} from URL: {url}")
-
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
-        try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            html_content = await page.content()
-            logger.debug(f"Received HTML content (first 500 chars): {html_content[:500]}...")
-
-            soup = BeautifulSoup(html_content, "html.parser")
-
-            # Helper function to find a value by label
-            def find_value_by_label(label, tag="div", value_tag="div"):
-                label_elem = soup.find(tag, text=lambda t: t and label in t)
-                if label_elem:
-                    value_elem = label_elem.find_next_sibling(value_tag)
-                    if value_elem:
-                        return value_elem.text.strip()
-                label_elem = soup.find(lambda t: t.name in [tag, "span", "p"] and label in t.text)
-                if label_elem:
-                    value_elem = label_elem.find_next_sibling(lambda t: t.name in [value_tag, "span", "p"])
-                    if value_elem:
-                        return value_elem.text.strip()
-                logger.warning(f"Could not find {label} in the HTML.")
-                return None
-
-            # Extract Token Name
-            token_name = None
-            h1_tag = soup.find("h1")
-            if h1_tag:
-                token_name = h1_tag.text.strip()
-            else:
-                token_name_elem = soup.find(class_=re.compile("token-name|title|name", re.I))
-                if token_name_elem:
-                    token_name = token_name_elem.text.strip()
-            if not token_name:
-                logger.warning("Could not find token name in the HTML.")
-
-            # Extract Market Cap, Liquidity, and Price
-            market_cap = find_value_by_label("Market Cap")
-            liquidity = find_value_by_label("Liquidity")
-            price = find_value_by_label("Price")
-
-            if market_cap is None or liquidity is None or price is None:
-                logger.error("Failed to extract all required fields. Extracted values: "
-                             f"Market Cap={market_cap}, Liquidity={liquidity}, Price={price}")
-                return {"error": "Failed to extract all required fields. Website structure may have changed."}
-
-            logger.info(f"Successfully extracted token data - Token Name: {token_name}, Market Cap: {market_cap}, Liquidity: {liquidity}, Price: {price}")
-            return {
-                "token_name": token_name,
-                "market_cap": market_cap,
-                "liquidity": liquidity,
-                "price": price,
-                "contract": mint_address
-            }
-
-        except Exception as e:
-            logger.error(f"Error while fetching token data with Playwright: {str(e)}")
-            return {"error": f"Error: {str(e)}"}
-        finally:
-            await browser.close()
-"""
 
 # Handler for /adduser command to add an authorized user (only for super user)
 @dp.message(Command(commands=["adduser"]))
