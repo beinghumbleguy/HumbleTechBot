@@ -9,7 +9,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Load environment variables
@@ -95,7 +95,7 @@ class APISessionManager:
 api_session_manager = APISessionManager()
 
 # Handler for /ca <token_ca> command
-@dp.message(Command(commands=["ca"]))
+@dp.message(Command("ca"))
 async def cmd_ca(message: types.Message):
     username = message.from_user.username
     logger.info(f"Received /ca command from {username}")
@@ -118,6 +118,7 @@ async def cmd_ca(message: types.Message):
 # Main function to start bot
 async def main():
     logger.info("Starting bot polling...")
+    dp.message.register(cmd_ca)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
