@@ -41,8 +41,20 @@ class APISessionManager:
         self.max_retries = 3
         self.retry_delay = 2
         self.base_url = "https://gmgn.ai/api/v1/mutil_window_token_info"
-        self.proxy_list = []
+        
+        # Proxy list from original code
+        self.proxy_list = [
+            "residential.birdproxies.com:7777:pool-p1-cc-us:sf3lefz1yj3zwjvy",
+            "residential.birdproxies.com:7777:pool-p1-cc-us:sf3lefz1yj3zwjvy",
+        ]
         self.current_proxy_index = 0
+    
+    async def get_proxy(self):
+        if not self.proxy_list:
+            return None
+        proxy = self.proxy_list[self.current_proxy_index]
+        self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxy_list)
+        return f"http://{proxy}" if not proxy.startswith("http") else proxy
 
     async def randomize_session(self, force: bool = False):
         current_time = time.time()
@@ -71,6 +83,14 @@ class APISessionManager:
                 "User-Agent": user_agent,
                 "Content-Type": "application/json"
             })
+            
+            proxy_url = await self.get_proxy()
+            if proxy_url:
+                self.session.proxies = {
+                    'http': proxy_url,
+                    'https': proxy_url
+                }
+                logger.debug(f"Using proxy: {proxy_url}")
             
             connector = aiohttp.TCPConnector(ssl=False)
             self.aio_session = aiohttp.ClientSession(connector=connector, headers=self.session.headers, trust_env=False)
