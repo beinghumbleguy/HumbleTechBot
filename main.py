@@ -342,7 +342,7 @@ def init_csv():
 def log_to_csv(token_name, ca, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold, dev_sold_left_value, dev_sold_pass,
                top_10, top_10_pass, snipers, snipers_pass, bundles, bundles_pass,
                insiders, insiders_pass, kols, kols_pass, overall_pass):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = datetime.now().strftime("%Y-%m-d %H:%M:%S")
     with csv_lock:
         with open(CSV_FILE, mode='a', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
@@ -398,7 +398,7 @@ def is_authorized(username: str) -> bool:
         username = f"@{username}"
     return username in authorized_users
 
-# Updated function to get token data with K/M formatting
+# Function to get token data with K/M formatting (only for /ca command)
 async def get_gmgn_token_data(mint_address):
     endpoint = "api/v1/mutil_window_token_info"
     logger.info(f"Fetching token data for CA: {mint_address} from endpoint: {endpoint}")
@@ -983,7 +983,7 @@ async def download_csv_command(message: types.Message):
     )
     logger.info(f"Provided CSV download link to @{username}: {download_url}")
 
-# Updated handler for /ca <token_ca> command with K/M formatting
+# Handler for /ca <token_ca> command with K/M formatting
 @dp.message(Command(commands=["ca"]))
 async def cmd_ca(message: types.Message):
     username = message.from_user.username
@@ -1192,18 +1192,12 @@ async def convert_link_to_button(message: types.Message):
             logger.info(f"Found KOLs: {kols}")
             continue
 
-        if not token_name and line.startswith('┌'):
+        if not token_name or token_name == "Unknown Token":
             token_name_match = re.search(r'┌\s*(.*?)\s*┐', line)
             if token_name_match:
                 token_name = token_name_match.group(1).strip()
                 logger.info(f"Extracted Token Name: {token_name}")
                 continue
-
-    if ca:
-        token_data = await get_gmgn_token_data(ca)
-        if "error" not in token_data:
-            token_name = token_data.get("token_name", token_name)
-            logger.info(f"Updated Token Name from API: {token_name}")
 
     bs_ratio = None
     bs_ratio_pass = "N/A"
