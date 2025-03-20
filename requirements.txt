@@ -7,3 +7,5 @@ aiohttp
 fake-useragent==1.5.1  # Pin to a version that supports use_cache_server
 packaging
 cloudscraper
+pandas
+python-dotenv
