@@ -5,12 +5,11 @@ import random
 import time
 import aiohttp
 import tls_client
-import cloudscraper
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from concurrent.futures import ThreadPoolExecutor
 from fake_useragent import UserAgent
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -34,7 +33,6 @@ class APISessionManager:
     def __init__(self):
         self.session = None
         self.aio_session = None
-        self.scraper = cloudscraper.create_scraper()  # Cloudflare handler
         self._active_sessions = set()
         self._session_created_at = 0
         self._session_requests = 0
@@ -59,14 +57,6 @@ class APISessionManager:
         self.headers_dict = {
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "User-Agent": UserAgent().random,
-            # "Authorization": "Bearer YOUR_API_KEY"  # Uncomment and add if provided by friend
-        }
-        
-        # Custom headers for fallback
-        self.custom_headers_dict = {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Referer": "https://gmgn.ai/",
             "Origin": "https://gmgn.ai"
@@ -82,7 +72,7 @@ class APISessionManager:
         # return None
 
     async def randomize_session(self, force: bool = False):
-        """Create TLS client session with randomized fingerprint and headers."""
+        """Create TLS client session with optimized headers."""
         current_time = time.time()
         session_expired = (current_time - self._session_created_at) > self._session_max_age
         too_many_requests = self._session_requests >= self._session_max_requests
@@ -105,8 +95,6 @@ class APISessionManager:
                 random_tls_extension_order=True
             )
             
-            user_agent = UserAgent().random
-            self.headers_dict["User-Agent"] = user_agent
             self.session.headers.update(self.headers_dict)
             
             proxy_url = await self.get_proxy()
@@ -140,7 +128,7 @@ class APISessionManager:
         )
 
     async def fetch_token_data(self, mint_address):
-        """Fetch token data with retry and fallback mechanisms."""
+        """Fetch token data with retry mechanism."""
         await self.randomize_session()
         if not self.session or not self.aio_session:
             return {"error": "TLS client session not initialized"}
@@ -148,7 +136,6 @@ class APISessionManager:
         self._session_requests += 1
         data = {"chain": "sol", "addresses": [mint_address]}
         
-        # Try with tls_client
         for attempt in range(self.max_retries):
             try:
                 if attempt > 0:
@@ -173,45 +160,7 @@ class APISessionManager:
                 logger.debug(f"Waiting {self.retry_delay} seconds before next attempt")
                 await asyncio.sleep(self.retry_delay)
         
-        # Fallback with custom headers
-        try:
-            logger.info("Trying with alternative headers")
-            await self.randomize_session(force=True)
-            self.session.headers.update(self.custom_headers_dict)
-            
-            response = await self._run_in_executor(
-                self.session.post,
-                self.base_url,
-                json=data,
-                allow_redirects=True
-            )
-            if response.status_code == 200:
-                logger.debug("Success with custom headers")
-                return response.json()
-            logger.warning(f"Fallback with custom headers failed with status {response.status_code}. Response: {response.text[:500]}...")
-        except Exception as e:
-            logger.error(f"Fallback with custom headers failed: {str(e)}")
-        
-        # Final fallback with cloudscraper
-        try:
-            logger.info("Attempting with cloudscraper")
-            proxy_url = await self.get_proxy()  # Await proxy retrieval here
-            proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
-            loop = asyncio.get_event_loop()
-            scraper_response = await loop.run_in_executor(None, lambda: self.scraper.post(
-                self.base_url,
-                json=data,
-                headers=self.custom_headers_dict,
-                proxies=proxies
-            ))
-            if scraper_response.status_code == 200:
-                logger.debug("Success with cloudscraper")
-                return scraper_response.json()
-            logger.warning(f"Cloudscraper attempt failed with status {scraper_response.status_code}. Response: {scraper_response.text[:500]}...")
-        except Exception as e:
-            logger.error(f"Cloudscraper attempt failed: {str(e)}")
-        
-        return {"error": "Failed to fetch data after retries and fallbacks."}
+        return {"error": "Failed to fetch data after retries."}
 
 # Initialize API session manager
 api_session_manager = APISessionManager()
@@ -234,8 +183,25 @@ async def cmd_ca(message: types.Message):
     if "error" in token_data:
         await message.reply(f"Error: {token_data['error']}")
     else:
-        response = f"Token Data for {token_ca}\n📈 Data: {token_data}"
-        await message.reply(response)
+        # Extract and calculate market cap
+        data = token_data["data"][0]
+        price = float(data["price"]["price"])
+        circulating_supply = float(data["circulating_supply"])
+        market_cap = price * circulating_supply
+        
+        # Format the response
+        response = (
+            f"**Token Data for {token_ca}**\n"
+            f"📈 **{data['name']} ({data['symbol']})**\n"
+            f"💰 Price: ${price:.6f} (24h: ${data['price']['price_24h']})\n"
+            f"📉 Market Cap: ${market_cap:,.2f}\n"
+            f"🌊 Liquidity: ${data['liquidity']}\n"
+            f"📊 24h Volume: ${data['price']['volume_24h']}\n"
+            f"👥 Holders: {data['holder_count']}\n"
+            f"💸 Circulating Supply: {circulating_supply:,}\n"
+            f"🔗 Logo: [View]({data['logo']})"
+        )
+        await message.reply(response, parse_mode="Markdown")
 
 # Main function to start bot
 async def main():
