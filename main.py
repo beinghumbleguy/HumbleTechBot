@@ -1107,6 +1107,7 @@ async def convert_link_to_button(message: types.Message):
         logger.info(f"Message is forwarded from chat: {message.forward_from_chat.title}")
 
     ca = None
+    fasol_reflink = None
     text = message.text
     if message.entities:
         for entity in message.entities:
@@ -1117,6 +1118,10 @@ async def convert_link_to_button(message: types.Message):
                 if ca_match:
                     ca = ca_match.group(0)
                     logger.info(f"Extracted CA: {ca}")
+                    # Check if this URL is a Fasol Reflink
+                    if "fasol_robot" in url.lower():
+                        fasol_reflink = url
+                        logger.info(f"Extracted Fasol Reflink: {fasol_reflink}")
                 break
 
     if not ca:
@@ -1197,6 +1202,12 @@ async def convert_link_to_button(message: types.Message):
             if token_name_match:
                 token_name = token_name_match.group(1).strip()
                 logger.info(f"Extracted Token Name: {token_name}")
+                continue
+            # Try to extract token name from the first line if it contains a cashtag
+            cashtag_match = re.search(r'\$[A-Z0-9]+', line)
+            if cashtag_match:
+                token_name = cashtag_match.group(0).replace('$', '').strip()
+                logger.info(f"Extracted Token Name from cashtag: {token_name}")
                 continue
 
     bs_ratio = None
@@ -1300,20 +1311,64 @@ async def convert_link_to_button(message: types.Message):
             logger.error(f"Failed to delete message: {str(e)}")
         return
 
-    if ca:
-        button = InlineKeyboardButton(text="View on gmgn.ai", url=f"https://gmgn.ai/sol/token/{ca}")
-        markup = InlineKeyboardMarkup(inline_keyboard=[[button]])
+    if ca and "reflink" in message.text.lower():
+        logger.info(f"Adding buttons because 'reflink' found in message: {message.text}")
+        # Remove the "Buy token on Fasol Reflink" line and "Forwarded from" line from the message text
+        updated_text = re.sub(r'Forwarded from .*\n', '', text, flags=re.IGNORECASE)
+        updated_text = re.sub(r'Buy token on Fasol Reflink\s*', '', updated_text, flags=re.IGNORECASE).strip()
+
+        # Replace the CA line with "🔗 CA: {ca}" for consistency
+        lines = updated_text.splitlines()
+        for i, line in enumerate(lines):
+            if re.search(r'[A-Za-z0-9]{44}', line):
+                lines[i] = f"🔗 CA: {ca}"
+                break
+        updated_text = "\n".join(line.strip() for line in lines if line.strip())
+        logger.info(f"Final text to send (CA included): {updated_text}")
+
+        # Create trading bot buttons (Bloom, Fasol, Maestro, Trojan) as in the original code
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🌟🚀 Join VIP 🚀🌟", url="https://t.me/HumbleMoonshotsPay_bot?start=start")]
+            if message.chat.id in VIP_CHANNEL_IDS else [],
+            [
+                InlineKeyboardButton(text="Bloom", url=f"https://t.me/BloomSolana_bot?start=ref_humbleguy_ca_{ca}"),
+                InlineKeyboardButton(text="Fasol", url=fasol_reflink if fasol_reflink else f"https://t.me/fasol_robot?start=ref_humbleguy_ca_{ca}"),
+            ],
+            [
+                InlineKeyboardButton(text="Maestro", url=f"http://t.me/maestro?start={ca}-beinghumbleguy"),
+                InlineKeyboardButton(text="Trojan", url=f"https://t.me/solana_trojanbot?start=r-beinghumbleguy-{ca}")
+            ]
+        ])
+
+        # Add entities to make the CA copyable
+        entities = []
+        if ca:
+            ca_match = re.search(r'[A-Za-z0-9]{44}', updated_text)
+            if ca_match:
+                ca = ca_match.group(0)
+                text_before_ca = updated_text[:updated_text.find(ca)]
+                ca_new_offset = len(text_before_ca.encode('utf-16-le')) // 2
+                ca_length = 44
+                entities.append(types.MessageEntity(
+                    type="pre",
+                    offset=ca_new_offset,
+                    length=ca_length
+                ))
+                logger.info(f"Added CA as copyable entity: {ca} at offset {ca_new_offset}")
+
         try:
-            await message.edit_text(text=message.text, reply_markup=markup, parse_mode=None, entities=message.entities)
-            logger.info(f"Edited message with button for CA: {ca}")
+            await message.edit_text(text=updated_text, reply_markup=keyboard, parse_mode=None, entities=entities)
+            logger.info(f"Edited message with trading bot buttons for CA: {ca}")
         except Exception as e:
-            logger.warning(f"Failed to edit message with button: {str(e)}. Attempting to send a new message.")
+            logger.warning(f"Failed to edit message with buttons: {str(e)}. Attempting to send a new message.")
             try:
-                await message.answer(text=message.text, reply_markup=markup, parse_mode=None, entities=message.entities)
+                await message.answer(text=updated_text, reply_markup=keyboard, parse_mode=None, entities=entities)
                 await message.delete()
-                logger.info(f"Sent new message with button and deleted original for CA: {ca}")
+                logger.info(f"Sent new message with trading bot buttons and deleted original for CA: {ca}")
             except Exception as e2:
-                logger.error(f"Failed to send new message with button: {str(e2)}")
+                logger.error(f"Failed to send new message with buttons: {str(e2)}")
+    else:
+        logger.info("No CA found in URL or 'reflink' not present, skipping button addition")
 
 # Main function to start bot
 async def main():
