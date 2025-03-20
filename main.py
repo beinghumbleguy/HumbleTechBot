@@ -165,7 +165,7 @@ class APISessionManager:
                 if response.status_code == 200:
                     logger.debug("Success with tls_client")
                     return response.json()
-                logger.warning(f"Attempt {attempt + 1} failed with status {response.status_code}. Response: {response.text[:500]}...")  # Truncate for readability
+                logger.warning(f"Attempt {attempt + 1} failed with status {response.status_code}. Response: {response.text[:500]}...")
             except Exception as e:
                 logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
             
@@ -195,12 +195,14 @@ class APISessionManager:
         # Final fallback with cloudscraper
         try:
             logger.info("Attempting with cloudscraper")
+            proxy_url = await self.get_proxy()  # Await proxy retrieval here
+            proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
             loop = asyncio.get_event_loop()
             scraper_response = await loop.run_in_executor(None, lambda: self.scraper.post(
                 self.base_url,
                 json=data,
                 headers=self.custom_headers_dict,
-                proxies={"http": await self.get_proxy(), "https": await self.get_proxy()} if self.proxy_list else None
+                proxies=proxies
             ))
             if scraper_response.status_code == 200:
                 logger.debug("Success with cloudscraper")
