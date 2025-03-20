@@ -1,5 +1,5 @@
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, BotCommand
 from aiogram.filters import Command
 import asyncio
 import logging
@@ -42,7 +42,7 @@ csv_lock = threading.Lock()
 # Thread pool executor for running blocking tasks
 _executor = ThreadPoolExecutor(max_workers=5)
 
-# Global variables with default values
+# Global variables with default values as specified
 filter_enabled = True
 PassValue = 1.35
 RangeLow = 1.07
@@ -70,30 +70,15 @@ BundlesFilterEnabled = True
 InsidersFilterEnabled = False
 KOLsFilterEnabled = True
 
-# Define channel IDs
-VIP_CHANNEL_ID = -1002365061913
-PUBLIC_CHANNEL_ID = -1002272066154
-VIP_CHANNEL_IDS = {VIP_CHANNEL_ID, PUBLIC_CHANNEL_ID}
-
-# CSV file paths for each channel
-CA_FILTER_CSV_VIP = "ca_filter_log_vip.csv"
-CA_FILTER_CSV_PUBLIC = "ca_filter_log_public.csv"
-GROWTHCHECK_CSV_VIP = "growthcheck_log_vip.csv"
-GROWTHCHECK_CSV_PUBLIC = "growthcheck_log_public.csv"
+# CSV file path
+CSV_FILE = "ca_filter_log.csv"
 
 # Secret token for securing the Flask download route
 DOWNLOAD_TOKEN = secrets.token_urlsafe(32)
 logger.info(f"Generated download token: {DOWNLOAD_TOKEN}")
 
-# Dictionary to store tokens for growth monitoring
-monitored_tokens = {}
-monitored_tokens_lock = threading.Lock()
-
-# Toggle for growth notifications
-growth_notifications_enabled = True
-
-# Toggle for combined notifications (future-proofing)
-combine_notifications = False
+# Define VIP channels
+VIP_CHANNEL_IDS = {-1002272066154, -1002280798125}
 
 # Session management for API requests
 class APISessionManager:
@@ -110,6 +95,7 @@ class APISessionManager:
         self.base_url = "https://gmgn.ai"
         self._executor = _executor
 
+        # Default headers
         self.headers_dict = {
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
@@ -125,6 +111,7 @@ class APISessionManager:
             "Upgrade-Insecure-Requests": "1",
         }
 
+        # Proxy list (formatted as username:password@host:port)
         raw_proxies = [
             "residential.birdproxies.com:7777:pool-p1-cc-us:sf3lefz1yj3zwjvy",
             "residential.birdproxies.com:7777:pool-p1-cc-us:sf3lefz1yj3zwjvy",
@@ -136,6 +123,7 @@ class APISessionManager:
             "residential.birdproxies.com:7777:pool-p1-cc-us:sf3lefz1yj3zwjvy",
             "residential.birdproxies.com:7777:pool-p1-cc-us:sf3lefz1yj3zwjvy",
         ]
+        # Format proxies as username:password@host:port
         self.proxy_list = []
         for proxy in raw_proxies:
             host, port, username, password = proxy.split(":")
@@ -154,6 +142,8 @@ class APISessionManager:
         return proxy
 
     def update_proxy_list(self, proxy: str, append: bool = True):
+        """Update the proxy list by appending or replacing."""
+        # Format the proxy
         try:
             host, port, username, password = proxy.split(":")
             formatted_proxy = f"{username}:{password}@{host}:{port}"
@@ -174,15 +164,18 @@ class APISessionManager:
         return True
 
     def clear_proxy_list(self):
+        """Clear the proxy list."""
         self.proxy_list = []
         self.current_proxy_index = 0
         logger.info("Cleared proxy list")
 
     async def randomize_session(self, force: bool = False):
+        """Create TLS client session with randomized fingerprint and headers."""
         current_time = time.time()
+        
         session_expired = (current_time - self._session_created_at) > self._session_max_age
         too_many_requests = self._session_requests >= self._session_max_requests
-
+        
         if self.session is None or force or session_expired or too_many_requests:
             if self.aio_session and not self.aio_session.closed:
                 try:
@@ -191,20 +184,20 @@ class APISessionManager:
                 except Exception as e:
                     logger.error(f"Error closing aiohttp session: {str(e)}")
                 self.aio_session = None
-
-            browser_names = [name for name in tls_client.settings.ClientIdentifiers.__args__
-                             if name.startswith(('chrome', 'safari', 'firefox', 'opera'))]
+                
+            browser_names = [name for name in tls_client.settings.ClientIdentifiers.__args__ 
+                            if name.startswith(('chrome', 'safari', 'firefox', 'opera'))]
             identifier = random.choice(browser_names)
-
+            
             self.session = tls_client.Session(
                 client_identifier=identifier,
                 random_tls_extension_order=True
             )
-
+            
             user_agent = UserAgent().random
             self.headers_dict["User-Agent"] = user_agent
             self.session.headers.update(self.headers_dict)
-
+            
             proxy_url = await self.get_proxy_url()
             if proxy_url:
                 if not proxy_url.startswith('http'):
@@ -214,7 +207,7 @@ class APISessionManager:
                     'https': proxy_url
                 }
                 logger.debug(f"Successfully configured proxy {proxy_url}.")
-
+            
             connector = aiohttp.TCPConnector(ssl=False)
             self.aio_session = aiohttp.ClientSession(
                 connector=connector,
@@ -223,112 +216,98 @@ class APISessionManager:
             )
             self._active_sessions.add(self.aio_session)
             logger.debug(f"Created new aiohttp session {id(self.aio_session)}")
-
+            
             self._session_created_at = current_time
             self._session_requests = 0
             logger.debug("Created new TLS client session")
 
     async def _run_in_executor(self, func, *args, **kwargs):
+        """Run a blocking function in a thread pool."""
         return await asyncio.get_event_loop().run_in_executor(
-            self._executor,
+            self._executor, 
             lambda: func(*args, **kwargs)
         )
 
     async def _make_request(self, endpoint: str, params: Optional[Dict] = None, data: Optional[Dict] = None) -> str:
+        """Make a request with retry mechanism using TLS client in a non-blocking way."""
         url = f"{self.base_url}/{endpoint}"
         logger.debug(f"Making request to: {url}")
-
+        
         if self.session is None:
             await self.randomize_session()
-
+        
         self._session_requests += 1
-
+        
         for attempt in range(self.max_retries):
             try:
                 if attempt > 0:
                     await self.randomize_session(force=True)
-
+                
                 response = await self._run_in_executor(
                     self.session.get,
                     url,
                     params=params,
                     allow_redirects=True
                 )
-
+                
                 if response.status_code == 200:
                     return response.text
-
+                
                 logger.warning(f"TLS client attempt {attempt + 1} failed with status {response.status_code}")
-
+                
             except Exception as e:
                 logger.warning(f"TLS client attempt {attempt + 1} failed: {str(e)}")
-
+            
             if attempt < self.max_retries - 1:
                 await asyncio.sleep(self.retry_delay)
-
+                
         try:
             logger.info("Trying with alternative headers as final fallback")
             await self.randomize_session(force=True)
-
+            
             self.session.headers.update(self.custom_headers_dict)
-
+            
             response = await self._run_in_executor(
                 self.session.get,
                 url,
                 params=params,
                 allow_redirects=True
             )
-
+            
             if response.status_code == 200:
                 return response.text
-
+            
         except Exception as fallback_error:
             logger.error(f"Final fallback attempt failed: {str(fallback_error)}")
-
+        
         return ""
 
 # Initialize API session manager
 api_session_manager = APISessionManager()
 
-# Initialize CSV files with headers if they don't exist
-def init_ca_filter_csv():
-    for csv_file in [CA_FILTER_CSV_VIP, CA_FILTER_CSV_PUBLIC]:
-        if not os.path.exists(csv_file):
-            with open(csv_file, mode='w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow([
-                    "Timestamp", "Token_Name", "CA", "BSRatio", "BSRatio_Pass", "BSRatio_Low_Pass",
-                    "DevSold", "DevSoldLeftValue", "DevSold_Pass", "Top10", "Top10_Pass",
-                    "Snipers", "Snipers_Pass", "Bundles", "Bundles_Pass", "Insiders", "Insiders_Pass",
-                    "KOLs", "KOLs_Pass", "Overall_Pass", "Original_Price", "Original_Market_Cap",
-                    "Chat_ID", "Message_ID"
-                ])
-            logger.info(f"Created CA filter CSV file: {csv_file}")
-
-def init_growthcheck_csv():
-    for csv_file in [GROWTHCHECK_CSV_VIP, GROWTHCHECK_CSV_PUBLIC]:
-        if not os.path.exists(csv_file):
-            with open(csv_file, mode='w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow([
-                    "Timestamp", "Token_Name", "CA", "Original_Market_Cap", "Current_Market_Cap",
-                    "Growth_Ratio", "Profit_Percent", "Time_Since_Added"
-                ])
-            logger.info(f"Created growthcheck CSV file: {csv_file}")
-
-# Log filter results to CA filter CSV based on channel
-def log_to_ca_filter_csv(
-    chat_id, token_name, ca, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold, dev_sold_left_value, dev_sold_pass,
-    top_10, top_10_pass, snipers, snipers_pass, bundles, bundles_pass, insiders, insiders_pass,
-    kols, kols_pass, overall_pass, original_price, original_mc, message_id
-):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    csv_file = CA_FILTER_CSV_VIP if chat_id == VIP_CHANNEL_ID else CA_FILTER_CSV_PUBLIC
-    with csv_lock:
-        with open(csv_file, mode='a', newline='', encoding='utf-8') as f:
+# Initialize CSV file with headers if it doesn't exist
+def init_csv():
+    if not os.path.exists(CSV_FILE):
+        with open(CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow([
-                timestamp, token_name if token_name else "N/A", ca if ca else "N/A",
+                "Timestamp", "CA", "BSRatio", "BSRatio_Pass", "BSRatio_Low_Pass",
+                "DevSold", "DevSoldLeftValue", "DevSold_Pass", "Top10", "Top10_Pass",
+                "Snipers", "Snipers_Pass", "Bundles", "Bundles_Pass", "Insiders", "Insiders_Pass",
+                "KOLs", "KOLs_Pass", "Overall_Pass"
+            ])
+        logger.info(f"Created CSV file: {CSV_FILE}")
+
+# Log filter results to CSV
+def log_to_csv(ca, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold, dev_sold_left_value, dev_sold_pass,
+               top_10, top_10_pass, snipers, snipers_pass, bundles, bundles_pass,
+               insiders, insiders_pass, kols, kols_pass, overall_pass):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with csv_lock:
+        with open(CSV_FILE, mode='a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                timestamp, ca if ca else "N/A",
                 bs_ratio if bs_ratio is not None else "N/A",
                 bs_ratio_pass if (CheckHighEnabled or CheckLowEnabled) else "N/A",
                 check_low_pass if CheckLowEnabled else "N/A",
@@ -345,27 +324,9 @@ def log_to_ca_filter_csv(
                 insiders_pass if InsidersFilterEnabled and insiders is not None else "N/A",
                 kols if kols is not None else "N/A",
                 kols_pass if KOLsFilterEnabled and kols is not None else "N/A",
-                overall_pass,
-                original_price if original_price is not None else "N/A",
-                original_mc if original_mc is not None else "N/A",
-                chat_id if chat_id is not None else "N/A",
-                message_id if message_id is not None else "N/A"
+                overall_pass
             ])
-    logger.info(f"Logged filter results to CA filter CSV {csv_file} for Token: {token_name}, CA: {ca}")
-
-# Log growthcheck results to growthcheck CSV based on channel
-def log_to_growthcheck_csv(
-    chat_id, token_name, ca, original_mc, current_mc, growth_ratio, profit_percent, time_since_added
-):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    csv_file = GROWTHCHECK_CSV_VIP if chat_id == VIP_CHANNEL_ID else GROWTHCHECK_CSV_PUBLIC
-    with csv_lock:
-        with open(csv_file, mode='a', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                timestamp, token_name, ca, original_mc, current_mc, growth_ratio, profit_percent, time_since_added
-            ])
-    logger.info(f"Logged growthcheck results to CSV {csv_file} for Token: {token_name}, CA: {ca}")
+    logger.info(f"Logged filter results to CSV for CA: {ca}")
 
 # Flask routes
 @app.route('/')
@@ -373,53 +334,17 @@ def home():
     logger.info("Flask route '/' accessed")
     return "Bot is running!"
 
-@app.route('/download/ca_filter_vip')
-def download_ca_filter_vip():
+@app.route('/download/csv')
+def download_csv():
     token = request.args.get('token')
     if token != DOWNLOAD_TOKEN:
-        logger.warning("Unauthorized attempt to access /download/ca_filter_vip")
-        abort(403)
-    if not os.path.exists(CA_FILTER_CSV_VIP):
-        logger.warning("CA filter VIP CSV file not found for download")
-        return "CA filter VIP CSV file not found.", 404
-    logger.info("Serving CA filter VIP CSV file for download")
-    return send_file(CA_FILTER_CSV_VIP, as_attachment=True, download_name="ca_filter_log_vip.csv")
-
-@app.route('/download/ca_filter_public')
-def download_ca_filter_public():
-    token = request.args.get('token')
-    if token != DOWNLOAD_TOKEN:
-        logger.warning("Unauthorized attempt to access /download/ca_filter_public")
-        abort(403)
-    if not os.path.exists(CA_FILTER_CSV_PUBLIC):
-        logger.warning("CA filter Public CSV file not found for download")
-        return "CA filter Public CSV file not found.", 404
-    logger.info("Serving CA filter Public CSV file for download")
-    return send_file(CA_FILTER_CSV_PUBLIC, as_attachment=True, download_name="ca_filter_log_public.csv")
-
-@app.route('/download/growthcheck_vip')
-def download_growthcheck_vip():
-    token = request.args.get('token')
-    if token != DOWNLOAD_TOKEN:
-        logger.warning("Unauthorized attempt to access /download/growthcheck_vip")
-        abort(403)
-    if not os.path.exists(GROWTHCHECK_CSV_VIP):
-        logger.warning("Growthcheck VIP CSV file not found for download")
-        return "Growthcheck VIP CSV file not found.", 404
-    logger.info("Serving growthcheck VIP CSV file for download")
-    return send_file(GROWTHCHECK_CSV_VIP, as_attachment=True, download_name="growthcheck_log_vip.csv")
-
-@app.route('/download/growthcheck_public')
-def download_growthcheck_public():
-    token = request.args.get('token')
-    if token != DOWNLOAD_TOKEN:
-        logger.warning("Unauthorized attempt to access /download/growthcheck_public")
-        abort(403)
-    if not os.path.exists(GROWTHCHECK_CSV_PUBLIC):
-        logger.warning("Growthcheck Public CSV file not found for download")
-        return "Growthcheck Public CSV file not found.", 404
-    logger.info("Serving growthcheck Public CSV file for download")
-    return send_file(GROWTHCHECK_CSV_PUBLIC, as_attachment=True, download_name="growthcheck_log_public.csv")
+        logger.warning("Unauthorized attempt to access /download/csv")
+        abort(403)  # Forbidden
+    if not os.path.exists(CSV_FILE):
+        logger.warning("CSV file not found for download")
+        return "CSV file not found.", 404
+    logger.info("Serving CSV file for download")
+    return send_file(CSV_FILE, as_attachment=True, download_name="ca_filter_log.csv")
 
 # Function to run Flask app in a separate thread
 def run_flask():
@@ -433,32 +358,7 @@ def is_authorized(username: str) -> bool:
         username = f"@{username}"
     return username in authorized_users
 
-# Function to parse market cap strings (e.g., "1.2M", "500k") into float
-def parse_market_cap(mc_str: str) -> float:
-    mc_str = mc_str.replace('$', '').strip()
-    multiplier = 1
-    if mc_str.endswith('M'):
-        multiplier = 1_000_000
-        mc_str = mc_str[:-1]
-    elif mc_str.endswith('k') or mc_str.endswith('K'):
-        multiplier = 1_000
-        mc_str = mc_str[:-1]
-    try:
-        return float(mc_str) * multiplier
-    except ValueError:
-        logger.error(f"Failed to parse market cap: {mc_str}")
-        return 0.0
-
-# Function to format market cap in a readable way
-def format_market_cap(mc: float) -> str:
-    if mc >= 1_000_000:
-        return f"{mc / 1_000_000:.1f}M"
-    elif mc >= 1_000:
-        return f"{int(mc / 1_000)}k"
-    else:
-        return f"${int(mc)}"
-
-# Function to get token data using API session manager
+# Updated function to get token data using API session manager
 async def get_gmgn_token_data(mint_address):
     endpoint = f"sol/token/{mint_address}"
     try:
@@ -468,199 +368,19 @@ async def get_gmgn_token_data(mint_address):
 
         soup = BeautifulSoup(html_content, "html.parser")
         try:
-            market_cap_elem = soup.find("div", text="Market Cap")
-            market_cap = market_cap_elem.find_next_sibling("div").text.strip() if market_cap_elem else "N/A"
-            market_cap_value = parse_market_cap(market_cap) if market_cap != "N/A" else 0.0
-
-            liquidity_elem = soup.find("div", text="Liquidity")
-            liquidity = liquidity_elem.find_next_sibling("div").text.strip() if liquidity_elem else "N/A"
-
-            price_elem = soup.find("div", text="Price")
-            price = price_elem.find_next_sibling("div").text.strip() if price_elem else "N/A"
-            price_value = float(price.replace('$', '')) if price != "N/A" else 0.0
-
-            token_name_elem = soup.find("h1")
-            token_name = token_name_elem.text.strip() if token_name_elem else "Unknown Token"
-
+            market_cap = soup.find("div", text="Market Cap").find_next_sibling("div").text.strip()
+            liquidity = soup.find("div", text="Liquidity").find_next_sibling("div").text.strip()
+            price = soup.find("div", text="Price").find_next_sibling("div").text.strip()
             return {
-                "market_cap": market_cap_value,
+                "market_cap": market_cap,
                 "liquidity": liquidity,
-                "price": price_value,
-                "token_name": token_name,
+                "price": price,
                 "contract": mint_address
             }
-        except AttributeError as e:
-            logger.error(f"Failed to extract data from HTML: {str(e)}")
+        except AttributeError:
             return {"error": "Failed to extract data. Structure may have changed."}
     except Exception as e:
-        logger.error(f"Network error while fetching token data: {str(e)}")
         return {"error": f"Network error: {str(e)}"}
-
-# Function to get token market cap for growthcheck
-async def get_token_market_cap(mint_address):
-    endpoint = f"sol/token/{mint_address}"
-    try:
-        html_content = await api_session_manager._make_request(endpoint)
-        if not html_content:
-            return {"error": "Failed to fetch data after retries."}
-
-        soup = BeautifulSoup(html_content, "html.parser")
-        try:
-            market_cap_elem = soup.find("div", text="Market Cap")
-            market_cap = market_cap_elem.find_next_sibling("div").text.strip() if market_cap_elem else "N/A"
-            market_cap_value = parse_market_cap(market_cap) if market_cap != "N/A" else 0.0
-            return {"market_cap": market_cap_value}
-        except AttributeError:
-            return {"error": "Failed to extract market cap. Structure may have changed."}
-    except Exception as e:
-        return {"error": f"Network error: {str(e)}"}
-
-# Helper function to calculate time difference in a human-readable format
-def calculate_time_since(timestamp: float) -> str:
-    current_time = time.time()
-    time_diff = current_time - timestamp
-    hours = int(time_diff // 3600)
-    minutes = int((time_diff % 3600) // 60)
-    if hours > 0:
-        return f"{hours}h {minutes}m"
-    return f"{minutes}m"
-	
-
-# Background task to monitor token market cap growth
-async def growthcheck():
-    GROWTH_THRESHOLD = 2.0
-    INCREMENT_THRESHOLD = 1.0
-    CHECK_INTERVAL = 300
-
-    while True:
-        logger.info("Running growthcheck task...")
-        tokens_to_remove = []
-        with monitored_tokens_lock:
-            for ca in list(monitored_tokens.keys()):
-                token_data = monitored_tokens[ca]
-                for chat_id in list(token_data.keys()):
-                    data = token_data[chat_id]
-                    token_name = data["token_name"]
-                    original_mc = data["original_mc"]
-                    last_growth_ratio = data.get("last_growth_ratio", 1.0)
-                    timestamp = data.get("timestamp", time.time())
-                    message_id = data["message_id"]
-                    message_thread_id = data.get("message_thread_id", None)
-
-                    token_data_fetch = await get_token_market_cap(ca)
-                    if "error" in token_data_fetch:
-                        logger.error(f"Failed to fetch market cap for CA {ca}: {token_data_fetch['error']}")
-                        continue
-
-                    current_mc = token_data_fetch["market_cap"]
-                    if current_mc <= 0 or original_mc <= 0:
-                        logger.warning(f"Invalid market cap for CA {ca}: original={original_mc}, current={current_mc}")
-                        continue
-
-                    current_growth_ratio = round(current_mc / original_mc, 1)
-                    logger.debug(f"Token {token_name} (CA: {ca}, Chat: {chat_id}) - Current Growth Ratio: {current_growth_ratio}x")
-
-                    profit_percent = ((current_mc - original_mc) / original_mc) * 100
-                    profit_percent = round(profit_percent, 1)
-
-                    if current_growth_ratio >= GROWTH_THRESHOLD and int(current_growth_ratio) >= int(last_growth_ratio) + INCREMENT_THRESHOLD:
-                        logger.info(f"Significant growth detected for {token_name} (CA: {ca}, Chat: {chat_id}): {current_growth_ratio}x")
-
-                        time_since_added = calculate_time_since(timestamp)
-                        formatted_original_mc = format_market_cap(original_mc)
-                        formatted_current_mc = format_market_cap(current_mc)
-
-                        log_to_growthcheck_csv(
-                            chat_id=chat_id,
-                            token_name=token_name,
-                            ca=ca,
-                            original_mc=original_mc,
-                            current_mc=current_mc,
-                            growth_ratio=current_growth_ratio,
-                            profit_percent=profit_percent,
-                            time_since_added=time_since_added
-                        )
-
-                        if growth_notifications_enabled:
-                            message_text = (
-                                f"⚡ **{token_name} Pumps Hard!** 💎\n"
-                                f"MC: ${formatted_original_mc} ➡ ${formatted_current_mc} | "
-                                f"🚀 {int(current_growth_ratio)}x | "
-                                f"Profit: +{profit_percent}% | "
-                                f"⏳ {time_since_added}"
-                            )
-
-                            try:
-                                await bot.send_message(
-                                    chat_id=chat_id,
-                                    message_thread_id=message_thread_id,
-                                    text=message_text,
-                                    reply_to_message_id=message_id,
-                                    parse_mode="Markdown",
-                                    disable_notification=True
-                                )
-                                logger.info(f"Sent growth update for {token_name} (CA: {ca}): {current_growth_ratio}x to chat {chat_id}")
-                            except Exception as e:
-                                logger.error(f"Failed to send growth notification for CA {ca} to chat {chat_id}: {str(e)}")
-
-                        monitored_tokens[ca][chat_id]["last_growth_ratio"] = current_growth_ratio
-
-                    if current_mc / original_mc < 0.1:
-                        logger.info(f"Removing CA {ca} from monitoring in chat {chat_id} due to significant market cap drop")
-                        del monitored_tokens[ca][chat_id]
-                        if not monitored_tokens[ca]:
-                            tokens_to_remove.append(ca)
-
-            for ca in tokens_to_remove:
-                monitored_tokens.pop(ca, None)
-
-        await asyncio.sleep(CHECK_INTERVAL)
-
-# Handler for /start command
-@dp.message(Command(commands=["start"]))
-async def cmd_start(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /start command from user: @{username}")
-    await message.answer("Hello! I'm a bot that processes token links and provides growth updates. Send a token message to get started! 🚀")
-
-# Handler for /help command
-@dp.message(Command(commands=["help"]))
-async def cmd_help(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /help command from user: @{username}")
-    help_text = (
-        "📖 **Bot Commands**\n\n"
-        "/start - Start the bot\n"
-        "/help - Show this help message\n"
-        "/ca <token_ca> - Get token data for a specific CA\n"
-        "/filter <Yes/No> - Enable or disable the filter\n"
-        "/checkhigh <Yes/No> - Enable or disable CheckHigh filter\n"
-        "/checklow <Yes/No> - Enable or disable CheckLow filter\n"
-        "/setupval <value> - Set PassValue for CheckHigh\n"
-        "/setrangelow <value> - Set RangeLow for CheckLow\n"
-        "/setdevsold <Yes/No> - Set DevSold threshold\n"
-        "/setdevsoldleft <value> - Set DevSoldLeft percentage\n"
-        "/devsoldfilter <Yes/No> - Enable or disable DevSold filter\n"
-        "/settop10 <value> - Set Top10 threshold\n"
-        "/top10filter <Yes/No> - Enable or disable Top10 filter\n"
-        "/setsnipers <value> - Set Snipers threshold\n"
-        "/snipersfilter <Yes/No> - Enable or disable Snipers filter\n"
-        "/setbundles <value> - Set Bundles threshold\n"
-        "/bundlesfilter <Yes/No> - Enable or disable Bundles filter\n"
-        "/setinsiders <value> - Set Insiders threshold\n"
-        "/insidersfilter <Yes/No> - Enable or disable Insiders filter\n"
-        "/setkols <value> - Set KOLs threshold\n"
-        "/kolsfilter <Yes/No> - Enable or disable KOLs filter\n"
-        "/growthnotify <Yes/No> - Enable or disable growth notifications\n"
-        "/combinegrowth <Yes/No> - Toggle combined growth notifications\n"
-        "/downloadcsv - Get links to download CA filter CSVs\n"
-        "/downloadgrowthcsv - Get links to download growthcheck CSVs\n"
-        "/mastersetup - Show current filter configurations\n"
-        "/adduser <@username> - Add an authorized user (super user only)\n"
-        "/setproxies - Manage proxy list\n\n"
-        "Send a token message with a CA to process it and add it to growth monitoring! 🚀"
-    )
-    await message.answer(help_text, parse_mode="Markdown")
 
 # Handler for /adduser command to add an authorized user (only for super user)
 @dp.message(Command(commands=["adduser"]))
@@ -1138,62 +858,8 @@ async def toggle_kols_filter(message: types.Message):
         logger.info("KOLs filter disabled")
     else:
         await message.answer("Please specify Yes or No after /kolsfilter (e.g., /kolsfilter Yes) 🤔")
-		
-# Handler for /growthnotify command to enable/disable growth notifications
-@dp.message(Command(commands=["growthnotify"]))
-async def toggle_growth_notifications(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /growthnotify command from user: @{username}")
 
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /growthnotify attempt by @{username}")
-        return
-
-    global growth_notifications_enabled
-    text = message.text.lower().replace('/growthnotify', '').strip()
-    logger.info(f"Received /growthnotify command with text: {text}")
-
-    if text == "yes":
-        growth_notifications_enabled = True
-        await message.answer("Growth notifications set to: Yes ✅")
-        logger.info("Growth notifications enabled")
-    elif text == "no":
-        growth_notifications_enabled = False
-        await message.answer("Growth notifications set to: No 🚫")
-        logger.info("Growth notifications disabled")
-    else:
-        await message.answer("Please specify Yes or No after /growthnotify (e.g., /growthnotify Yes) 🤔")
-        logger.info("Invalid /growthnotify input")
-
-# Handler for /combinegrowth command to toggle combined notifications
-@dp.message(Command(commands=["combinegrowth"]))
-async def toggle_combine_notifications(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /combinegrowth command from user: @{username}")
-
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /combinegrowth attempt by @{username}")
-        return
-
-    global combine_notifications
-    text = message.text.lower().replace('/combinegrowth', '').strip()
-    logger.info(f"Received /combinegrowth command with text: {text}")
-
-    if text == "yes":
-        combine_notifications = True
-        await message.answer("Combined growth notifications set to: Yes ✅")
-        logger.info("Combined growth notifications enabled")
-    elif text == "no":
-        combine_notifications = False
-        await message.answer("Combined growth notifications set to: No 🚫")
-        logger.info("Combined growth notifications disabled")
-    else:
-        await message.answer("Please specify Yes or No after /combinegrowth (e.g., /combinegrowth Yes) 🤔")
-        logger.info("Invalid /combinegrowth input")
-
-# Handler for /downloadcsv command (for CA filter CSVs)
+# Handler for /downloadcsv command
 @dp.message(Command(commands=["downloadcsv"]))
 async def download_csv_command(message: types.Message):
     username = message.from_user.username
@@ -1207,57 +873,20 @@ async def download_csv_command(message: types.Message):
     base_url = os.getenv("RAILWAY_PUBLIC_DOMAIN", "http://localhost:5000")
     if base_url == "http://localhost:5000" and "RAILWAY_PUBLIC_DOMAIN" not in os.environ:
         logger.warning("RAILWAY_PUBLIC_DOMAIN not set, using localhost:5000 (this won't work on Railway)")
+    download_url = f"{base_url}/download/csv?token={DOWNLOAD_TOKEN}"
 
-    response = "📥 **Download CA Filter CSVs**\n\n"
-    if os.path.exists(CA_FILTER_CSV_VIP):
-        download_url_vip = f"{base_url}/download/ca_filter_vip?token={DOWNLOAD_TOKEN}"
-        response += f"VIP Channel: {download_url_vip}\n"
-    else:
-        response += "VIP Channel: No data yet.\n"
-
-    if os.path.exists(CA_FILTER_CSV_PUBLIC):
-        download_url_public = f"{base_url}/download/ca_filter_public?token={DOWNLOAD_TOKEN}"
-        response += f"Public Channel: {download_url_public}\n"
-    else:
-        response += "Public Channel: No data yet.\n"
-
-    response += "\nNote: These links are private and should not be shared."
-    await message.answer(response)
-    logger.info(f"Provided CA filter CSV download links to @{username}")
-
-# Handler for /downloadgrowthcsv command (for growthcheck CSVs)
-@dp.message(Command(commands=["downloadgrowthcsv"]))
-async def download_growthcheck_csv_command(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /downloadgrowthcsv command from user: @{username}")
-
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /downloadgrowthcsv attempt by @{username}")
+    if not os.path.exists(CSV_FILE):
+        await message.answer("⚠️ No CSV file exists yet. Process some messages to generate data.")
+        logger.info("CSV file not found for /downloadcsv")
         return
 
-    base_url = os.getenv("RAILWAY_PUBLIC_DOMAIN", "http://localhost:5000")
-    if base_url == "http://localhost:5000" and "RAILWAY_PUBLIC_DOMAIN" not in os.environ:
-        logger.warning("RAILWAY_PUBLIC_DOMAIN not set, using localhost:5000 (this won't work on Railway)")
+    await message.answer(
+        f"Click the link to download or view the CSV file:\n{download_url}\n"
+        "Note: This link is private and should not be shared."
+    )
+    logger.info(f"Provided CSV download link to @{username}: {download_url}")
 
-    response = "📥 **Download Growthcheck CSVs**\n\n"
-    if os.path.exists(GROWTHCHECK_CSV_VIP):
-        download_url_vip = f"{base_url}/download/growthcheck_vip?token={DOWNLOAD_TOKEN}"
-        response += f"VIP Channel: {download_url_vip}\n"
-    else:
-        response += "VIP Channel: No data yet.\n"
-
-    if os.path.exists(GROWTHCHECK_CSV_PUBLIC):
-        download_url_public = f"{base_url}/download/growthcheck_public?token={DOWNLOAD_TOKEN}"
-        response += f"Public Channel: {download_url_public}\n"
-    else:
-        response += "Public Channel: No data yet.\n"
-
-    response += "\nNote: These links are private and should not be shared."
-    await message.answer(response)
-    logger.info(f"Provided growthcheck CSV download links to @{username}")
-
-# Handler for /ca <token_ca> command
+# Updated handler for /ca <token_ca> command
 @dp.message(Command(commands=["ca"]))
 async def cmd_ca(message: types.Message):
     username = message.from_user.username
@@ -1283,9 +912,9 @@ async def cmd_ca(message: types.Message):
     else:
         response = (
             f"Token Data for CA: {token_data['contract']}\n"
-            f"📈 Market Cap: ${token_data['market_cap']:.2f}\n"
+            f"📈 Market Cap: {token_data['market_cap']}\n"
             f"💧 Liquidity: {token_data['liquidity']}\n"
-            f"💰 Price: ${token_data['price']:.6f}"
+            f"💰 Price: {token_data['price']}"
         )
         await message.reply(response)
 
@@ -1311,9 +940,7 @@ async def master_setup(message: types.Message):
     response += f"- Snipers Filter Enabled: {SniphersFilterEnabled}\n"
     response += f"- Bundles Filter Enabled: {BundlesFilterEnabled}\n"
     response += f"- Insiders Filter Enabled: {InsidersFilterEnabled}\n"
-    response += f"- KOLs Filter Enabled: {KOLsFilterEnabled}\n"
-    response += f"- Growth Notifications Enabled: {growth_notifications_enabled}\n"
-    response += f"- Combine Notifications: {combine_notifications}\n\n"
+    response += f"- KOLs Filter Enabled: {KOLsFilterEnabled}\n\n"
 
     response += "📊 **Threshold Settings**\n"
     pass_value_str = str(PassValue) if PassValue is not None else "Not set"
@@ -1380,7 +1007,6 @@ async def convert_link_to_button(message: types.Message):
         logger.info(f"Message is forwarded from chat: {message.forward_from_chat.title}")
 
     ca = None
-    fasol_reflink = None
     text = message.text
     if message.entities:
         for entity in message.entities:
@@ -1391,9 +1017,6 @@ async def convert_link_to_button(message: types.Message):
                 if ca_match:
                     ca = ca_match.group(0)
                     logger.info(f"Extracted CA: {ca}")
-                    if "fasol_robot" in url.lower():
-                        fasol_reflink = url
-                        logger.info(f"Extracted Fasol Reflink: {fasol_reflink}")
                 break
 
     if not ca:
@@ -1412,13 +1035,10 @@ async def convert_link_to_button(message: types.Message):
     bundles = None
     insiders = None
     kols = None
-    token_name = "Unknown Token"
-    original_mc = None
-    original_price = None
     lines = [line.strip() for line in text.replace('\r\n', '\n').split('\n') if line.strip()]
     logger.info(f"Lines to check: {lines}")
 
-    for i, line in enumerate(lines):
+    for line in lines:
         logger.info(f"Checking line: '{line}'")
         match_bs = re.search(r'├?Sum\s*🅑:\s*(\d+\.?\d*)%\s*[\|]\s*Sum\s*🅢:\s*(\d+\.?\d*)%', line)
         if match_bs:
@@ -1471,423 +1091,306 @@ async def convert_link_to_button(message: types.Message):
             logger.info(f"Found KOLs: {kols}")
             continue
 
-        if not token_name or token_name == "Unknown Token":
-            token_name_match = re.search(r'┌\s*(.*?)\s*┐', line)
-            if token_name_match:
-                token_name = token_name_match.group(1).strip()
-                logger.info(f"Extracted Token Name: {token_name}")
-                continue
-            cashtag_match = re.search(r'\$[A-Z0-9]+', line)
-            if cashtag_match:
-                token_name = cashtag_match.group(0).replace('$', '').strip()
-                logger.info(f"Extracted Token Name from cashtag: {token_name}")
-                continue
-            if i == 0 and ("(" in line and ")" in line):
-                token_name = line.strip()
-                logger.info(f"Extracted Token Name from first line: {token_name}")
-                continue
-
-        mc_match = re.search(r'Cap:\s*\$?([\d\.]+[kKmM]?)', line)
-        if mc_match:
-            original_mc = parse_market_cap(mc_match.group(1))
-            logger.info(f"Extracted Original Market Cap: {original_mc}")
-            continue
-
     if bundles is None:
         bundles = 0
         logger.info("No Bundles percentage found, defaulting to 0")
 
-    if ca and (original_mc is None or original_price is None):
-        logger.info(f"Market cap or price not found in message for CA {ca}. Fetching from API...")
-        token_data = await get_gmgn_token_data(ca)
-        if "error" not in token_data:
-            original_mc = token_data["market_cap"]
-            original_price = token_data["price"]
-            if token_name == "Unknown Token":
-                token_name = token_data["token_name"]
-            logger.info(f"Fetched from API - Original Market Cap: {original_mc}, Original Price: {original_price}, Token Name: {token_name}")
+    if has_buy_sell:
+        logger.info("Message contains BuyPercent/SellPercent, processing filters")
+        if len(lines) >= 2:
+            first_line = lines[0]
+            second_line = lines[1]
+            logger.info(f"Using first line: '{first_line}'")
+            logger.info(f"Using second line: '{second_line}'")
         else:
-            logger.warning(f"Failed to fetch market cap and price for CA {ca}: {token_data['error']}")
-
-    bs_ratio = None
-    bs_ratio_pass = "N/A"
-    check_low_pass = "N/A"
-    dev_sold_pass = "N/A"
-    top_10_pass = "N/A"
-    snipers_pass = "N/A"
-    bundles_pass = "N/A"
-    insiders_pass = "N/A"
-    kols_pass = "N/A"
-
-    if has_buy_sell and buy_percent is not None and sell_percent is not None:
-        bs_ratio = buy_percent / (sell_percent + 0.0001)
-        logger.info(f"Calculated B/S Ratio: {bs_ratio}")
-
-        if CheckHighEnabled:
-            bs_ratio_pass = bs_ratio >= PassValue
-            logger.info(f"CheckHigh - B/S Ratio: {bs_ratio}, PassValue: {PassValue}, Pass: {bs_ratio_pass}")
-        if CheckLowEnabled:
-            check_low_pass = bs_ratio >= RangeLow
-            logger.info(f"CheckLow - B/S Ratio: {bs_ratio}, RangeLow: {RangeLow}, Pass: {check_low_pass}")
-
-    if DevSoldFilterEnabled and dev_sold is not None:
-        if DevSoldThreshold.lower() == "yes":
-            dev_sold_pass = dev_sold == "Yes"
-        else:
-            dev_sold_pass = dev_sold == "No" and (dev_sold_left_value is None or dev_sold_left_value >= DevSoldLeft)
-        logger.info(f"DevSold Filter - DevSold: {dev_sold}, DevSoldLeft: {dev_sold_left_value}, Threshold: {DevSoldThreshold}, Pass: {dev_sold_pass}")
-
-    if Top10FilterEnabled and top_10 is not None:
-        top_10_pass = top_10 <= Top10Threshold
-        logger.info(f"Top10 Filter - Top10: {top_10}, Threshold: {Top10Threshold}, Pass: {top_10_pass}")
-
-    if SniphersFilterEnabled and snipers is not None and SnipersThreshold is not None:
-        snipers_pass = snipers <= SnipersThreshold
-        logger.info(f"Snipers Filter - Snipers: {snipers}, Threshold: {SnipersThreshold}, Pass: {snipers_pass}")
-
-    if BundlesFilterEnabled and bundles is not None:
-        bundles_pass = bundles <= BundlesThreshold
-        logger.info(f"Bundles Filter - Bundles: {bundles}, Threshold: {BundlesThreshold}, Pass: {bundles_pass}")
-
-    if InsidersFilterEnabled and insiders is not None and InsidersThreshold is not None:
-        insiders_pass = insiders <= InsidersThreshold
-        logger.info(f"Insiders Filter - Insiders: {insiders}, Threshold: {InsidersThreshold}, Pass: {insiders_pass}")
-
-    if KOLsFilterEnabled and kols is not None:
-        kols_pass = kols >= KOLsThreshold
-        logger.info(f"KOLs Filter - KOLs: {kols}, Threshold: {KOLsThreshold}, Pass: {kols_pass}")
-
-    all_filters = []
-    bs_ratio_filters = []
-    if CheckHighEnabled or CheckLowEnabled:
-        if CheckHighEnabled:
-            bs_ratio_filters.append(bs_ratio_pass == "N/A" or bs_ratio_pass)
-        if CheckLowEnabled:
-            bs_ratio_filters.append(check_low_pass == "N/A" or check_low_pass)
-        all_filters.append(any(bs_ratio_filters) if bs_ratio_filters else True)
-    else:
-        all_filters.append(True)
-
-    if DevSoldFilterEnabled and dev_sold is not None:
-        all_filters.append(dev_sold_pass == "N/A" or dev_sold_pass)
-    else:
-        all_filters.append(True)
-
-    if Top10FilterEnabled and top_10 is not None:
-        all_filters.append(top_10_pass == "N/A" or top_10_pass)
-    else:
-        all_filters.append(True)
-
-    if SniphersFilterEnabled and snipers is not None and SnipersThreshold is not None:
-        all_filters.append(snipers_pass == "N/A" or snipers_pass)
-    else:
-        all_filters.append(True)
-
-    if BundlesFilterEnabled and bundles is not None:
-        all_filters.append(bundles_pass == "N/A" or bundles_pass)
-    else:
-        all_filters.append(True)
-
-    if InsidersFilterEnabled and insiders is not None and InsidersThreshold is not None:
-        all_filters.append(insiders_pass == "N/A" or insiders_pass)
-    else:
-        all_filters.append(True)
-
-    if KOLsFilterEnabled and kols is not None:
-        all_filters.append(kols_pass == "N/A" or kols_pass)
-    else:
-        all_filters.append(True)
-
-    overall_pass = all(all_filters)
-    logger.info(f"Overall filter pass: {overall_pass}, All filters: {all_filters}")
-
-    chat_id = message.chat.id
-    message_id = message.message_id
-
-    # Log filter results to CSV
-    log_to_ca_filter_csv(
-        chat_id=chat_id,
-        token_name=token_name,
-        ca=ca,
-        bs_ratio=bs_ratio,
-        bs_ratio_pass=bs_ratio_pass,
-        check_low_pass=check_low_pass,
-        dev_sold=dev_sold,
-        dev_sold_left_value=dev_sold_left_value,
-        dev_sold_pass=dev_sold_pass,
-        top_10=top_10,
-        top_10_pass=top_10_pass,
-        snipers=snipers,
-        snipers_pass=snipers_pass,
-        bundles=bundles,
-        bundles_pass=bundles_pass,
-        insiders=insiders,
-        insiders_pass=insiders_pass,
-        kols=kols,
-        kols_pass=kols_pass,
-        overall_pass=overall_pass,
-        original_price=original_price,
-        original_mc=original_mc,
-        message_id=message_id
-    )
-
-    # Prepare the filter pass/fail message
-    filter_message = f"{'Filter Passed: 🎉' if overall_pass else 'CA did not qualify: 🚫'}\n"
-    filter_message += f"{token_name}\n"
-    filter_message += f"{ca}\n" if ca else ""
-
-    # BSRatio
-    if has_buy_sell and bs_ratio is not None:
-        bs_status = "✅" if (bs_ratio_pass == "N/A" and check_low_pass == "N/A") or (bs_ratio_pass or check_low_pass) else "🚫"
-        bs_details = f"BSRatio: {bs_ratio:.2f}"
-        if not (CheckHighEnabled or CheckLowEnabled):
-            bs_details += " (Disabled)"
-        elif CheckHighEnabled and bs_ratio_pass:
-            bs_details += f" ✅ (Threshold: >= {PassValue})"
-        elif CheckLowEnabled and check_low_pass:
-            bs_details += f" ✅ (Threshold: >= {RangeLow})"
-        else:
-            thresholds = []
-            if CheckHighEnabled:
-                thresholds.append(f">= {PassValue}")
-            if CheckLowEnabled:
-                thresholds.append(f">= {RangeLow}")
-            bs_details += f" 🚫 (Threshold: {', '.join(thresholds)})"
-        filter_message += f"{bs_details}\n"
-
-    # DevSold
-    if dev_sold is not None:
-        dev_status = "✅" if dev_sold_pass else "🚫"
-        dev_details = f"DevSold: {dev_sold}"
-        if dev_sold_left_value is not None:
-            dev_details += f" ({dev_sold_left_value}% left)"
-        if not DevSoldFilterEnabled:
-            dev_details += " (Disabled)"
-        elif dev_sold_pass:
-            if DevSoldThreshold.lower() == "yes":
-                dev_details += f" {dev_status} (Passes because DevSold is Yes)"
-            else:
-                dev_details += f" {dev_status} (Threshold: No, Left >= {DevSoldLeft}%)"
-        else:
-            if DevSoldThreshold.lower() == "yes":
-                dev_details += f" {dev_status} (Threshold: Yes)"
-            else:
-                dev_details += f" {dev_status} (Threshold: No, Left >= {DevSoldLeft}%)"
-        filter_message += f"{dev_details}\n"
-
-    # Top10
-    if top_10 is not None:
-        top10_status = "✅" if top_10_pass else "🚫"
-        top10_details = f"Top10: {top_10}"
-        if not Top10FilterEnabled:
-            top10_details += " (Disabled)"
-        elif top_10_pass:
-            top10_details += f" {top10_status} (Threshold: <= {Top10Threshold})"
-        else:
-            top10_details += f" {top10_status} (Threshold: <= {Top10Threshold})"
-        filter_message += f"{top10_details}\n"
-    else:
-        filter_message += "Top10: Not found (Disabled)\n"
-
-    # Snipers
-    if snipers is not None:
-        snipers_status = "✅" if snipers_pass else "🚫"
-        snipers_details = f"Snipers: {snipers}"
-        if not SniphersFilterEnabled or SnipersThreshold is None:
-            snipers_details += " (Disabled)"
-        elif snipers_pass:
-            snipers_details += f" {snipers_status} (Threshold: <= {SnipersThreshold})"
-        else:
-            snipers_details += f" {snipers_status} (Threshold: <= {SnipersThreshold})"
-        filter_message += f"{snipers_details}\n"
-    else:
-        filter_message += "Snipers: Not found (Disabled)\n"
-
-    # Bundles
-    if bundles is not None:
-        bundles_status = "✅" if bundles_pass else "🚫"
-        bundles_details = f"Bundles: {bundles}"
-        if not BundlesFilterEnabled:
-            bundles_details += " (Disabled)"
-        elif bundles_pass:
-            bundles_details += f" {bundles_status} (Threshold: <= {BundlesThreshold})"
-        else:
-            bundles_details += f" {bundles_status} (Threshold: <= {BundlesThreshold})"
-        filter_message += f"{bundles_details}\n"
-    else:
-        filter_message += "Bundles: Not found (Disabled)\n"
-
-    # Insiders
-    if insiders is not None:
-        insiders_status = "✅" if insiders_pass else "🚫"
-        insiders_details = f"Insiders: {insiders}"
-        if not InsidersFilterEnabled or InsidersThreshold is None:
-            insiders_details += " (Disabled)"
-        elif insiders_pass:
-            insiders_details += f" {insiders_status} (Threshold: <= {InsidersThreshold})"
-        else:
-            insiders_details += f" {insiders_status} (Threshold: <= {InsidersThreshold})"
-        filter_message += f"{insiders_details}\n"
-    else:
-        filter_message += "Insiders: Not found (Disabled)\n"
-
-    # KOLs
-    if kols is not None:
-        kols_status = "✅" if kols_pass else "🚫"
-        kols_details = f"KOLs: {kols}"
-        if not KOLsFilterEnabled:
-            kols_details += " (Disabled)"
-        elif kols_pass:
-            kols_details += f" {kols_status} (Threshold: >= {KOLsThreshold})"
-        else:
-            kols_details += f" {kols_status} (Threshold: >= {KOLsThreshold})"
-        filter_message += f"{kols_details}\n"
-    else:
-        filter_message += "KOLs: Not found (Disabled)\n"
-
-    # Send the filter pass/fail message to the chat
-    try:
-        await message.reply(
-            text=filter_message,
-            parse_mode=None,
-            disable_web_page_preview=True
-        )
-        logger.info(f"Sent filter pass/fail message for Token: {token_name}, CA: {ca}, Chat ID: {chat_id}")
-    except Exception as e:
-        logger.error(f"Failed to send filter pass/fail message: {str(e)}")
-        await message.reply(
-            text=filter_message,
-            parse_mode=None,
-            disable_web_page_preview=True
-        )
-
-    # Proceed with sending the button message only if the filter is disabled or the token passes
-    if not filter_enabled or overall_pass:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[])
-        if ca:
-            button = InlineKeyboardButton(text="View on gmgn.ai", url=f"https://gmgn.ai/sol/token/{ca}")
-            keyboard.inline_keyboard.append([button])
-            if fasol_reflink:
-                fasol_button = InlineKeyboardButton(text="Buy on Fasol", url=fasol_reflink)
-                keyboard.inline_keyboard[0].append(fasol_button)
-
-        formatted_mc = format_market_cap(original_mc) if original_mc is not None else "N/A"
-        formatted_price = f"${original_price:.6f}" if original_price is not None else "N/A"
-
-        response = f"💎 **{token_name}** 💎\n"
-        response += f"CA: `{ca}`\n" if ca else ""
-        response += f"Market Cap: {formatted_mc}\n"
-        response += f"Price: {formatted_price}\n"
-        if has_buy_sell and buy_percent is not None and sell_percent is not None:
-            response += f"Buy/Sell Ratio: {bs_ratio:.2f}\n"
-        if dev_sold:
-            response += f"Dev Sold: {dev_sold}"
-            if dev_sold_left_value is not None:
-                response += f" ({dev_sold_left_value}% left)"
-            response += "\n"
-        if top_10 is not None:
-            response += f"Top 10 Holders: {top_10}%\n"
-        if snipers is not None:
-            response += f"Snipers: {snipers}%\n"
-        if bundles is not None:
-            response += f"Bundles: {bundles}%\n"
-        if insiders is not None:
-            response += f"Insiders: {insiders}%\n"
-        if kols is not None:
-            response += f"KOLs: {kols}\n"
+            logger.warning("Source message has fewer than 2 lines, using defaults")
+            first_line = "Unknown Token"
+            second_line = "🔗 CA: UnknownCA"
 
         try:
-            sent_message = await message.reply(
-                text=response,
-                parse_mode="Markdown",
-                reply_markup=keyboard,
-                disable_web_page_preview=True
-            )
-            logger.info(f"Sent button message for Token: {token_name}, CA: {ca}, Chat ID: {chat_id}")
-
-            if ca and original_mc and message.chat.id in VIP_CHANNEL_IDS:
-                with monitored_tokens_lock:
-                    if ca not in monitored_tokens:
-                        monitored_tokens[ca] = {}
-                    monitored_tokens[ca][chat_id] = {
-                        "token_name": token_name,
-                        "original_mc": original_mc,
-                        "last_growth_ratio": 1.0,
-                        "timestamp": time.time(),
-                        "message_id": sent_message.message_id,
-                        "message_thread_id": getattr(sent_message, 'message_thread_id', None)
-                    }
-                logger.info(f"Added CA {ca} to growth monitoring for chat {chat_id}")
+            if sell_percent == 0:
+                logger.warning("SellPercent is 0, assuming infinity")
+                bs_ratio = float('inf')
             else:
-                logger.info(f"Skipped adding CA {ca} to growth monitoring. Chat ID: {chat_id}, Original MC: {original_mc}")
-
+                bs_ratio = buy_percent / sell_percent
+                logger.info(f"Calculated BSRatio: {buy_percent} / {sell_percent} = {bs_ratio}")
         except Exception as e:
-            logger.error(f"Failed to send button message: {str(e)}")
-            await message.reply(
-                text=response,
-                parse_mode=None,
-                reply_markup=keyboard,
-                disable_web_page_preview=True
-            )
-            logger.info("Sent button message without Markdown as a fallback")
+            logger.error(f"Error calculating BSRatio: {e}")
+            bs_ratio = 0
+
+        missing_vars = []
+        if (CheckHighEnabled or CheckLowEnabled) and PassValue is None:
+            missing_vars.append("PassValue (use /setupval)")
+        if CheckLowEnabled and RangeLow is None:
+            missing_vars.append("RangeLow (use /setrangelow)")
+        if DevSoldFilterEnabled and DevSoldThreshold is None:
+            missing_vars.append("DevSoldThreshold (use /setdevsold Yes|No)")
+        if DevSoldFilterEnabled and DevSoldThreshold == "Yes" and dev_sold == "No" and DevSoldLeft is None:
+            missing_vars.append("DevSoldLeft (use /setdevsoldleft)")
+        if Top10FilterEnabled and Top10Threshold is None:
+            missing_vars.append("Top10Threshold (use /settop10)")
+        if SniphersFilterEnabled and SnipersThreshold is None:
+            missing_vars.append("SnipersThreshold (use /setsnipers)")
+        if BundlesFilterEnabled and BundlesThreshold is None:
+            missing_vars.append("BundlesThreshold (use /setbundles)")
+        if InsidersFilterEnabled and InsidersThreshold is None:
+            missing_vars.append("InsidersThreshold (use /setinsiders)")
+        if KOLsFilterEnabled and KOLsThreshold is None:
+            missing_vars.append("KOLsThreshold (use /setkols)")
+
+        if missing_vars:
+            await message.answer(f"⚠️ Please set {', '.join(missing_vars)} before filtering.")
+            return
+
+        filter_results = []
+        all_filters_pass = True
+        check_high_pass = None
+        check_low_pass = None
+        dev_sold_pass = None
+        top_10_pass = None
+        snipers_pass = None
+        bundles_pass = None
+        insiders_pass = None
+        kols_pass = None
+
+        if CheckHighEnabled or CheckLowEnabled:
+            bs_ratio_pass = (bs_ratio >= PassValue) or (1 <= bs_ratio <= RangeLow) if RangeLow is not None else (bs_ratio >= PassValue)
+            filter_results.append(f"BSRatio: {bs_ratio:.2f} {'✅' if bs_ratio_pass else '🚫'} (Threshold: >= {PassValue} or 1 to {RangeLow if RangeLow else 'N/A'})")
+            if not bs_ratio_pass:
+                all_filters_pass = False
+            logger.info(f"BSRatio check: {bs_ratio_pass} - Condition: >= {PassValue} or 1 <= {bs_ratio} <= {RangeLow if RangeLow else 'N/A'}")
+        else:
+            filter_results.append(f"BSRatio: {bs_ratio:.2f} (Disabled)")
+
+        if DevSoldFilterEnabled:
+            if dev_sold is None:
+                filter_results.append("DevSold: Not found in message 🚫")
+                all_filters_pass = False
+                logger.info("DevSold: Not found in message")
+            elif DevSoldThreshold is None:
+                filter_results.append("DevSold: Threshold not set 🚫 (use /setdevsold Yes|No)")
+                all_filters_pass = False
+                logger.info("DevSold: Threshold not set")
+            else:
+                logger.info(f"Evaluating DevSold: dev_sold={dev_sold}, DevSoldThreshold={DevSoldThreshold}, dev_sold_left_value={dev_sold_left_value}, DevSoldLeft={DevSoldLeft}")
+                if dev_sold == "Yes":
+                    dev_sold_pass = True
+                    filter_results.append(f"DevSold: {dev_sold} {'✅' if dev_sold_pass else '🚫'} (Passes because DevSold is Yes)")
+                elif dev_sold == "No":
+                    if DevSoldThreshold == "Yes":
+                        if DevSoldLeft is None:
+                            filter_results.append("DevSold: DevSoldLeft threshold not set 🚫 (use /setdevsoldleft)")
+                            dev_sold_pass = False
+                        elif dev_sold_left_value is not None:
+                            dev_sold_pass = dev_sold_left_value <= DevSoldLeft
+                            filter_results.append(
+                                f"DevSold: {dev_sold} ({dev_sold_left_value}% left) {'✅' if dev_sold_pass else '🚫'} (Threshold: {DevSoldThreshold}, Left <= {DevSoldLeft}%)"
+                            )
+                        else:
+                            dev_sold_pass = False
+                            filter_results.append(f"DevSold: {dev_sold} (No percentage left data) {'✅' if dev_sold_pass else '🚫'} (Threshold: {DevSoldThreshold})")
+                    else:
+                        dev_sold_pass = False
+                        filter_results.append(f"DevSold: {dev_sold} {'✅' if dev_sold_pass else '🚫'} (Threshold: {DevSoldThreshold})")
+                else:
+                    dev_sold_pass = False
+                    filter_results.append(f"DevSold: {dev_sold} {'✅' if dev_sold_pass else '🚫'} (Invalid value)")
+                if not dev_sold_pass:
+                    all_filters_pass = False
+                logger.info(f"DevSold: {dev_sold_pass}")
+        else:
+            filter_results.append(f"DevSold: {dev_sold if dev_sold else 'Not found'} (Disabled)")
+
+        if Top10FilterEnabled and top_10 is not None:
+            top_10_pass = top_10 <= Top10Threshold
+            filter_results.append(f"Top10: {top_10} {'✅' if top_10_pass else '🚫'} (Threshold: <= {Top10Threshold})")
+            if not top_10_pass:
+                all_filters_pass = False
+            logger.info(f"Top10: {top_10_pass} - Condition: <= {Top10Threshold}")
+        elif Top10FilterEnabled and top_10 is None:
+            filter_results.append("Top10: Not found in message 🚫")
+        else:
+            filter_results.append(f"Top10: {top_10 if top_10 else 'Not found'} (Disabled)")
+
+        if SniphersFilterEnabled and snipers is not None:
+            snipers_pass = snipers <= SnipersThreshold
+            filter_results.append(f"Snipers: {snipers} {'✅' if snipers_pass else '🚫'} (Threshold: <= {SnipersThreshold})")
+            if not snipers_pass:
+                all_filters_pass = False
+            logger.info(f"Snipers: {snipers_pass} - Condition: <= {SnipersThreshold}")
+        elif SniphersFilterEnabled and snipers is None:
+            filter_results.append("Snipers: Not found in message 🚫")
+        else:
+            filter_results.append(f"Snipers: {snipers if snipers else 'Not found'} (Disabled)")
+
+        if BundlesFilterEnabled and bundles is not None:
+            bundles_pass = bundles <= BundlesThreshold
+            filter_results.append(f"Bundles: {bundles} {'✅' if bundles_pass else '🚫'} (Threshold: <= {BundlesThreshold})")
+            if not bundles_pass:
+                all_filters_pass = False
+            logger.info(f"Bundles: {bundles_pass} - Condition: <= {BundlesThreshold}")
+        elif BundlesFilterEnabled and bundles is None:
+            filter_results.append("Bundles: Not found in message 🚫")
+        else:
+            filter_results.append(f"Bundles: {bundles if bundles else 'Not found'} (Disabled)")
+
+        if InsidersFilterEnabled and insiders is not None:
+            insiders_pass = insiders < InsidersThreshold
+            filter_results.append(f"Insiders: {insiders} {'✅' if insiders_pass else '🚫'} (Threshold: < {InsidersThreshold})")
+            if not insiders_pass:
+                all_filters_pass = False
+            logger.info(f"Insiders: {insiders_pass} - Condition: < {InsidersThreshold}")
+        elif InsidersFilterEnabled and insiders is None:
+            filter_results.append("Insiders: Not found in message 🚫")
+        else:
+            filter_results.append(f"Insiders: {insiders if insiders else 'Not found'} (Disabled)")
+
+        if KOLsFilterEnabled and kols is not None:
+            kols_pass = kols >= KOLsThreshold
+            filter_results.append(f"KOLs: {kols} {'✅' if kols_pass else '🚫'} (Threshold: >= {KOLsThreshold})")
+            if not kols_pass:
+                all_filters_pass = False
+            logger.info(f"KOLs: {kols_pass} - Condition: >= {KOLsThreshold}")
+        elif KOLsFilterEnabled and kols is None:
+            filter_results.append("KOLs: Not found in message 🚫")
+        else:
+            filter_results.append(f"KOLs: {kols if kols else 'Not found'} (Disabled)")
+
+        log_to_csv(
+            ca, bs_ratio, bs_ratio_pass if (CheckHighEnabled or CheckLowEnabled) else None, None,
+            dev_sold, dev_sold_left_value, dev_sold_pass,
+            top_10, top_10_pass, snipers, snipers_pass,
+            bundles, bundles_pass, insiders, insiders_pass,
+            kols, kols_pass, all_filters_pass
+        )
+
+        any_filter_enabled = (CheckHighEnabled or CheckLowEnabled or DevSoldFilterEnabled or
+                             Top10FilterEnabled or SniphersFilterEnabled or BundlesFilterEnabled or
+                             InsidersFilterEnabled or KOLsFilterEnabled)
+
+        if not any_filter_enabled:
+            output_text = f"No filters are enabled. Please enable at least one filter to evaluate CA.\n**{first_line}**\n**{second_line}**"
+        elif all_filters_pass:
+            filter_summary = "\n".join(filter_results)
+            output_text = f"Filter Passed: 🎉\n**{first_line}**\n**{second_line}**\n{filter_summary}"
+        else:
+            filter_summary = "\n".join(filter_results)
+            output_text = f"CA did not qualify: 🚫\n**{first_line}**\n**{second_line}**\n{filter_summary}"
+
+        entities = []
+        if ca:
+            ca_match = re.search(r'[A-Za-z0-9]{44}', output_text)
+            if ca_match:
+                ca = ca_match.group(0)
+                text_before_ca = output_text[:output_text.find(ca)]
+                ca_new_offset = len(text_before_ca.encode('utf-16-le')) // 2
+                ca_length = 44
+                entities.append(types.MessageEntity(
+                    type="pre",
+                    offset=ca_new_offset,
+                    length=ca_length
+                ))
+                logger.info(f"Added CA as copyable entity: {ca} at offset {ca_new_offset}")
+
+        try:
+            logger.info("Creating new message for output")
+            new_message = await message.answer(output_text, entities=entities, parse_mode="Markdown")
+            logger.info(f"New message ID: {new_message.message_id}")
+        except Exception as e:
+            logger.error(f"Error creating new message: {e}")
+        return
+
+    if ca and "reflink" in message.text.lower():
+        logger.info(f"Adding buttons because 'reflink' found in message: {message.text}")
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🌟🚀 Join VIP 🚀🌟", url="https://t.me/HumbleMoonshotsPay_bot?start=start")] 
+            if message.chat.id in VIP_CHANNEL_IDS else [],
+            [
+                InlineKeyboardButton(text="Bloom", url=f"https://t.me/BloomSolana_bot?start=ref_humbleguy_ca_{ca}"),
+                InlineKeyboardButton(text="Fasol", url=f"https://t.me/fasol_robot?start=ref_humbleguy_ca_{ca}"),
+            ],
+            [
+                InlineKeyboardButton(text="Maestro", url=f"http://t.me/maestro?start={ca}-beinghumbleguy"),
+                InlineKeyboardButton(text="Trojan", url=f"https://t.me/solana_trojanbot?start=r-beinghumbleguy-{ca}")
+            ]
+        ])
+        text = re.sub(r'Forwarded from .*\n', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'Buy token on Fasol Reflink', '', text, flags=re.IGNORECASE)
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            if re.search(r'[A-Za-z0-9]{44}', line):
+                lines[i] = f"🔗 CA: {ca}"
+                break
+        text = "\n".join(line.strip() for line in lines if line.strip())
+        logger.info(f"Final text to send (CA included): {text}")
+
+        entities = []
+        if ca:
+            ca_match = re.search(r'[A-Za-z0-9]{44}', text)
+            if ca_match:
+                ca = ca_match.group(0)
+                text_before_ca = text[:text.find(ca)]
+                ca_new_offset = len(text_before_ca.encode('utf-16-le')) // 2
+                ca_length = 44
+                entities.append(types.MessageEntity(
+                    type="pre",
+                    offset=ca_new_offset,
+                    length=ca_length
+                ))
+                logger.info(f"Added CA as copyable entity: {ca} at offset {ca_new_offset}")
+
+        try:
+            logger.info("Attempting to edit the original message")
+            edited_message = await message.edit_text(text, reply_markup=keyboard, entities=entities)
+            logger.info(f"Successfully edited message ID: {edited_message.message_id}")
+        except Exception as e:
+            logger.error(f"Error editing message: {e}")
+            logger.info("Falling back to posting a new message")
+            new_message = await message.answer(text, reply_markup=keyboard, entities=entities)
+            logger.info(f"New message ID: {new_message.message_id}")
     else:
-        logger.info(f"Token {token_name} (CA: {ca}) did not pass filters. No button message sent.")
+        logger.info("No CA found in URL or 'reflink' not present, skipping button addition")
 
-# Set bot commands for the menu
-async def set_bot_commands():
-    commands = [
-        BotCommand(command="start", description="Start the bot"),
-        BotCommand(command="help", description="Show help message"),
-        BotCommand(command="ca", description="Get token data for a CA"),
-        BotCommand(command="filter", description="Enable or disable filter"),
-        BotCommand(command="checkhigh", description="Enable/disable CheckHigh filter"),
-        BotCommand(command="checklow", description="Enable/disable CheckLow filter"),
-        BotCommand(command="setupval", description="Set PassValue for CheckHigh"),
-        BotCommand(command="setrangelow", description="Set RangeLow for CheckLow"),
-        BotCommand(command="setdevsold", description="Set DevSold threshold"),
-        BotCommand(command="setdevsoldleft", description="Set DevSoldLeft percentage"),
-        BotCommand(command="devsoldfilter", description="Enable/disable DevSold filter"),
-        BotCommand(command="settop10", description="Set Top10 threshold"),
-        BotCommand(command="top10filter", description="Enable/disable Top10 filter"),
-        BotCommand(command="setsnipers", description="Set Snipers threshold"),
-        BotCommand(command="snipersfilter", description="Enable/disable Snipers filter"),
-        BotCommand(command="setbundles", description="Set Bundles threshold"),
-        BotCommand(command="bundlesfilter", description="Enable/disable Bundles filter"),
-        BotCommand(command="setinsiders", description="Set Insiders threshold"),
-        BotCommand(command="insidersfilter", description="Enable/disable Insiders filter"),
-        BotCommand(command="setkols", description="Set KOLs threshold"),
-        BotCommand(command="kolsfilter", description="Enable/disable KOLs filter"),
-        BotCommand(command="growthnotify", description="Enable/disable growth notifications"),
-        BotCommand(command="combinegrowth", description="Toggle combined growth notifications"),
-        BotCommand(command="downloadcsv", description="Download CA filter CSVs"),
-        BotCommand(command="downloadgrowthcsv", description="Download growthcheck CSVs"),
-        BotCommand(command="mastersetup", description="Show current filter configurations"),
-        BotCommand(command="adduser", description="Add an authorized user (super user only)"),
-        BotCommand(command="setproxies", description="Manage proxy list")
-    ]
-    await bot.set_my_commands(commands)
-    logger.info("Bot commands set successfully")
-
-# Main function to start the bot
 async def main():
-    init_ca_filter_csv()
-    init_growthcheck_csv()
-    await set_bot_commands()
+    # Initialize CSV file
+    init_csv()
 
-    flask_thread = Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
-    logger.info("Flask app started in separate thread")
-
-    growthcheck_task = asyncio.create_task(growthcheck())
-    logger.info("Started growthcheck background task")
-
+    commands = [
+        BotCommand(command="filter", description="Enable or disable the filter (Yes/No)"),
+        BotCommand(command="setupval", description="Set PassValue for CheckHigh (e.g., /setupval 1.2)"),
+        BotCommand(command="setrangelow", description="Set RangeLow for CheckLow (e.g., /setrangelow 1.1)"),
+        BotCommand(command="checkhigh", description="Enable/disable CheckHigh filter (Yes/No)"),
+        BotCommand(command="checklow", description="Enable/disable CheckLow filter (Yes/No)"),
+        BotCommand(command="setdevsold", description="Set DevSold threshold (Yes/No) (e.g., /setdevsold Yes)"),
+        BotCommand(command="setdevsoldleft", description="Set DevSoldLeft threshold (e.g., /setdevsoldleft 10)"),
+        BotCommand(command="devsoldfilter", description="Enable/disable DevSold filter (Yes/No)"),
+        BotCommand(command="settop10", description="Set Top10 threshold (e.g., /settop10 20)"),
+        BotCommand(command="top10filter", description="Enable/disable Top10 filter (Yes/No)"),
+        BotCommand(command="setsnipers", description="Set Snipers threshold (e.g., /setsnipers 3)"),
+        BotCommand(command="snipersfilter", description="Enable/disable Snipers filter (Yes/No)"),
+        BotCommand(command="setbundles", description="Set Bundles threshold (e.g., /setbundles 1)"),
+        BotCommand(command="bundlesfilter", description="Enable/disable Bundles filter (Yes/No)"),
+        BotCommand(command="setinsiders", description="Set Insiders threshold (e.g., /setinsiders 10)"),
+        BotCommand(command="insidersfilter", description="Enable/disable Insiders filter (Yes/No)"),
+        BotCommand(command="setkols", description="Set KOLs threshold (e.g., /setkols 1)"),
+        BotCommand(command="kolsfilter", description="Enable/disable KOLs filter (Yes/No)"),
+        BotCommand(command="adduser", description="Add an authorized user (only for @BeingHumbleGuy)"),
+        BotCommand(command="ca", description="Get token data (e.g., /ca <token_ca>)"),
+        BotCommand(command="downloadcsv", description="Get link to download the CSV log (authorized users only)"),
+        BotCommand(command="mastersetup", description="Display all current filter settings"),
+        BotCommand(command="setproxies", description="Set proxy URLs (e.g., /setproxies host:port:username:password [append|replace])")
+    ]
+    
     try:
-        await dp.start_polling(bot)
-    finally:
-        growthcheck_task.cancel()
-        await bot.session.close()
-        logger.info("Bot stopped")
+        await bot.set_my_commands(commands)
+        logger.info("Successfully set bot commands for suggestions")
+    except Exception as e:
+        logger.error(f"Failed to set bot commands: {e}")
+
+    flask_thread = Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    logger.info("Starting bot polling...")
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())      
+    asyncio.run(main())
