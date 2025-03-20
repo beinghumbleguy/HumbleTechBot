@@ -5,7 +5,7 @@ import random
 import time
 import aiohttp
 import tls_client
-import cloudscraper  # For Cloudflare bypass
+import cloudscraper
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from concurrent.futures import ThreadPoolExecutor
@@ -34,7 +34,7 @@ class APISessionManager:
     def __init__(self):
         self.session = None
         self.aio_session = None
-        self.scraper = cloudscraper.create_scraper()  # Cloudflare fallback
+        self.scraper = cloudscraper.create_scraper()  # Cloudflare handler
         self._active_sessions = set()
         self._session_created_at = 0
         self._session_requests = 0
@@ -59,7 +59,8 @@ class APISessionManager:
         self.headers_dict = {
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "User-Agent": UserAgent().random
+            "User-Agent": UserAgent().random,
+            # "Authorization": "Bearer YOUR_API_KEY"  # Uncomment and add if provided by friend
         }
         
         # Custom headers for fallback
@@ -105,7 +106,7 @@ class APISessionManager:
             )
             
             user_agent = UserAgent().random
-            self.headers_dict["User-Agent"] = user_agent  # Update with random UA
+            self.headers_dict["User-Agent"] = user_agent
             self.session.headers.update(self.headers_dict)
             
             proxy_url = await self.get_proxy()
@@ -147,9 +148,11 @@ class APISessionManager:
         self._session_requests += 1
         data = {"chain": "sol", "addresses": [mint_address]}
         
+        # Try with tls_client
         for attempt in range(self.max_retries):
             try:
                 if attempt > 0:
+                    logger.debug(f"Retrying with new session for attempt {attempt + 1}")
                     await self.randomize_session(force=True)
                 
                 response = await self._run_in_executor(
@@ -160,17 +163,19 @@ class APISessionManager:
                 )
                 
                 if response.status_code == 200:
+                    logger.debug("Success with tls_client")
                     return response.json()
-                logger.warning(f"Attempt {attempt + 1} failed with status {response.status_code}. Response: {response.text}")
+                logger.warning(f"Attempt {attempt + 1} failed with status {response.status_code}. Response: {response.text[:500]}...")  # Truncate for readability
             except Exception as e:
                 logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
             
             if attempt < self.max_retries - 1:
+                logger.debug(f"Waiting {self.retry_delay} seconds before next attempt")
                 await asyncio.sleep(self.retry_delay)
         
-        # Final fallback with custom headers and cloudscraper
+        # Fallback with custom headers
         try:
-            logger.info("Trying with alternative headers and cloudscraper as final fallback")
+            logger.info("Trying with alternative headers")
             await self.randomize_session(force=True)
             self.session.headers.update(self.custom_headers_dict)
             
@@ -181,24 +186,28 @@ class APISessionManager:
                 allow_redirects=True
             )
             if response.status_code == 200:
+                logger.debug("Success with custom headers")
                 return response.json()
-            
-            logger.warning(f"Fallback with custom headers failed with status {response.status_code}. Response: {response.text}")
-            
-            # Cloudscraper attempt
+            logger.warning(f"Fallback with custom headers failed with status {response.status_code}. Response: {response.text[:500]}...")
+        except Exception as e:
+            logger.error(f"Fallback with custom headers failed: {str(e)}")
+        
+        # Final fallback with cloudscraper
+        try:
             logger.info("Attempting with cloudscraper")
             loop = asyncio.get_event_loop()
             scraper_response = await loop.run_in_executor(None, lambda: self.scraper.post(
                 self.base_url,
                 json=data,
-                headers=self.custom_headers_dict
+                headers=self.custom_headers_dict,
+                proxies={"http": await self.get_proxy(), "https": await self.get_proxy()} if self.proxy_list else None
             ))
             if scraper_response.status_code == 200:
+                logger.debug("Success with cloudscraper")
                 return scraper_response.json()
-            logger.warning(f"Cloudscraper attempt failed with status {scraper_response.status_code}. Response: {scraper_response.text}")
-            
-        except Exception as fallback_error:
-            logger.error(f"Final fallback attempt failed: {str(fallback_error)}")
+            logger.warning(f"Cloudscraper attempt failed with status {scraper_response.status_code}. Response: {scraper_response.text[:500]}...")
+        except Exception as e:
+            logger.error(f"Cloudscraper attempt failed: {str(e)}")
         
         return {"error": "Failed to fetch data after retries and fallbacks."}
 
