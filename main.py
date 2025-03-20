@@ -1604,6 +1604,7 @@ async def convert_link_to_button(message: types.Message):
     chat_id = message.chat.id
     message_id = message.message_id
 
+    # Log filter results to CSV
     log_to_ca_filter_csv(
         chat_id=chat_id,
         token_name=token_name,
@@ -1630,6 +1631,137 @@ async def convert_link_to_button(message: types.Message):
         message_id=message_id
     )
 
+    # Prepare the filter pass/fail message
+    filter_message = f"{'Filter Passed: 🎉' if overall_pass else 'CA did not qualify: 🚫'}\n"
+    filter_message += f"{token_name}\n"
+    filter_message += f"{ca}\n" if ca else ""
+
+    # BSRatio
+    if has_buy_sell and bs_ratio is not None:
+        bs_status = "✅" if (bs_ratio_pass == "N/A" and check_low_pass == "N/A") or (bs_ratio_pass or check_low_pass) else "🚫"
+        bs_details = f"BSRatio: {bs_ratio:.2f}"
+        if not (CheckHighEnabled or CheckLowEnabled):
+            bs_details += " (Disabled)"
+        elif CheckHighEnabled and bs_ratio_pass:
+            bs_details += f" ✅ (Threshold: >= {PassValue})"
+        elif CheckLowEnabled and check_low_pass:
+            bs_details += f" ✅ (Threshold: >= {RangeLow})"
+        else:
+            thresholds = []
+            if CheckHighEnabled:
+                thresholds.append(f">= {PassValue}")
+            if CheckLowEnabled:
+                thresholds.append(f">= {RangeLow}")
+            bs_details += f" 🚫 (Threshold: {', '.join(thresholds)})"
+        filter_message += f"{bs_details}\n"
+
+    # DevSold
+    if dev_sold is not None:
+        dev_status = "✅" if dev_sold_pass else "🚫"
+        dev_details = f"DevSold: {dev_sold}"
+        if dev_sold_left_value is not None:
+            dev_details += f" ({dev_sold_left_value}% left)"
+        if not DevSoldFilterEnabled:
+            dev_details += " (Disabled)"
+        elif dev_sold_pass:
+            if DevSoldThreshold.lower() == "yes":
+                dev_details += f" {dev_status} (Passes because DevSold is Yes)"
+            else:
+                dev_details += f" {dev_status} (Threshold: No, Left >= {DevSoldLeft}%)"
+        else:
+            if DevSoldThreshold.lower() == "yes":
+                dev_details += f" {dev_status} (Threshold: Yes)"
+            else:
+                dev_details += f" {dev_status} (Threshold: No, Left >= {DevSoldLeft}%)"
+        filter_message += f"{dev_details}\n"
+
+    # Top10
+    if top_10 is not None:
+        top10_status = "✅" if top_10_pass else "🚫"
+        top10_details = f"Top10: {top_10}"
+        if not Top10FilterEnabled:
+            top10_details += " (Disabled)"
+        elif top_10_pass:
+            top10_details += f" {top10_status} (Threshold: <= {Top10Threshold})"
+        else:
+            top10_details += f" {top10_status} (Threshold: <= {Top10Threshold})"
+        filter_message += f"{top10_details}\n"
+    else:
+        filter_message += "Top10: Not found (Disabled)\n"
+
+    # Snipers
+    if snipers is not None:
+        snipers_status = "✅" if snipers_pass else "🚫"
+        snipers_details = f"Snipers: {snipers}"
+        if not SniphersFilterEnabled or SnipersThreshold is None:
+            snipers_details += " (Disabled)"
+        elif snipers_pass:
+            snipers_details += f" {snipers_status} (Threshold: <= {SnipersThreshold})"
+        else:
+            snipers_details += f" {snipers_status} (Threshold: <= {SnipersThreshold})"
+        filter_message += f"{snipers_details}\n"
+    else:
+        filter_message += "Snipers: Not found (Disabled)\n"
+
+    # Bundles
+    if bundles is not None:
+        bundles_status = "✅" if bundles_pass else "🚫"
+        bundles_details = f"Bundles: {bundles}"
+        if not BundlesFilterEnabled:
+            bundles_details += " (Disabled)"
+        elif bundles_pass:
+            bundles_details += f" {bundles_status} (Threshold: <= {BundlesThreshold})"
+        else:
+            bundles_details += f" {bundles_status} (Threshold: <= {BundlesThreshold})"
+        filter_message += f"{bundles_details}\n"
+    else:
+        filter_message += "Bundles: Not found (Disabled)\n"
+
+    # Insiders
+    if insiders is not None:
+        insiders_status = "✅" if insiders_pass else "🚫"
+        insiders_details = f"Insiders: {insiders}"
+        if not InsidersFilterEnabled or InsidersThreshold is None:
+            insiders_details += " (Disabled)"
+        elif insiders_pass:
+            insiders_details += f" {insiders_status} (Threshold: <= {InsidersThreshold})"
+        else:
+            insiders_details += f" {insiders_status} (Threshold: <= {InsidersThreshold})"
+        filter_message += f"{insiders_details}\n"
+    else:
+        filter_message += "Insiders: Not found (Disabled)\n"
+
+    # KOLs
+    if kols is not None:
+        kols_status = "✅" if kols_pass else "🚫"
+        kols_details = f"KOLs: {kols}"
+        if not KOLsFilterEnabled:
+            kols_details += " (Disabled)"
+        elif kols_pass:
+            kols_details += f" {kols_status} (Threshold: >= {KOLsThreshold})"
+        else:
+            kols_details += f" {kols_status} (Threshold: >= {KOLsThreshold})"
+        filter_message += f"{kols_details}\n"
+    else:
+        filter_message += "KOLs: Not found (Disabled)\n"
+
+    # Send the filter pass/fail message to the chat
+    try:
+        await message.reply(
+            text=filter_message,
+            parse_mode=None,
+            disable_web_page_preview=True
+        )
+        logger.info(f"Sent filter pass/fail message for Token: {token_name}, CA: {ca}, Chat ID: {chat_id}")
+    except Exception as e:
+        logger.error(f"Failed to send filter pass/fail message: {str(e)}")
+        await message.reply(
+            text=filter_message,
+            parse_mode=None,
+            disable_web_page_preview=True
+        )
+
+    # Proceed with sending the button message only if the filter is disabled or the token passes
     if not filter_enabled or overall_pass:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[])
         if ca:
@@ -1699,7 +1831,7 @@ async def convert_link_to_button(message: types.Message):
             )
             logger.info("Sent button message without Markdown as a fallback")
     else:
-        logger.info(f"Token {token_name} (CA: {ca}) did not pass filters. No message sent.")
+        logger.info(f"Token {token_name} (CA: {ca}) did not pass filters. No button message sent.")
 
 # Set bot commands for the menu
 async def set_bot_commands():
