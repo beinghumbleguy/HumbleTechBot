@@ -174,13 +174,19 @@ def log_to_growthcheck_csv(chat_id, channel_id, message_id, token_name, ca, orig
 
 # Helper function to parse market cap string to float
 def parse_market_cap(mc_str):
+    if not mc_str:
+        return None
     mc_str = mc_str.replace('$', '').replace(',', '').strip()
-    if 'K' in mc_str:
-        return float(mc_str.replace('K', '')) * 1000
-    elif 'M' in mc_str:
-        return float(mc_str.replace('M', '')) * 1000000
-    else:
-        return float(mc_str)
+    try:
+        if 'k' in mc_str.lower():
+            return float(mc_str.lower().replace('k', '')) * 1000
+        elif 'm' in mc_str.lower():
+            return float(mc_str.lower().replace('m', '')) * 1000000
+        else:
+            return float(mc_str)
+    except ValueError as e:
+        logger.error(f"Failed to parse market cap '{mc_str}': {str(e)}")
+        return None
 
 # Helper function to format market cap for display
 def format_market_cap(mc):
@@ -536,11 +542,17 @@ async def convert_link_to_button(message: types.Message) -> None:
     has_early = "Early" in text
     has_fasol = "Fasol" in text
 
-    # Extract market cap from the message (without API call)
-    original_mc = parse_market_cap(text)
-    if original_mc is None:
-        original_mc = 0  # Default to 0 if market cap cannot be parsed
-    market_cap_str = f"${original_mc / 1000:.1f}K" if original_mc > 0 else "N/A"
+    # Extract market cap from the message (e.g., "💎 C: 43.7k")
+    mc_match = re.search(r'💎\s*C:\s*(\d+\.?\d*[KM]?)', text, re.IGNORECASE)
+    original_mc = 0  # Default to 0 if market cap cannot be parsed
+    market_cap_str = "N/A"
+    if mc_match:
+        mc_str = mc_match.group(1)
+        try:
+            original_mc = parse_market_cap(mc_str)
+            market_cap_str = f"${original_mc / 1000:.1f}K" if original_mc > 0 else "N/A"
+        except ValueError as e:
+            logger.error(f"Failed to parse market cap '{mc_str}': {str(e)}")
 
     # If "Fasol" keyword is present, skip filter logic and only add buttons and monitoring
     if has_fasol:
@@ -572,6 +584,7 @@ async def convert_link_to_button(message: types.Message) -> None:
             "message_id": message_id,
             "chat_id": chat_id
         }
+        save_monitored_tokens()  # Save to CSV after adding
         return  # Exit the function after handling "Fasol" token
 
     # If "Fasol" is not present but "Early" is, apply filter logic
