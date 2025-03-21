@@ -577,7 +577,7 @@ async def get_token_market_cap(mint_address):
 # Chunk 2 ends
 
 # Chunk 3 starts
-# Chunk 3 starts
+
 @dp.message(F.text)
 async def convert_link_to_button(message: types.Message) -> None:
     if not message.text:
@@ -646,7 +646,7 @@ async def convert_link_to_button(message: types.Message) -> None:
             parse_mode="Markdown",
             entities=[
                 MessageEntity(
-                    type="pre",
+                    type="code",  # Changed from "pre" to "code" to make CA copyable
                     offset=ca_offset,
                     length=len(ca)
                 )
@@ -831,14 +831,14 @@ async def convert_link_to_button(message: types.Message) -> None:
         reply_to_message_id=message_id,
         entities=[
             MessageEntity(
-                type="pre",
+                type="code",  # Changed from "pre" to "code" to make CA copyable
                 offset=output_text.index(ca),
                 length=len(ca)
             )
         ]
     )
 
-# Chunk 3 ends
+
 # Chunk 3 ends
 
 # Chunk 4 starts
