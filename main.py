@@ -21,8 +21,8 @@ import tls_client
 from fake_useragent import UserAgent
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Dict
-from cachetools import TTLCache  # For caching API responses
-import pytz  # Added import for timezone handling
+from cachetools import TTLCache
+import pytz
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -42,6 +42,7 @@ app = Flask(__name__)
 # Thread locks for safe CSV writing
 csv_lock = threading.Lock()
 growth_csv_lock = threading.Lock()
+monitored_tokens_lock = threading.Lock()
 
 # Thread pool executor for running blocking tasks
 _executor = ThreadPoolExecutor(max_workers=5)
@@ -81,14 +82,14 @@ INCREMENT_THRESHOLD = 1.0
 CHECK_INTERVAL = 300  # 5 minutes
 MONITORING_DURATION = 21600  # 6 hours in seconds
 monitored_tokens = {}
-monitored_tokens_lock = threading.Lock()
-last_growth_ratios = {}  # Added to store last growth ratios
+last_growth_ratios = {}
 
 # CSV file paths for public and VIP channels
-PUBLIC_CSV_FILE = "public_ca_filter_log.csv"
-VIP_CSV_FILE = "vip_ca_filter_log.csv"
-PUBLIC_GROWTH_CSV_FILE = "public_growthcheck_log.csv"
-VIP_GROWTH_CSV_FILE = "vip_growthcheck_log.csv"
+PUBLIC_CSV_FILE = "/app/data/public_ca_filter_log.csv"
+VIP_CSV_FILE = "/app/data/vip_ca_filter_log.csv"
+PUBLIC_GROWTH_CSV_FILE = "/app/data/public_growthcheck_log.csv"
+VIP_GROWTH_CSV_FILE = "/app/data/vip_growthcheck_log.csv"
+MONITORED_TOKENS_CSV_FILE = "/app/data/monitored_tokens.csv"
 
 # Secret token for securing the Flask download route
 DOWNLOAD_TOKEN = secrets.token_urlsafe(32)
@@ -125,6 +126,54 @@ def init_csv():
                     "OriginalMC", "CurrentMC", "GrowthRatio", "ProfitPercent", "TimeSinceAdded"
                 ])
             logger.info(f"Created growth check CSV file: {csv_file}")
+
+    # Monitored tokens CSV file
+    if not os.path.exists(MONITORED_TOKENS_CSV_FILE):
+        with open(MONITORED_TOKENS_CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "CA", "TokenName", "InitialMC", "Timestamp", "MessageID", "ChatID"
+            ])
+        logger.info(f"Created monitored tokens CSV file: {MONITORED_TOKENS_CSV_FILE}")
+
+# Function to load monitored tokens from CSV on startup
+def load_monitored_tokens():
+    global monitored_tokens
+    monitored_tokens = {}
+    if os.path.exists(MONITORED_TOKENS_CSV_FILE):
+        with open(MONITORED_TOKENS_CSV_FILE, mode='r', newline='', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                ca = row["CA"]
+                monitored_tokens[ca] = {
+                    "token_name": row["TokenName"],
+                    "initial_mc": float(row["InitialMC"]),
+                    "timestamp": row["Timestamp"],
+                    "message_id": int(row["MessageID"]),
+                    "chat_id": int(row["ChatID"])
+                }
+        logger.info(f"Loaded {len(monitored_tokens)} tokens from {MONITORED_TOKENS_CSV_FILE}")
+    else:
+        logger.info(f"No monitored tokens CSV file found at {MONITORED_TOKENS_CSV_FILE}")
+
+# Function to save monitored tokens to CSV
+def save_monitored_tokens():
+    with monitored_tokens_lock:
+        with open(MONITORED_TOKENS_CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "CA", "TokenName", "InitialMC", "Timestamp", "MessageID", "ChatID"
+            ])
+            for ca, data in monitored_tokens.items():
+                writer.writerow([
+                    ca,
+                    data["token_name"],
+                    data["initial_mc"],
+                    data["timestamp"],
+                    data["message_id"],
+                    data["chat_id"]
+                ])
+        logger.info(f"Saved {len(monitored_tokens)} tokens to {MONITORED_TOKENS_CSV_FILE}")
 
 # Log filter results to the appropriate CSV based on channel type
 def log_to_csv(ca, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold, dev_sold_left_value, dev_sold_pass,
@@ -190,6 +239,8 @@ def parse_market_cap(mc_str):
 
 # Helper function to format market cap for display
 def format_market_cap(mc):
+    if mc is None or mc == 0:
+        return "N/A"
     if mc >= 1000000:
         return f"{mc/1000000:.1f}M"
     elif mc >= 1000:
@@ -550,7 +601,7 @@ async def convert_link_to_button(message: types.Message) -> None:
         mc_str = mc_match.group(1)
         try:
             original_mc = parse_market_cap(mc_str)
-            market_cap_str = f"${original_mc / 1000:.1f}K" if original_mc > 0 else "N/A"
+            market_cap_str = f"${original_mc / 1000:.1f}K" if original_mc is not None and original_mc > 0 else "N/A"
         except ValueError as e:
             logger.error(f"Failed to parse market cap '{mc_str}': {str(e)}")
 
@@ -820,8 +871,8 @@ async def growthcheck() -> None:
 
             # Send growth notification as a reply to the original message
             if growth_notifications_enabled:
-                initial_mc_str = f"${initial_mc / 1000:.1f}K" if initial_mc > 0 else "N/A"
-                current_mc_str = f"${current_mc / 1000:.1f}K" if current_mc > 0 else "N/A"
+                initial_mc_str = f"${initial_mc / 1000:.1f}K" if initial_mc is not None and initial_mc > 0 else "N/A"
+                current_mc_str = f"${current_mc / 1000:.1f}K" if current_mc is not None and current_mc > 0 else "N/A"
                 growth_message = (
                     f"⚡ **{token_name} Pumps Hard!** 💎\n"
                     f"MC: {initial_mc_str} ➡ {current_mc_str} | 🚀 {growth_ratio:.1f}x | Profit: +{profit_percent:.1f}% | ⏳ {time_since_added}"
@@ -837,10 +888,12 @@ async def growthcheck() -> None:
     for ca in to_remove:
         monitored_tokens.pop(ca, None)
         last_growth_ratios.pop(ca, None)
+    if to_remove:  # Only save if we removed tokens
+        save_monitored_tokens()  # Save to CSV after removing
 
 # Chunk 4 ends
 
-# Chunk 5 starts (New Chunk)
+# Chunk 5 starts
 # Handler for /ca <token_ca> command
 @dp.message(Command(commands=["ca"]))
 async def cmd_ca(message: types.Message):
@@ -880,7 +933,7 @@ async def cmd_ca(message: types.Message):
 
 # Chunk 5 ends
 
-# Chunk 6 starts (Original Chunk 5)
+# Chunk 6 starts
 # Handler for /growthnotify command to enable/disable growth notifications
 @dp.message(Command(commands=["growthnotify"]))
 async def toggle_growth_notify(message: types.Message):
@@ -919,8 +972,8 @@ async def download_csv(message: types.Message):
         logger.info(f"Unauthorized /downloadcsv attempt by @{username}")
         return
 
-    public_url = f"http://localhost:5000/download/public_ca_filter_log.csv?token={DOWNLOAD_TOKEN}"
-    vip_url = f"http://localhost:5000/download/vip_ca_filter_log.csv?token={DOWNLOAD_TOKEN}"
+    public_url = f"/download/public_ca_filter_log.csv?token={DOWNLOAD_TOKEN}"
+    vip_url = f"/download/vip_ca_filter_log.csv?token={DOWNLOAD_TOKEN}"
     await message.answer(
         f"📥 **Download CA Filter CSVs**\n\n"
         f"Public CSV: {public_url}\n"
@@ -940,8 +993,8 @@ async def download_growth_csv(message: types.Message):
         logger.info(f"Unauthorized /downloadgrowthcsv attempt by @{username}")
         return
 
-    public_url = f"http://localhost:5000/download/public_growthcheck_log.csv?token={DOWNLOAD_TOKEN}"
-    vip_url = f"http://localhost:5000/download/vip_growthcheck_log.csv?token={DOWNLOAD_TOKEN}"
+    public_url = f"/download/public_growthcheck_log.csv?token={DOWNLOAD_TOKEN}"
+    vip_url = f"/download/vip_growthcheck_log.csv?token={DOWNLOAD_TOKEN}"
     await message.answer(
         f"📥 **Download Growth Check CSVs**\n\n"
         f"Public Growth CSV: {public_url}\n"
@@ -967,7 +1020,7 @@ def download_file(filename):
     if filename not in allowed_files:
         abort(404, description="File not found")
     
-    file_path = filename
+    file_path = os.path.join("/app/data", filename)
     if not os.path.exists(file_path):
         abort(404, description="File does not exist")
     
@@ -977,11 +1030,10 @@ def download_file(filename):
 def is_authorized(username):
     return f"@{username}" in authorized_users  
 
-# Chunk 6 ends
-
 # Startup function to initialize CSV files and schedule the growth check task
 async def on_startup():
     init_csv()  # Initialize CSV files
+    load_monitored_tokens()  # Load monitored tokens from CSV
     # Schedule the growth check task
     asyncio.create_task(schedule_growthcheck())
 
@@ -991,10 +1043,27 @@ async def schedule_growthcheck():
         await growthcheck()
         await asyncio.sleep(CHECK_INTERVAL)  # Run every 5 minutes
 
+# Shutdown function to close bot sessions gracefully
+async def on_shutdown():
+    logger.info("Shutting down bot...")
+    await bot.session.close()  # Close the bot's session
+    await dp.storage.close()  # Close the storage (if using FSM)
+    await dp.storage.wait_closed()
+    logger.info("Bot shutdown complete.")
+
 # Main function to start the bot
 async def main():
     await on_startup()
-    await dp.start_polling(bot)
+    # Start Flask in a separate thread
+    port = int(os.getenv("PORT", 5000))  # Use Railway's PORT or default to 5000
+    flask_thread = Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False))
+    flask_thread.start()
+    try:
+        # Start the bot
+        await dp.start_polling(bot)
+    finally:
+        await on_shutdown()
 
 if __name__ == "__main__":
     asyncio.run(main())
+# Chunk 6 ends
