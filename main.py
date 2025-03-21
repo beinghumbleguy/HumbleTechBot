@@ -103,6 +103,12 @@ token_data_cache = TTLCache(maxsize=1000, ttl=3600)
 
 # Initialize CSV files with headers if they don't exist
 def init_csv():
+    # Ensure the /app/data directory exists
+    data_dir = "/app/data"
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir, exist_ok=True)
+        logger.info(f"Created directory: {data_dir}")
+
     # Filter CSV files
     for csv_file in [PUBLIC_CSV_FILE, VIP_CSV_FILE]:
         if not os.path.exists(csv_file):
