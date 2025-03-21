@@ -277,7 +277,7 @@ class APISessionManager:
         self._session_max_age = 3600  # 1 hour
         self._session_max_requests = 100
         self.max_retries = 3
-        self.retry_delay = 2
+        self.retry_delay = 5  # Increased to 5 seconds
         self.base_url = "https://gmgn.ai"
         self._executor = _executor
 
@@ -300,14 +300,8 @@ class APISessionManager:
         # Proxy list (formatted as username:password@host:port)
         raw_proxies = [
             "residential.birdproxies.com:7777:pool-p1-cc-us:sf3lefz1yj3zwjvy",
-            "residential.birdproxies.com:7777:pool-p1-cc-us:sf3lefz1yj3zwjvy",
-            "residential.birdproxies.com:7777:pool-p1-cc-us:sf3lefz1yj3zwjvy",
-            "residential.birdproxies.com:7777:pool-p1-cc-us:sf3lefz1yj3zwjvy",
-            "residential.birdproxies.com:7777:pool-p1-cc-us:sf3lefz1yj3zwjvy",
-            "residential.birdproxies.com:7777:pool-p1-cc-us:sf3lefz1yj3zwjvy",
-            "residential.birdproxies.com:7777:pool-p1-cc-us:sf3lefz1yj3zwjvy",
-            "residential.birdproxies.com:7777:pool-p1-cc-us:sf3lefz1yj3zwjvy",
-            "residential.birdproxies.com:7777:pool-p1-cc-us:sf3lefz1yj3zwjvy",
+            # Add more proxies here if available, e.g.:
+            # "proxy2.example.com:8080:username:password",
         ]
         self.proxy_list = []
         for proxy in raw_proxies:
@@ -351,7 +345,7 @@ class APISessionManager:
         self.current_proxy_index = 0
         logger.info("Cleared proxy list")
 
-    async def randomize_session(self, force: bool = False):
+    async def randomize_session(self, force: bool = False, use_proxy: bool = True):
         current_time = time.time()
         session_expired = (current_time - self._session_created_at) > self._session_max_age
         too_many_requests = self._session_requests >= self._session_max_requests
@@ -378,15 +372,21 @@ class APISessionManager:
             self.headers_dict["User-Agent"] = user_agent
             self.session.headers.update(self.headers_dict)
             
-            proxy_url = await self.get_proxy_url()
-            if proxy_url:
-                if not proxy_url.startswith('http'):
-                    proxy_url = f'http://{proxy_url}'
-                self.session.proxies = {
-                    'http': proxy_url,
-                    'https': proxy_url
-                }
-                logger.debug(f"Successfully configured proxy {proxy_url}.")
+            if use_proxy:
+                proxy_url = await self.get_proxy_url()
+                if proxy_url:
+                    if not proxy_url.startswith('http'):
+                        proxy_url = f'http://{proxy_url}'
+                    self.session.proxies = {
+                        'http': proxy_url,
+                        'https': proxy_url
+                    }
+                    logger.debug(f"Successfully configured proxy {proxy_url}.")
+                else:
+                    logger.warning("No proxy available, proceeding without proxy.")
+            else:
+                self.session.proxies = None
+                logger.debug("Proceeding without proxy as per request.")
             
             connector = aiohttp.TCPConnector(ssl=False)
             self.aio_session = aiohttp.ClientSession(
@@ -416,47 +416,41 @@ class APISessionManager:
         
         self._session_requests += 1
         
+        # Try with proxy first
         for attempt in range(self.max_retries):
             try:
                 if attempt > 0:
-                    await self.randomize_session(force=True)
-                
+                    await self.randomize_session(force=True, use_proxy=True)
+                logger.info(f"Attempt {attempt + 1} with proxy: {self.session.proxies}")
                 response = await self._run_in_executor(
                     self.session.get,
                     url,
                     params=params,
                     allow_redirects=True
                 )
-                
                 if response.status_code == 200:
                     return response.text
-                
                 logger.warning(f"TLS client attempt {attempt + 1} failed with status {response.status_code}")
-                
             except Exception as e:
                 logger.warning(f"TLS client attempt {attempt + 1} failed: {str(e)}")
-            
             if attempt < self.max_retries - 1:
                 await asyncio.sleep(self.retry_delay)
-                
+        
+        # Fallback: Try without proxy
+        logger.info("All proxy attempts failed, trying without proxy as final fallback")
+        await self.randomize_session(force=True, use_proxy=False)
         try:
-            logger.info("Trying with alternative headers as final fallback")
-            await self.randomize_session(force=True)
-            
-            self.session.headers.update(self.custom_headers_dict)
-            
             response = await self._run_in_executor(
                 self.session.get,
                 url,
                 params=params,
                 allow_redirects=True
             )
-            
             if response.status_code == 200:
                 return response.text
-            
-        except Exception as fallback_error:
-            logger.error(f"Final fallback attempt failed: {str(fallback_error)}")
+            logger.warning(f"Request without proxy failed with status {response.status_code}")
+        except Exception as e:
+            logger.error(f"Final attempt without proxy failed: {str(e)}")
         
         return ""
 
@@ -480,15 +474,15 @@ async def get_gmgn_token_data(mint_address):
         token_data = {}
         try:
             # Fetch basic token data
-            market_cap_str = soup.find("div", text="Market Cap").find_next_sibling("div").text.strip()
+            market_cap_str = soup.find("div", string="Market Cap").find_next_sibling("div").text.strip()
             token_data["market_cap"] = parse_market_cap(market_cap_str)
             token_data["market_cap_str"] = market_cap_str
-            token_data["liquidity"] = soup.find("div", text="Liquidity").find_next_sibling("div").text.strip()
-            token_data["price"] = soup.find("div", text="Price").find_next_sibling("div").text.strip()
+            token_data["liquidity"] = soup.find("div", string="Liquidity").find_next_sibling("div").text.strip()
+            token_data["price"] = soup.find("div", string="Price").find_next_sibling("div").text.strip()
             token_data["contract"] = mint_address
 
             # Attempt to fetch additional data points (adjust selectors based on actual HTML)
-            buy_sell_section = soup.find("div", text=re.compile(r"Buy/Sell Ratio"))
+            buy_sell_section = soup.find("div", string=re.compile(r"Buy/Sell Ratio"))
             if buy_sell_section:
                 bs_text = buy_sell_section.find_next_sibling("div").text.strip()
                 bs_match = re.search(r'(\d+\.?\d*)/(\d+\.?\d*)', bs_text)
@@ -496,7 +490,7 @@ async def get_gmgn_token_data(mint_address):
                     token_data["buy_percent"] = float(bs_match.group(1))
                     token_data["sell_percent"] = float(bs_match.group(2))
 
-            dev_sold_section = soup.find("div", text=re.compile(r"Dev Sold"))
+            dev_sold_section = soup.find("div", string=re.compile(r"Dev Sold"))
             if dev_sold_section:
                 dev_text = dev_sold_section.find_next_sibling("div").text.strip()
                 if "Yes" in dev_text:
@@ -507,35 +501,35 @@ async def get_gmgn_token_data(mint_address):
                         token_data["dev_sold"] = "No"
                         token_data["dev_sold_left_value"] = float(dev_left_match.group(1))
 
-            top_10_section = soup.find("div", text=re.compile(r"Top 10"))
+            top_10_section = soup.find("div", string=re.compile(r"Top 10"))
             if top_10_section:
                 top_10_text = top_10_section.find_next_sibling("div").text.strip()
                 top_10_match = re.search(r'(\d+\.?\d*)', top_10_text)
                 if top_10_match:
                     token_data["top_10"] = float(top_10_match.group(1))
 
-            snipers_section = soup.find("div", text=re.compile(r"Sniper"))
+            snipers_section = soup.find("div", string=re.compile(r"Sniper"))
             if snipers_section:
                 snipers_text = snipers_section.find_next_sibling("div").text.strip()
                 snipers_match = re.search(r'(\d+\.?\d*)', snipers_text)
                 if snipers_match:
                     token_data["snipers"] = float(snipers_match.group(1))
 
-            bundles_section = soup.find("div", text=re.compile(r"Bundle"))
+            bundles_section = soup.find("div", string=re.compile(r"Bundle"))
             if bundles_section:
                 bundles_text = bundles_section.find_next_sibling("div").text.strip()
                 bundles_match = re.search(r'(\d+\.?\d*)', bundles_text)
                 if bundles_match:
                     token_data["bundles"] = float(bundles_match.group(1))
 
-            insiders_section = soup.find("div", text=re.compile(r"Insiders"))
+            insiders_section = soup.find("div", string=re.compile(r"Insiders"))
             if insiders_section:
                 insiders_text = insiders_section.find_next_sibling("div").text.strip()
                 insiders_match = re.search(r'(\d+\.?\d*)', insiders_text)
                 if insiders_match:
                     token_data["insiders"] = float(insiders_match.group(1))
 
-            kols_section = soup.find("div", text=re.compile(r"KOLs"))
+            kols_section = soup.find("div", string=re.compile(r"KOLs"))
             if kols_section:
                 kols_text = kols_section.find_next_sibling("div").text.strip()
                 kols_match = re.search(r'(\d+\.?\d*)', kols_text)
@@ -563,7 +557,11 @@ async def get_token_market_cap(mint_address):
             return {"error": "Failed to fetch data after retries."}
 
         soup = BeautifulSoup(html_content, "html.parser")
-        market_cap_str = soup.find("div", text="Market Cap").find_next_sibling("div").text.strip()
+        market_cap_elem = soup.find("div", string="Market Cap")
+        if not market_cap_elem:
+            logger.error(f"Market Cap element not found for CA {mint_address}")
+            return {"error": "Market Cap element not found in HTML"}
+        market_cap_str = market_cap_elem.find_next_sibling("div").text.strip()
         market_cap = parse_market_cap(market_cap_str)
         return {"market_cap": market_cap}
     except Exception as e:
