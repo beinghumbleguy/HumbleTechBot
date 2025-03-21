@@ -577,6 +577,7 @@ async def get_token_market_cap(mint_address):
 # Chunk 2 ends
 
 # Chunk 3 starts
+# Chunk 3 starts
 @dp.message(F.text)
 async def convert_link_to_button(message: types.Message) -> None:
     if not message.text:
@@ -609,9 +610,19 @@ async def convert_link_to_button(message: types.Message) -> None:
         except ValueError as e:
             logger.error(f"Failed to parse market cap '{mc_str}': {str(e)}")
 
-    # If "Fasol" keyword is present, skip filter logic and only add buttons and monitoring
+    # If "Fasol" keyword is present, preserve original details and add buttons
     if has_fasol:
-        first_line = text.split('\n')[0].strip()
+        # Extract the message details up to the CA
+        ca_index = text.find(ca)
+        if ca_index != -1:
+            details = text[:ca_index].strip()  # Everything before the CA
+        else:
+            details = text.split('\n')[:5]  # Fallback: Take first 5 lines if CA isn't found
+            details = '\n'.join(details).strip()
+
+        # Prepare the output with details, CA, and buttons
+        output_text = f"{details}\n🔗 CA: {ca}\n"
+
         # Add buttons
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🌟🚀 Join VIP 🚀🌟", url="https://t.me/HumbleMoonshotsPay_bot?start=start")]
@@ -625,13 +636,25 @@ async def convert_link_to_button(message: types.Message) -> None:
                 InlineKeyboardButton(text="Trojan", url=f"https://t.me/solana_trojanbot?start=r-beinghumbleguy-{ca}")
             ]
         ])
+
+        # Calculate the offset for the CA in the output text
+        ca_offset = output_text.find(ca)
         await message.reply(
-            text=f"Trade {first_line}",
+            text=output_text,
             reply_markup=keyboard,
-            reply_to_message_id=message_id
+            reply_to_message_id=message_id,
+            parse_mode="Markdown",
+            entities=[
+                MessageEntity(
+                    type="pre",
+                    offset=ca_offset,
+                    length=len(ca)
+                )
+            ]
         )
 
         # Add to monitored_tokens
+        first_line = text.split('\n')[0].strip()
         monitored_tokens[ca] = {
             "token_name": first_line,
             "initial_mc": original_mc,
@@ -815,6 +838,7 @@ async def convert_link_to_button(message: types.Message) -> None:
         ]
     )
 
+# Chunk 3 ends
 # Chunk 3 ends
 
 # Chunk 4 starts
