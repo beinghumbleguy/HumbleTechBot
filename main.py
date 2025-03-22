@@ -1,7 +1,7 @@
 # Chunk 1 starts
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, BotCommand
-from aiogram.filters import Command
+from aiogram.filters import Command, BaseFilter
 import asyncio
 import logging
 import os
@@ -629,12 +629,19 @@ async def get_token_market_cap(mint_address):
 
 from aiogram.filters import Command  # Ensure this is in Chunk 1 imports
 
-@dp.message(~Command(commands=["test", "ca", "setfilter"]), F.text)  # Skip specific commands
+# Chunk 3 starts
+@dp.message(~Command(commands=[
+    "test", "ca", "setfilter", "setpassvalue", "setrangelow", "setcheckhigh", 
+    "setchecklow", "setdevsoldthreshold", "setdevsoldleft", "setdevsoldfilter", 
+    "settop10threshold", "settop10filter", "setsnipersthreshold", "setsnipersfilter", 
+    "setbundlesthreshold", "setbundlesfilter", "setinsidersthreshold", "setinsidersfilter", 
+    "setkolsthreshold", "setkolsfilter", "adduser", "downloadcsv", "downloadgrowthcsv", 
+    "growthnotify", "mastersetup", "resetdefaults"
+]), F.text)
 async def convert_link_to_button(message: types.Message) -> None:
     logger.info(f"Processing message in convert_link_to_button: '{message.text}'")
     if not message.text:
         return
-
     chat_id = message.chat.id
     message_id = message.message_id
     text = message.text
