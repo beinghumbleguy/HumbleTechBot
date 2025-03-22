@@ -81,6 +81,7 @@ SnipersThreshold = None
 BundlesThreshold = 8.0
 InsidersThreshold = None
 KOLsThreshold = 1.0
+BondingCurveThreshold = 85.0  # Example: Filter out if BC > 95%
 
 # New filter toggles
 DevSoldFilterEnabled = True
@@ -89,6 +90,9 @@ SniphersFilterEnabled = False
 BundlesFilterEnabled = True
 InsidersFilterEnabled = False
 KOLsFilterEnabled = True
+BondingCurveFilterEnabled = True
+
+
 
 # Growth check variables
 growth_notifications_enabled = True
@@ -744,12 +748,17 @@ async def convert_link_to_button(message: types.Message) -> None:
     bundles = 0
     insiders = 0
     kols = 0
-
+    bonding_curve = 0  # Default Bonding Curve percentage
     # Parse filter data from the message
     buy_sell_match = re.search(r'Sum 🅑:(\d+\.?\d*)% \| Sum 🅢:(\d+\.?\d*)%', text)
     if buy_sell_match:
         buy_percent = float(buy_sell_match.group(1))
         sell_percent = float(buy_sell_match.group(2))
+        logger.debug(f"Extracted Buy: {buy_percent}%, Sell: {sell_percent}%")
+else:
+        logger.warning(f"Failed to extract Buy/Sell percentages from: '{text}'")
+        buy_percent = 0
+        sell_percent = 0
 
     dev_sold_match = re.search(r'Dev:(✅|❌)\s*(?:\((\d+\.?\d*)%\s*left\))?', text)
     if dev_sold_match:
@@ -776,7 +785,13 @@ async def convert_link_to_button(message: types.Message) -> None:
     kols_match = re.search(r'🌟KOLs:\s*(\d+)', text)
     if kols_match:
         kols = int(kols_match.group(1))
-
+    bc_match = re.search(r'BC: (\d+\.?\d*)%', text)
+    if bc_match:
+        bonding_curve = float(bc_match.group(1))
+        logger.debug(f"Extracted Bonding Curve: {bonding_curve}%")
+    else:
+        logger.warning(f"Failed to extract Bonding Curve from: '{text}'")
+        
     # Apply filters
     all_filters_pass = False
     filter_results = []
@@ -837,6 +852,14 @@ async def convert_link_to_button(message: types.Message) -> None:
         kols_pass = kols >= KOLsThreshold
         filter_results.append(f"KOLs: {kols} {'✅' if kols_pass else '🚫'} (Threshold: >= {KOLsThreshold})")
 
+    if not BondingCurveFilterEnabled:
+        filter_results.append(f"BondingCurve: {bonding_curve} (Disabled)")
+        bc_pass = True
+    else:
+        bc_pass = bonding_curve <= BondingCurveThreshold
+        filter_results.append(f"BondingCurve: {bonding_curve} {'✅' if bc_pass else '🚫'} (Threshold: <= {BondingCurveThreshold})")
+
+
     all_filters_pass = all([
         bs_ratio_pass,
         dev_sold_pass if DevSoldFilterEnabled else True,
@@ -845,6 +868,7 @@ async def convert_link_to_button(message: types.Message) -> None:
         bundles_pass if BundlesFilterEnabled else True,
         insiders_pass if InsidersFilterEnabled and InsidersThreshold is not None else True,
         kols_pass if KOLsFilterEnabled else True
+        bc_pass if BondingCurveFilterEnabled else True
     ])
 
     # Log filter results to CSV (always use PUBLIC_CSV_FILE for "Early" tokens)
@@ -866,6 +890,8 @@ async def convert_link_to_button(message: types.Message) -> None:
         insiders_pass=insiders_pass if InsidersFilterEnabled and InsidersThreshold is not None else None,
         kols=kols,
         kols_pass=kols_pass if KOLsFilterEnabled else None,
+        bonding_curve=bonding_curve,
+        bc_pass=bc_pass if BondingCurveFilterEnabled else None,
         overall_pass=all_filters_pass,
         market_cap=market_cap_str,
         is_vip_channel=False  # Always log "Early" tokens to PUBLIC_CSV_FILE
