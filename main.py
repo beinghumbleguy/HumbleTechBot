@@ -627,7 +627,9 @@ async def get_token_market_cap(mint_address):
 
 # Chunk 3 starts
 
-@dp.message(NotCommandFilter(), F.text)  # Only match non-command text
+from aiogram.filters import Command  # Ensure this is in Chunk 1 imports
+
+@dp.message(~Command(commands=["test", "ca", "setfilter"]), F.text)  # Skip specific commands
 async def convert_link_to_button(message: types.Message) -> None:
     logger.info(f"Processing message in convert_link_to_button: '{message.text}'")
     if not message.text:
@@ -637,7 +639,7 @@ async def convert_link_to_button(message: types.Message) -> None:
     message_id = message.message_id
     text = message.text
     is_vip_channel = chat_id in VIP_CHANNEL_IDS
-
+    
     # Extract CA from the message
     ca_match = re.search(r'[A-Za-z0-9]{44}', text)
     if not ca_match:
