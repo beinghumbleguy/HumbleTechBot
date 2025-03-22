@@ -1001,21 +1001,13 @@ async def cmd_ca(message: types.Message):
 
 # Chunk 6 starts
 
-# No need to re-import these; they're already in Chunk 1:
-# from aiogram import types, Dispatcher
-# from aiogram.filters import Command
-# import logging
-# from threading import Thread
-# from flask import Flask, request, send_file, abort
-# import os
-# import asyncio
-# logger, bot, dp, app are also global from Chunk 1
-
-# Middleware to log all incoming updates
-async def log_update(update: types.Update, dp: Dispatcher):
+# Define the middleware as an async function
+async def log_update(update: types.Update, handler, dp: Dispatcher):
     logger.info(f"Raw update received: {update}")
+    return await handler(update)  # Pass control to the next handler
 
-dp.middleware.setup(lambda update, dp: log_update(update, dp))
+# Register the middleware for all updates
+dp.update.middleware(log_update)
 
 # Debug handler for all messages with exception catching
 @dp.message()
