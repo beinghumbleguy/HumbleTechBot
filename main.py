@@ -640,7 +640,8 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, MessageEnt
     "settop10threshold", "settop10filter", "setsnipersthreshold", "setsnipersfilter", 
     "setbundlesthreshold", "setbundlesfilter", "setinsidersthreshold", "setinsidersfilter", 
     "setkolsthreshold", "setkolsfilter", "adduser", "downloadcsv", "downloadgrowthcsv", 
-    "growthnotify", "mastersetup", "resetdefaults"
+    "growthnotify", "mastersetup", "resetdefaults",
+    "setbcthreshold", "setbcfilter"  # Added for Bonding Curve
 ]), F.text)
 async def convert_link_to_button(message: types.Message) -> None:
     logger.info(f"Processing message in convert_link_to_button: '{message.text}'")
@@ -720,7 +721,6 @@ async def convert_link_to_button(message: types.Message) -> None:
 
         except Exception as e:
             logger.error(f"Failed to post final message for CA {ca}: {e}")
-            # If posting fails, no fallback needed since nothing was sent yet
 
         # Add to monitored_tokens
         first_line = text.split('\n')[0].strip()
@@ -734,66 +734,65 @@ async def convert_link_to_button(message: types.Message) -> None:
         save_monitored_tokens()  # Save to CSV after adding
         return  # Exit after handling "Fasol" token
 
-    # If "Fasol" is not present but "Early" is, apply original filter logic
+    # If "Fasol" is not present but "Early" is, apply filter logic
     if not has_early:
         return  # Skip processing if neither "Fasol" nor "Early" is present
 
     # Initialize filter variables with defaults
-# Initialize filter variables with defaults
-buy_percent = 0
-sell_percent = 0
-dev_sold = "N/A"
-dev_sold_left_value = None
-top_10 = 0
-snipers = 0
-bundles = 0
-insiders = 0
-kols = 0
-bonding_curve = 0  # Added for BC
-
-# Parse filter data from the message
-buy_sell_match = re.search(r'Sum 🅑:(\d+\.?\d*)% \| Sum 🅢:(\d+\.?\d*)%', text)
-if buy_sell_match:
-    buy_percent = float(buy_sell_match.group(1))
-    sell_percent = float(buy_sell_match.group(2))
-    logger.debug(f"Extracted Buy: {buy_percent}%, Sell: {sell_percent}%")
-else:
-    logger.warning(f"Failed to extract Buy/Sell percentages from: '{text}'")
     buy_percent = 0
     sell_percent = 0
+    dev_sold = "N/A"
+    dev_sold_left_value = None
+    top_10 = 0
+    snipers = 0
+    bundles = 0
+    insiders = 0
+    kols = 0
+    bonding_curve = 0  # Added for BC
 
-dev_sold_match = re.search(r'Dev:(✅|❌)\s*(?:\((\d+\.?\d*)%\s*left\))?', text)
-if dev_sold_match:
-    dev_sold = "Yes" if dev_sold_match.group(1) == "✅" else "No"
-    if dev_sold_match.group(2):
-        dev_sold_left_value = float(dev_sold_match.group(2))
+    # Parse filter data from the message
+    buy_sell_match = re.search(r'Sum 🅑:(\d+\.?\d*)% \| Sum 🅢:(\d+\.?\d*)%', text)
+    if buy_sell_match:
+        buy_percent = float(buy_sell_match.group(1))
+        sell_percent = float(buy_sell_match.group(2))
+        logger.debug(f"Extracted Buy: {buy_percent}%, Sell: {sell_percent}%")
+    else:
+        logger.warning(f"Failed to extract Buy/Sell percentages from: '{text}'")
+        buy_percent = 0
+        sell_percent = 0
 
-top_10_match = re.search(r'Top 10:\s*(\d+\.?\d*)%', text)
-if top_10_match:
-    top_10 = float(top_10_match.group(1))
+    dev_sold_match = re.search(r'Dev:(✅|❌)\s*(?:\((\d+\.?\d*)%\s*left\))?', text)
+    if dev_sold_match:
+        dev_sold = "Yes" if dev_sold_match.group(1) == "✅" else "No"
+        if dev_sold_match.group(2):
+            dev_sold_left_value = float(dev_sold_match.group(2))
 
-snipers_match = re.search(r'Sniper:\s*\d+\s*buy\s*(\d+\.?\d*)%', text)
-if snipers_match:
-    snipers = float(snipers_match.group(1))
+    top_10_match = re.search(r'Top 10:\s*(\d+\.?\d*)%', text)
+    if top_10_match:
+        top_10 = float(top_10_match.group(1))
 
-bundles_match = re.search(r'Bundle:\s*\d+\s*buy\s*(\d+\.?\d*)%', text)
-if bundles_match:
-    bundles = float(bundles_match.group(1))
+    snipers_match = re.search(r'Sniper:\s*\d+\s*buy\s*(\d+\.?\d*)%', text)
+    if snipers_match:
+        snipers = float(snipers_match.group(1))
 
-insiders_match = re.search(r'🐁Insiders:\s*(\d+)', text)
-if insiders_match:
-    insiders = int(insiders_match.group(1))
+    bundles_match = re.search(r'Bundle:\s*\d+\s*buy\s*(\d+\.?\d*)%', text)
+    if bundles_match:
+        bundles = float(bundles_match.group(1))
 
-kols_match = re.search(r'🌟KOLs:\s*(\d+)', text)
-if kols_match:
-    kols = int(kols_match.group(1))
+    insiders_match = re.search(r'🐁Insiders:\s*(\d+)', text)
+    if insiders_match:
+        insiders = int(insiders_match.group(1))
 
-bc_match = re.search(r'BC: (\d+\.?\d*)%', text)
-if bc_match:
-    bonding_curve = float(bc_match.group(1))
-    logger.debug(f"Extracted Bonding Curve: {bonding_curve}%")
-else:
-    logger.warning(f"Failed to extract Bonding Curve from: '{text}'")
+    kols_match = re.search(r'🌟KOLs:\s*(\d+)', text)
+    if kols_match:
+        kols = int(kols_match.group(1))
+
+    bc_match = re.search(r'BC: (\d+\.?\d*)%', text)
+    if bc_match:
+        bonding_curve = float(bc_match.group(1))
+        logger.debug(f"Extracted Bonding Curve: {bonding_curve}%")
+    else:
+        logger.warning(f"Failed to extract Bonding Curve from: '{text}'")
         
     # Apply filters
     all_filters_pass = False
@@ -862,7 +861,6 @@ else:
         bc_pass = bonding_curve <= BondingCurveThreshold
         filter_results.append(f"BondingCurve: {bonding_curve} {'✅' if bc_pass else '🚫'} (Threshold: <= {BondingCurveThreshold})")
 
-
     all_filters_pass = all([
         bs_ratio_pass,
         dev_sold_pass if DevSoldFilterEnabled else True,
@@ -900,7 +898,7 @@ else:
         is_vip_channel=False  # Always log "Early" tokens to PUBLIC_CSV_FILE
     )
 
-    # Prepare and send the output message with filter results (original behavior)
+    # Prepare and send the output message with filter results
     first_line = text.split('\n')[0].strip()
     output_text = f"{'CA qualified: ✅' if all_filters_pass else 'CA did not qualify: 🚫'}\n**{first_line}**\n**🔗 CA: {ca}**\n" + "\n".join(filter_results)
 
