@@ -26,12 +26,18 @@ import pytz
 
 # Chunk 1 starts
 
-from aiogram.filters import BaseFilter  # Ensure this is present
+# Chunk 1 starts
+# ... [existing imports] ...
+from aiogram.filters import BaseFilter
+from aiogram import types
 
 # Custom filter to detect non-command messages
 class NotCommandFilter(BaseFilter):
     def __call__(self, message: types.Message) -> bool:
-        return bool(message.text and not message.text.startswith('/'))
+        logger.debug(f"NotCommandFilter checking: '{message.text}'")
+        result = message.text and not message.text.startswith('/')
+        logger.debug(f"NotCommandFilter result: {result}")
+        return result
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -622,8 +628,10 @@ async def get_token_market_cap(mint_address):
 # Chunk 2 ends
 
 # Chunk 3 starts
+
 @dp.message(NotCommandFilter(), F.text)  # Only match non-command text
 async def convert_link_to_button(message: types.Message) -> None:
+    logger.info(f"Processing message in convert_link_to_button: '{message.text}'")
     if not message.text:
         return
 
@@ -1004,7 +1012,13 @@ async def cmd_ca(message: types.Message):
 # Chunk 5 ends
 
 # Chunk 6 starts
-# ... [middleware and handlers as in the last response] ...
+# Define the middleware with the correct signature
+async def log_update(handler, event: types.Update, data: dict):
+    logger.info(f"Raw update received: {event}")
+    return await handler(event, data)  # Pass event and data to the next handler
+
+# Register the middleware for all updates
+dp.update.middleware(log_update)
 
 # Test command handler (already at the top of handlers)
 @dp.message(Command(commands=["test"]))
@@ -1017,35 +1031,6 @@ async def test_command(message: types.Message):
         logger.error(f"Error in test_command: {e}")
         await message.answer(f"Error: {e}")
 
-# ... [other command handlers, then debug_all_messages last] ...
-# Chunk 6 ends
-
-# Define the middleware with the correct signature
-async def log_update(handler, event: types.Update, data: dict):
-    logger.info(f"Raw update received: {event}")
-    return await handler(event, data)  # Pass event and data to the next handler
-
-# Register the middleware for all updates
-dp.update.middleware(log_update)
-
-# Debug handler for all messages with exception catching
-@dp.message()
-async def debug_all_messages(message: types.Message):
-    try:
-        logger.info(f"Received message: '{message.text}' from @{message.from_user.username} in chat {message.chat.id}")
-    except Exception as e:
-        logger.error(f"Error in debug_all_messages: {e}")
-
-# Test command handler
-@dp.message(Command(commands=["test"]))
-async def test_command(message: types.Message):
-    try:
-        username = message.from_user.username
-        logger.info(f"Test command received from @{username}")
-        await message.answer("Test command works!")
-    except Exception as e:
-        logger.error(f"Error in test_command: {e}")
-        await message.answer(f"Error: {e}")
 
 # Handler for /ca <token_ca> command
 @dp.message(Command(commands=["ca"]))
