@@ -870,7 +870,7 @@ else:
         snipers_pass if SniphersFilterEnabled and SnipersThreshold is not None else True,
         bundles_pass if BundlesFilterEnabled else True,
         insiders_pass if InsidersFilterEnabled and InsidersThreshold is not None else True,
-        kols_pass if KOLsFilterEnabled else True
+        kols_pass if KOLsFilterEnabled else True,
         bc_pass if BondingCurveFilterEnabled else True
     ])
 
