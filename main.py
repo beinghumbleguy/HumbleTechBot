@@ -657,11 +657,6 @@ async def convert_link_to_button(message: types.Message) -> None:
     has_early = "Early" in text
     has_fasol = "Fasol" in text
 
-    # Send an initial reply that the bot can edit
-    processing_msg = await message.reply("Processing token data...", reply_to_message_id=message_id)
-    processing_chat_id = processing_msg.chat.id
-    processing_message_id = processing_msg.message_id
-
     # Extract market cap from the message (e.g., "💎 C: 43.7k")
     mc_match = re.search(r'💎\s*C:\s*(\d+\.?\d*[KM]?)', text, re.IGNORECASE)
     original_mc = 0  # Default to 0 if market cap cannot be parsed
@@ -674,7 +669,7 @@ async def convert_link_to_button(message: types.Message) -> None:
         except ValueError as e:
             logger.error(f"Failed to parse market cap '{mc_str}': {str(e)}")
 
-    # If "Fasol" keyword is present, preserve original details and add buttons
+    # If "Fasol" keyword is present, process silently and post final output
     if has_fasol:
         # Extract the message details up to the CA
         ca_index = text.find(ca)
@@ -701,17 +696,16 @@ async def convert_link_to_button(message: types.Message) -> None:
             ]
         ])
 
+        # Send the final message and delete the original
         try:
-            # Edit the bot's own reply
-            await bot.edit_message_text(
-                chat_id=processing_chat_id,
-                message_id=processing_message_id,
+            final_msg = await message.reply(
                 text=output_text,
                 reply_markup=keyboard,
                 parse_mode="Markdown",
+                reply_to_message_id=message_id,
                 disable_web_page_preview=True
             )
-            logger.info(f"Edited bot reply with trading buttons for CA {ca} in chat {processing_chat_id}")
+            logger.info(f"Posted final message with trading buttons for CA {ca} in chat {chat_id}")
 
             # Delete the original source message
             try:
@@ -721,21 +715,8 @@ async def convert_link_to_button(message: types.Message) -> None:
                 logger.warning(f"Failed to delete original message {message_id} in chat {chat_id}: {e}")
 
         except Exception as e:
-            logger.error(f"Failed to edit bot reply for CA {ca}: {e}")
-            await bot.delete_message(chat_id=processing_chat_id, message_id=processing_message_id)
-            await message.reply(
-                text=output_text,
-                reply_markup=keyboard,
-                parse_mode="Markdown",
-                reply_to_message_id=message_id
-            )
-            logger.info(f"Fell back to new reply for CA {ca} after edit failure")
-            # Attempt to delete original even on fallback
-            try:
-                await bot.delete_message(chat_id=chat_id, message_id=message_id)
-                logger.info(f"Deleted original message {message_id} in chat {chat_id} after fallback")
-            except Exception as e:
-                logger.warning(f"Failed to delete original message {message_id} in chat {chat_id} after fallback: {e}")
+            logger.error(f"Failed to post final message for CA {ca}: {e}")
+            # If posting fails, no fallback needed since nothing was sent yet
 
         # Add to monitored_tokens
         first_line = text.split('\n')[0].strip()
@@ -749,9 +730,8 @@ async def convert_link_to_button(message: types.Message) -> None:
         save_monitored_tokens()  # Save to CSV after adding
         return  # Exit after handling "Fasol" token
 
-    # If "Fasol" is not present but "Early" is, apply filter logic
+    # If "Fasol" is not present but "Early" is, apply original filter logic
     if not has_early:
-        await bot.delete_message(chat_id=processing_chat_id, message_id=processing_message_id)
         return  # Skip processing if neither "Fasol" nor "Early" is present
 
     # Initialize filter variables with defaults
@@ -867,7 +847,7 @@ async def convert_link_to_button(message: types.Message) -> None:
         kols_pass if KOLsFilterEnabled else True
     ])
 
-    # Log filter results to CSV
+    # Log filter results to CSV (always use PUBLIC_CSV_FILE for "Early" tokens)
     log_to_csv(
         ca=ca,
         bs_ratio=bs_ratio,
@@ -891,43 +871,22 @@ async def convert_link_to_button(message: types.Message) -> None:
         is_vip_channel=False  # Always log "Early" tokens to PUBLIC_CSV_FILE
     )
 
-    # Prepare the output message with filter results
+    # Prepare and send the output message with filter results (original behavior)
     first_line = text.split('\n')[0].strip()
-    output_text = f"{text}\n\n{'CA qualified: ✅' if all_filters_pass else 'CA did not qualify: 🚫'}\n**{first_line}**\n**🔗 CA: `{ca}`**\n" + "\n".join(filter_results)
+    output_text = f"{'CA qualified: ✅' if all_filters_pass else 'CA did not qualify: 🚫'}\n**{first_line}**\n**🔗 CA: {ca}**\n" + "\n".join(filter_results)
 
-    try:
-        # Edit the bot's own reply with filter results
-        await bot.edit_message_text(
-            chat_id=processing_chat_id,
-            message_id=processing_message_id,
-            text=output_text,
-            parse_mode="Markdown",
-            disable_web_page_preview=True
-        )
-        logger.info(f"Edited bot reply with filter results for CA {ca} in chat {processing_chat_id}")
-
-        # Delete the original source message
-        try:
-            await bot.delete_message(chat_id=chat_id, message_id=message_id)
-            logger.info(f"Deleted original message {message_id} in chat {chat_id}")
-        except Exception as e:
-            logger.warning(f"Failed to delete original message {message_id} in chat {chat_id}: {e}")
-
-    except Exception as e:
-        logger.error(f"Failed to edit bot reply for CA {ca}: {e}")
-        await bot.delete_message(chat_id=processing_chat_id, message_id=processing_message_id)
-        await message.reply(
-            text=output_text,
-            parse_mode="Markdown",
-            reply_to_message_id=message_id
-        )
-        logger.info(f"Fell back to new reply for CA {ca} after edit failure")
-        # Attempt to delete original even on fallback
-        try:
-            await bot.delete_message(chat_id=chat_id, message_id=message_id)
-            logger.info(f"Deleted original message {message_id} in chat {chat_id} after fallback")
-        except Exception as e:
-            logger.warning(f"Failed to delete original message {message_id} in chat {chat_id} after fallback: {e}")
+    await message.reply(
+        text=output_text,
+        parse_mode="Markdown",
+        reply_to_message_id=message_id,
+        entities=[
+            MessageEntity(
+                type="code",
+                offset=output_text.index(ca),
+                length=len(ca)
+            )
+        ]
+    )
 
 # Chunk 3 ends
 
