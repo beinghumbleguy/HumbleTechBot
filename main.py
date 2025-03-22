@@ -612,8 +612,9 @@ async def get_token_market_cap(mint_address):
 # Chunk 2 ends
 
 # Chunk 3 starts
+from aiogram.filters import Command  # Already imported in Chunk 1, ensure it’s available
 
-@dp.message(F.text)
+@dp.message(~Command(), F.text)  # Skip commands, only match non-command text
 async def convert_link_to_button(message: types.Message) -> None:
     if not message.text:
         return
@@ -681,7 +682,7 @@ async def convert_link_to_button(message: types.Message) -> None:
             parse_mode="Markdown",
             entities=[
                 MessageEntity(
-                    type="code",  # Changed from "pre" to "code" to make CA copyable
+                    type="code",
                     offset=ca_offset,
                     length=len(ca)
                 )
@@ -866,13 +867,12 @@ async def convert_link_to_button(message: types.Message) -> None:
         reply_to_message_id=message_id,
         entities=[
             MessageEntity(
-                type="code",  # Changed from "pre" to "code" to make CA copyable
+                type="code",
                 offset=output_text.index(ca),
                 length=len(ca)
             )
         ]
     )
-
 
 # Chunk 3 ends
 
@@ -955,7 +955,7 @@ async def growthcheck() -> None:
         save_monitored_tokens()  # Save to CSV after removing
 
 # Chunk 4 ends
-
+"""
 # Chunk 5 starts
 # Handler for /ca <token_ca> command
 @dp.message(Command(commands=["ca"]))
@@ -993,10 +993,27 @@ async def cmd_ca(message: types.Message):
             f"💰 Price: ${price:.6f}"
         )
         await message.reply(response)
-
+"""
 # Chunk 5 ends
 
 # Chunk 6 starts
+
+# No need to re-import these; they're already in Chunk 1:
+# from aiogram import types, Dispatcher
+# from aiogram.filters import Command
+# import logging
+# from threading import Thread
+# from flask import Flask, request, send_file, abort
+# import os
+# import asyncio
+# logger, bot, dp, app are also global from Chunk 1
+
+# Middleware to log all incoming updates
+async def log_update(update: types.Update, dp: Dispatcher):
+    logger.info(f"Raw update received: {update}")
+
+dp.middleware.setup(lambda update, dp: log_update(update, dp))
+
 # Debug handler for all messages with exception catching
 @dp.message()
 async def debug_all_messages(message: types.Message):
@@ -1111,6 +1128,7 @@ def download_file(filename):
 
 # Function to check if a user is authorized
 def is_authorized(username):
+    logger.info(f"Checking authorization for @{username}: {f'@{username}' in authorized_users}")
     return f"@{username}" in authorized_users  
 
 # Startup function to initialize CSV files, set bot commands, and schedule the growth check task
