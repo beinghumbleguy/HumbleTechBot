@@ -24,6 +24,11 @@ from typing import Optional, Dict
 from cachetools import TTLCache
 import pytz
 
+# Custom filter to detect non-command messages
+class NotCommandFilter:
+    async def __call__(self, message: types.Message) -> bool:
+        return message.text and not message.text.startswith('/')
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,6 +43,7 @@ if not TOKEN:
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 app = Flask(__name__)
+
 
 # Thread locks for safe CSV writing
 csv_lock = threading.Lock()
@@ -612,9 +618,7 @@ async def get_token_market_cap(mint_address):
 # Chunk 2 ends
 
 # Chunk 3 starts
-from aiogram.filters import Command  # Already imported in Chunk 1, ensure it’s available
-
-@dp.message(~Command(), F.text)  # Skip commands, only match non-command text
+@dp.message(NotCommandFilter(), F.text)  # Only match non-command text
 async def convert_link_to_button(message: types.Message) -> None:
     if not message.text:
         return
@@ -873,7 +877,6 @@ async def convert_link_to_button(message: types.Message) -> None:
             )
         ]
     )
-
 # Chunk 3 ends
 
 # Chunk 4 starts
