@@ -872,6 +872,7 @@ async def convert_link_to_button(message: types.Message) -> None:
         bc_pass if BondingCurveFilterEnabled else True
     ])
 
+
     # Log filter results to CSV (always use PUBLIC_CSV_FILE for "Early" tokens)
     log_to_csv(
         ca=ca,
@@ -895,8 +896,8 @@ async def convert_link_to_button(message: types.Message) -> None:
         bc_pass=bc_pass if BondingCurveFilterEnabled else None,
         overall_pass=all_filters_pass,
         market_cap=market_cap_str,
-        is_vip_channel=False  # Always log "Early" tokens to PUBLIC_CSV_FILE
-    )
+        is_vip_channel=False
+            )
 
     # Prepare and send the output message with filter results
     first_line = text.split('\n')[0].strip()
