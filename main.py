@@ -997,78 +997,94 @@ async def cmd_ca(message: types.Message):
 # Chunk 5 ends
 
 # Chunk 6 starts
-# Debug handler for all messages
+# Debug handler for all messages with exception catching
 @dp.message()
 async def debug_all_messages(message: types.Message):
-    logger.info(f"Received message: '{message.text}' from @{message.from_user.username} in chat {message.chat.id}")
+    try:
+        logger.info(f"Received message: '{message.text}' from @{message.from_user.username} in chat {message.chat.id}")
+    except Exception as e:
+        logger.error(f"Error in debug_all_messages: {e}")
 
 # Test command handler
 @dp.message(Command(commands=["test"]))
 async def test_command(message: types.Message):
-    logger.info(f"Test command received from @{message.from_user.username}")
-    await message.answer("Test command works!")
+    try:
+        username = message.from_user.username
+        logger.info(f"Test command received from @{username}")
+        await message.answer("Test command works!")
+    except Exception as e:
+        logger.error(f"Error in test_command: {e}")
+        await message.answer(f"Error: {e}")
 
 # Handler for /ca <token_ca> command
 @dp.message(Command(commands=["ca"]))
 async def cmd_ca(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /ca command from {username}")
+    try:
+        username = message.from_user.username
+        logger.info(f"Received /ca command from @{username}")
 
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /ca attempt by {username}")
-        return
+        if not is_authorized(username):
+            await message.answer("⚠️ You are not authorized to use this command.")
+            logger.info(f"Unauthorized /ca attempt by @{username}")
+            return
 
-    text = message.text
-    parts = text.split()
-    if len(parts) != 2:
-        await message.answer("Usage: /ca <token_ca>")
-        return
+        text = message.text
+        parts = text.split()
+        if len(parts) != 2:
+            await message.answer("Usage: /ca <token_ca>")
+            return
 
-    token_ca = parts[1].strip()
-    logger.info(f"Processing token CA: {token_ca}")
+        token_ca = parts[1].strip()
+        logger.info(f"Processing token CA: {token_ca}")
 
-    token_data = await get_gmgn_token_data(token_ca)
-    if "error" in token_data:
-        await message.reply(f"Error: {token_data['error']}")
-    else:
-        price = float(token_data['price'].replace('$', ''))
-        liquidity = parse_market_cap(token_data['liquidity'])
-        liquidity_str = format_market_cap(liquidity)
-        response = (
-            f"Token Data for CA: {token_data['contract']}\n"
-            f"📈 Market Cap: ${format_market_cap(token_data['market_cap'])}\n"
-            f"💧 Liquidity: ${liquidity_str}\n"
-            f"💰 Price: ${price:.6f}"
-        )
-        await message.reply(response)
+        token_data = await get_gmgn_token_data(token_ca)
+        if "error" in token_data:
+            await message.reply(f"Error: {token_data['error']}")
+        else:
+            price = float(token_data['price'].replace('$', ''))
+            liquidity = parse_market_cap(token_data['liquidity'])
+            liquidity_str = format_market_cap(liquidity)
+            response = (
+                f"Token Data for CA: {token_data['contract']}\n"
+                f"📈 Market Cap: ${format_market_cap(token_data['market_cap'])}\n"
+                f"💧 Liquidity: ${liquidity_str}\n"
+                f"💰 Price: ${price:.6f}"
+            )
+            await message.reply(response)
+    except Exception as e:
+        logger.error(f"Error in cmd_ca: {e}")
+        await message.answer(f"Error processing /ca: {e}")
 
 # Handler for /setfilter command to toggle filter_enabled
 @dp.message(Command(commands=["setfilter"]))
 async def set_filter(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /setfilter command from user: @{username}")
+    try:
+        username = message.from_user.username
+        logger.info(f"Received /setfilter command from user: @{username}")
 
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /setfilter attempt by @{username}")
-        return
+        if not is_authorized(username):
+            await message.answer("⚠️ You are not authorized to use this command.")
+            logger.info(f"Unauthorized /setfilter attempt by @{username}")
+            return
 
-    global filter_enabled
-    text = message.text.lower().replace('/setfilter', '').strip()
-    if text == "yes":
-        filter_enabled = True
-        await message.answer("Filter enabled: Yes ✅")
-        logger.info("Filter enabled")
-    elif text == "no":
-        filter_enabled = False
-        await message.answer("Filter enabled: No 🚫")
-        logger.info("Filter disabled")
-    else:
-        await message.answer("Please specify Yes or No after /setfilter (e.g., /setfilter Yes) 🤔")
-        logger.info("Invalid /setfilter input")
+        global filter_enabled
+        text = message.text.lower().replace('/setfilter', '').strip()
+        if text == "yes":
+            filter_enabled = True
+            await message.answer("Filter enabled: Yes ✅")
+            logger.info("Filter enabled")
+        elif text == "no":
+            filter_enabled = False
+            await message.answer("Filter enabled: No 🚫")
+            logger.info("Filter disabled")
+        else:
+            await message.answer("Please specify Yes or No after /setfilter (e.g., /setfilter Yes) 🤔")
+            logger.info("Invalid /setfilter input")
+    except Exception as e:
+        logger.error(f"Error in set_filter: {e}")
+        await message.answer(f"Error processing /setfilter: {e}")
 
-# [Other handlers remain unchanged, omitted for brevity]
+# [Other handlers remain unchanged but should also include try-except blocks for consistency]
 
 # Flask route for downloading CSV files
 @app.route('/download/<filename>')
@@ -1144,7 +1160,10 @@ async def on_startup():
 # Function to run the growth check periodically
 async def schedule_growthcheck():
     while True:
-        await growthcheck()
+        try:
+            await growthcheck()
+        except Exception as e:
+            logger.error(f"Error in growthcheck: {e}")
         await asyncio.sleep(CHECK_INTERVAL)  # Run every 5 minutes
 
 # Shutdown function to close bot sessions gracefully
@@ -1157,14 +1176,16 @@ async def on_shutdown():
 
 # Main function to start the bot
 async def main():
-    await on_startup()
-    # Start Flask in a separate thread
-    port = int(os.getenv("PORT", 8080))  # Match log output
-    flask_thread = Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False))
-    flask_thread.start()
     try:
+        await on_startup()
+        # Start Flask in a separate thread
+        port = int(os.getenv("PORT", 8080))  # Match log output
+        flask_thread = Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False))
+        flask_thread.start()
         # Start the bot
         await dp.start_polling(bot)
+    except Exception as e:
+        logger.error(f"Error in main: {e}")
     finally:
         await on_shutdown()
 
