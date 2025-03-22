@@ -203,7 +203,7 @@ def save_monitored_tokens():
 # Log filter results to the appropriate CSV based on channel type
 def log_to_csv(ca, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold, dev_sold_left_value, dev_sold_pass,
                top_10, top_10_pass, snipers, snipers_pass, bundles, bundles_pass,
-               insiders, insiders_pass, kols, kols_pass, overall_pass, market_cap, is_vip_channel):
+               insiders, insiders_pass, kols, kols_pass, bonding_curve, bc_pass, overall_pass, market_cap, is_vip_channel):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     csv_file = VIP_CSV_FILE if is_vip_channel else PUBLIC_CSV_FILE
     with csv_lock:
@@ -227,6 +227,8 @@ def log_to_csv(ca, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold, dev_sold_l
                 insiders_pass if InsidersFilterEnabled and insiders is not None else "N/A",
                 kols if kols is not None else "N/A",
                 kols_pass if KOLsFilterEnabled and kols is not None else "N/A",
+                bonding_curve=bonding_curve,
+                bc_pass=bc_pass if BondingCurveFilterEnabled else None,
                 overall_pass,
                 market_cap if market_cap else "N/A"
             ])
