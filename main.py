@@ -1776,8 +1776,7 @@ async def schedule_growthcheck():
 async def on_shutdown():
     logger.info("Shutting down bot...")
     await bot.session.close()  # Close the bot's session
-    await dp.storage.close()  # Close the storage (if using FSM)
-    await dp.storage.wait_closed()
+    await dp.storage.close()  # Close the storage (sufficient for MemoryStorage)
     logger.info("Bot shutdown complete.")
 
 # Main function to start the bot
