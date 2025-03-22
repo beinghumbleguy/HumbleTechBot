@@ -749,16 +749,17 @@ async def convert_link_to_button(message: types.Message) -> None:
     insiders = 0
     kols = 0
     bonding_curve = 0  # Default Bonding Curve percentage
+
     # Parse filter data from the message
-    buy_sell_match = re.search(r'Sum 🅑:(\d+\.?\d*)% \| Sum 🅢:(\d+\.?\d*)%', text)
-    if buy_sell_match:
-        buy_percent = float(buy_sell_match.group(1))
-        sell_percent = float(buy_sell_match.group(2))
-        logger.debug(f"Extracted Buy: {buy_percent}%, Sell: {sell_percent}%")
+buy_sell_match = re.search(r'Sum 🅑:(\d+\.?\d*)% \| Sum 🅢:(\d+\.?\d*)%', text)
+if buy_sell_match:
+    buy_percent = float(buy_sell_match.group(1))
+    sell_percent = float(buy_sell_match.group(2))
+    logger.debug(f"Extracted Buy: {buy_percent}%, Sell: {sell_percent}%")
 else:
-        logger.warning(f"Failed to extract Buy/Sell percentages from: '{text}'")
-        buy_percent = 0
-        sell_percent = 0
+    logger.warning(f"Failed to extract Buy/Sell percentages from: '{text}'")
+    buy_percent = 0
+    sell_percent = 0
 
     dev_sold_match = re.search(r'Dev:(✅|❌)\s*(?:\((\d+\.?\d*)%\s*left\))?', text)
     if dev_sold_match:
