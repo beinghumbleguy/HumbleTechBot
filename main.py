@@ -26,12 +26,12 @@ import pytz
 
 # Chunk 1 starts
 
-from aiogram.filters import BaseFilter  # Add this if not already present
+from aiogram.filters import BaseFilter  # Ensure this is present
 
 # Custom filter to detect non-command messages
 class NotCommandFilter(BaseFilter):
     def __call__(self, message: types.Message) -> bool:
-        return message.text and not message.text.startswith('/')
+        return bool(message.text and not message.text.startswith('/'))
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -1004,6 +1004,21 @@ async def cmd_ca(message: types.Message):
 # Chunk 5 ends
 
 # Chunk 6 starts
+# ... [middleware and handlers as in the last response] ...
+
+# Test command handler (already at the top of handlers)
+@dp.message(Command(commands=["test"]))
+async def test_command(message: types.Message):
+    try:
+        username = message.from_user.username
+        logger.info(f"Test command received from @{username}")
+        await message.answer("Test command works!")
+    except Exception as e:
+        logger.error(f"Error in test_command: {e}")
+        await message.answer(f"Error: {e}")
+
+# ... [other command handlers, then debug_all_messages last] ...
+# Chunk 6 ends
 
 # Define the middleware with the correct signature
 async def log_update(handler, event: types.Update, data: dict):
