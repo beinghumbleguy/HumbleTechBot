@@ -680,7 +680,7 @@ async def convert_link_to_button(message: types.Message) -> None:
             details = '\n'.join(details).strip()
 
         # Prepare the output with details, CA, and market cap
-        output_text = f"{details}\n🔗 CA: `{ca}`\nMarket Cap: {market_cap_str}"
+        output_text = f"{details}\n🔗 CA: `{ca}`"
 
         # Add buttons
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
