@@ -789,7 +789,7 @@ async def convert_link_to_button(message: types.Message) -> None:
     if kols_match:
         kols = int(kols_match.group(1))
 
-    bc_match = re.search(r'BC: (\d+\.?\d*)%', text)
+    bc_match = re.search(r'BC:\s+(\d+\.?\d*)%', text)
     if bc_match:
         bonding_curve = float(bc_match.group(1))
         logger.debug(f"Extracted Bonding Curve: {bonding_curve}%")
