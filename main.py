@@ -860,8 +860,8 @@ async def convert_link_to_button(message: types.Message) -> None:
         filter_results.append(f"BondingCurve: {bonding_curve} (Disabled)")
         bc_pass = True
     else:
-        bc_pass = bonding_curve <= BondingCurveThreshold
-        filter_results.append(f"BondingCurve: {bonding_curve} {'✅' if bc_pass else '🚫'} (Threshold: <= {BondingCurveThreshold})")
+        bc_pass = bonding_curve >= BondingCurveThreshold
+        filter_results.append(f"BondingCurve: {bonding_curve} {'✅' if bc_pass else '🚫'} (Threshold: >= {BondingCurveThreshold})")
 
     all_filters_pass = all([
         bs_ratio_pass,
