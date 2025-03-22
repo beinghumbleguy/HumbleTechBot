@@ -24,9 +24,13 @@ from typing import Optional, Dict
 from cachetools import TTLCache
 import pytz
 
+# Chunk 1 starts
+
+from aiogram.filters import BaseFilter  # Add this if not already present
+
 # Custom filter to detect non-command messages
-class NotCommandFilter:
-    async def __call__(self, message: types.Message) -> bool:
+class NotCommandFilter(BaseFilter):
+    def __call__(self, message: types.Message) -> bool:
         return message.text and not message.text.startswith('/')
 
 # Configure logging
