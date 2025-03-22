@@ -1472,6 +1472,29 @@ async def toggle_kols_filter(message: types.Message):
         await message.answer("Please specify Yes or No after /setkolsfilter (e.g., /setkolsfilter Yes) 🤔")
         logger.info("Invalid /setkolsfilter input")
 
+# Handler for /adduser command
+@dp.message(Command(commands=["adduser"]))
+async def add_user(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /adduser command from user: @{username}")
+    if username != "BeingHumbleGuy":
+        await message.answer("⚠️ Only @BeingHumbleGuy can use this command.")
+        logger.info(f"Unauthorized /adduser attempt by @{username}")
+        return
+    text = message.text.replace('/adduser', '').strip()
+    if not text.startswith('@'):
+        await message.answer("Please provide a username starting with @ (e.g., /adduser @NewUser) 🤔")
+        logger.info("Invalid /adduser input: no @username provided")
+        return
+    new_user = text
+    if new_user in authorized_users:
+        await message.answer(f"{new_user} is already authorized ✅")
+        logger.info(f"User {new_user} already in authorized_users")
+    else:
+        authorized_users.append(new_user)
+        await message.answer(f"Added {new_user} to authorized users ✅")
+        logger.info(f"Added {new_user} to authorized_users")
+
 # Handler for /downloadcsv command
 @dp.message(Command(commands=["downloadcsv"]))
 async def download_csv_command(message: types.Message):
@@ -1495,6 +1518,52 @@ async def download_csv_command(message: types.Message):
     )
     logger.info(f"Provided CSV download link to @{username}: {download_url}")
 
+# Handler for /downloadgrowthcsv command
+@dp.message(Command(commands=["downloadgrowthcsv"]))
+async def download_growth_csv_command(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /downloadgrowthcsv command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /downloadgrowthcsv attempt by @{username}")
+        return
+    base_url = os.getenv("RAILWAY_PUBLIC_DOMAIN", "http://localhost:5000")
+    if base_url == "http://localhost:5000" and "RAILWAY_PUBLIC_DOMAIN" not in os.environ:
+        logger.warning("RAILWAY_PUBLIC_DOMAIN not set, using localhost:5000 (this won't work on Railway)")
+    download_url = f"{base_url}/download/public_growthcheck_log.csv?token={DOWNLOAD_TOKEN}"
+    if not os.path.exists("/app/data/public_growthcheck_log.csv"):
+        await message.answer("⚠️ No growth check CSV file exists yet. Run some growth checks to generate data.")
+        logger.info("Growth check CSV file not found for /downloadgrowthcsv")
+        return
+    await message.answer(
+        f"Click the link to download or view the growth check CSV file:\n{download_url}\n"
+        "Note: This link is private and should not be shared."
+    )
+    logger.info(f"Provided growth check CSV download link to @{username}: {download_url}")
+
+# Handler for /growthnotify command
+@dp.message(Command(commands=["growthnotify"]))
+async def toggle_growth_notify(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /growthnotify command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /growthnotify attempt by @{username}")
+        return
+    global growth_notifications_enabled
+    text = message.text.lower().replace('/growthnotify', '').strip()
+    if text == "yes":
+        growth_notifications_enabled = True
+        await message.answer("Growth notifications set to: Yes ✅")
+        logger.info("Growth notifications enabled")
+    elif text == "no":
+        growth_notifications_enabled = False
+        await message.answer("Growth notifications set to: No 🚫")
+        logger.info("Growth notifications disabled")
+    else:
+        await message.answer("Please specify Yes or No after /growthnotify (e.g., /growthnotify Yes) 🤔")
+        logger.info("Invalid /growthnotify input")
+
 # Handler for /mastersetup command to display all filter settings
 @dp.message(Command(commands=["mastersetup"]))
 async def master_setup(message: types.Message):
@@ -1515,7 +1584,8 @@ async def master_setup(message: types.Message):
     response += f"- Snipers Filter Enabled: {SniphersFilterEnabled}\n"
     response += f"- Bundles Filter Enabled: {BundlesFilterEnabled}\n"
     response += f"- Insiders Filter Enabled: {InsidersFilterEnabled}\n"
-    response += f"- KOLs Filter Enabled: {KOLsFilterEnabled}\n\n"
+    response += f"- KOLs Filter Enabled: {KOLsFilterEnabled}\n"
+    response += f"- Growth Notifications Enabled: {growth_notifications_enabled}\n\n"
 
     response += "📊 **Threshold Settings**\n"
     pass_value_str = str(PassValue) if PassValue is not None else "Not set"
@@ -1562,6 +1632,43 @@ async def master_setup(message: types.Message):
         logger.info("Retrying without Markdown parsing...")
         await message.answer(response, parse_mode=None)
         logger.info("Sent response without Markdown parsing as a fallback")
+
+# Handler for /resetdefaults command
+@dp.message(Command(commands=["resetdefaults"]))
+async def reset_defaults(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /resetdefaults command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /resetdefaults attempt by @{username}")
+        return
+    global filter_enabled, CheckHighEnabled, CheckLowEnabled, PassValue, RangeLow
+    global DevSoldThreshold, DevSoldLeft, DevSoldFilterEnabled, Top10Threshold, Top10FilterEnabled
+    global SnipersThreshold, SniphersFilterEnabled, BundlesThreshold, BundlesFilterEnabled
+    global InsidersThreshold, InsidersFilterEnabled, KOLsThreshold, KOLsFilterEnabled
+    global growth_notifications_enabled
+    # Set defaults (adjust these based on your initial values in Chunk 1)
+    filter_enabled = True
+    CheckHighEnabled = False
+    CheckLowEnabled = False
+    PassValue = 1.5
+    RangeLow = 1.0
+    DevSoldThreshold = "No"
+    DevSoldLeft = 10.0
+    DevSoldFilterEnabled = False
+    Top10Threshold = 20.0
+    Top10FilterEnabled = False
+    SnipersThreshold = 3.0
+    SniphersFilterEnabled = False
+    BundlesThreshold = 1.0
+    BundlesFilterEnabled = False
+    InsidersThreshold = 10.0
+    InsidersFilterEnabled = False
+    KOLsThreshold = 1.0
+    KOLsFilterEnabled = False
+    growth_notifications_enabled = False
+    await message.answer("All settings have been reset to default values ✅")
+    logger.info(f"All settings reset to defaults by @{username}")
 
 # Debug handler for all messages (moved to the end to catch unhandled messages)
 @dp.message()
@@ -1666,5 +1773,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
 # Chunk 6 ends
