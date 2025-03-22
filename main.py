@@ -739,18 +739,19 @@ async def convert_link_to_button(message: types.Message) -> None:
         return  # Skip processing if neither "Fasol" nor "Early" is present
 
     # Initialize filter variables with defaults
-    buy_percent = 0
-    sell_percent = 0
-    dev_sold = "N/A"
-    dev_sold_left_value = None
-    top_10 = 0
-    snipers = 0
-    bundles = 0
-    insiders = 0
-    kols = 0
-    bonding_curve = 0  # Default Bonding Curve percentage
+# Initialize filter variables with defaults
+buy_percent = 0
+sell_percent = 0
+dev_sold = "N/A"
+dev_sold_left_value = None
+top_10 = 0
+snipers = 0
+bundles = 0
+insiders = 0
+kols = 0
+bonding_curve = 0  # Added for BC
 
-    # Parse filter data from the message
+# Parse filter data from the message
 buy_sell_match = re.search(r'Sum 🅑:(\d+\.?\d*)% \| Sum 🅢:(\d+\.?\d*)%', text)
 if buy_sell_match:
     buy_percent = float(buy_sell_match.group(1))
@@ -761,37 +762,38 @@ else:
     buy_percent = 0
     sell_percent = 0
 
-    dev_sold_match = re.search(r'Dev:(✅|❌)\s*(?:\((\d+\.?\d*)%\s*left\))?', text)
-    if dev_sold_match:
-        dev_sold = "Yes" if dev_sold_match.group(1) == "✅" else "No"
-        if dev_sold_match.group(2):
-            dev_sold_left_value = float(dev_sold_match.group(2))
+dev_sold_match = re.search(r'Dev:(✅|❌)\s*(?:\((\d+\.?\d*)%\s*left\))?', text)
+if dev_sold_match:
+    dev_sold = "Yes" if dev_sold_match.group(1) == "✅" else "No"
+    if dev_sold_match.group(2):
+        dev_sold_left_value = float(dev_sold_match.group(2))
 
-    top_10_match = re.search(r'Top 10:\s*(\d+\.?\d*)%', text)
-    if top_10_match:
-        top_10 = float(top_10_match.group(1))
+top_10_match = re.search(r'Top 10:\s*(\d+\.?\d*)%', text)
+if top_10_match:
+    top_10 = float(top_10_match.group(1))
 
-    snipers_match = re.search(r'Sniper:\s*\d+\s*buy\s*(\d+\.?\d*)%', text)
-    if snipers_match:
-        snipers = float(snipers_match.group(1))
+snipers_match = re.search(r'Sniper:\s*\d+\s*buy\s*(\d+\.?\d*)%', text)
+if snipers_match:
+    snipers = float(snipers_match.group(1))
 
-    bundles_match = re.search(r'Bundle:\s*\d+\s*buy\s*(\d+\.?\d*)%', text)
-    if bundles_match:
-        bundles = float(bundles_match.group(1))
+bundles_match = re.search(r'Bundle:\s*\d+\s*buy\s*(\d+\.?\d*)%', text)
+if bundles_match:
+    bundles = float(bundles_match.group(1))
 
-    insiders_match = re.search(r'🐁Insiders:\s*(\d+)', text)
-    if insiders_match:
-        insiders = int(insiders_match.group(1))
+insiders_match = re.search(r'🐁Insiders:\s*(\d+)', text)
+if insiders_match:
+    insiders = int(insiders_match.group(1))
 
-    kols_match = re.search(r'🌟KOLs:\s*(\d+)', text)
-    if kols_match:
-        kols = int(kols_match.group(1))
-    bc_match = re.search(r'BC: (\d+\.?\d*)%', text)
-    if bc_match:
-        bonding_curve = float(bc_match.group(1))
-        logger.debug(f"Extracted Bonding Curve: {bonding_curve}%")
-    else:
-        logger.warning(f"Failed to extract Bonding Curve from: '{text}'")
+kols_match = re.search(r'🌟KOLs:\s*(\d+)', text)
+if kols_match:
+    kols = int(kols_match.group(1))
+
+bc_match = re.search(r'BC: (\d+\.?\d*)%', text)
+if bc_match:
+    bonding_curve = float(bc_match.group(1))
+    logger.debug(f"Extracted Bonding Curve: {bonding_curve}%")
+else:
+    logger.warning(f"Failed to extract Bonding Curve from: '{text}'")
         
     # Apply filters
     all_filters_pass = False
