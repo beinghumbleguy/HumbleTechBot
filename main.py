@@ -626,10 +626,10 @@ async def get_token_market_cap(mint_address):
 # Chunk 2 ends
 
 # Chunk 3 starts
+from aiogram import types
+from aiogram.filters import Command  # Updated import for Command filter
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, MessageEntity
 
-from aiogram.filters import Command  # Ensure this is in Chunk 1 imports
-
-# Chunk 3 starts
 @dp.message(~Command(commands=[
     "test", "ca", "setfilter", "setpassvalue", "setrangelow", "setcheckhigh", 
     "setchecklow", "setdevsoldthreshold", "setdevsoldleft", "setdevsoldfilter", 
@@ -679,8 +679,8 @@ async def convert_link_to_button(message: types.Message) -> None:
             details = text.split('\n')[:5]  # Fallback: Take first 5 lines if CA isn't found
             details = '\n'.join(details).strip()
 
-        # Prepare the output with details, CA, and buttons
-        output_text = f"{details}\n🔗 CA: {ca}\n"
+        # Prepare the output with details, CA, and market cap
+        output_text = f"{details}\n🔗 CA: `{ca}`\nMarket Cap: {market_cap_str}"
 
         # Add buttons
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -696,21 +696,27 @@ async def convert_link_to_button(message: types.Message) -> None:
             ]
         ])
 
-        # Calculate the offset for the CA in the output text
-        ca_offset = output_text.find(ca)
-        await message.reply(
-            text=output_text,
-            reply_markup=keyboard,
-            reply_to_message_id=message_id,
-            parse_mode="Markdown",
-            entities=[
-                MessageEntity(
-                    type="code",
-                    offset=ca_offset,
-                    length=len(ca)
-                )
-            ]
-        )
+        try:
+            # Edit the original message (direct or forwarded)
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=output_text,
+                reply_markup=keyboard,
+                parse_mode="Markdown",
+                disable_web_page_preview=True
+            )
+            logger.info(f"Edited message with trading buttons for CA {ca} in chat {chat_id}")
+        except Exception as e:
+            logger.error(f"Failed to edit message for CA {ca}: {e}")
+            # Fallback to reply if editing fails (e.g., bot lacks permissions)
+            await message.reply(
+                text=output_text,
+                reply_markup=keyboard,
+                parse_mode="Markdown",
+                reply_to_message_id=message_id
+            )
+            logger.info(f"Fell back to replying for CA {ca} due to edit failure")
 
         # Add to monitored_tokens
         first_line = text.split('\n')[0].strip()
@@ -722,7 +728,7 @@ async def convert_link_to_button(message: types.Message) -> None:
             "chat_id": chat_id
         }
         save_monitored_tokens()  # Save to CSV after adding
-        return  # Exit the function after handling "Fasol" token
+        return  # Exit after handling "Fasol" token
 
     # If "Fasol" is not present but "Early" is, apply filter logic
     if not has_early:
@@ -740,40 +746,33 @@ async def convert_link_to_button(message: types.Message) -> None:
     kols = 0
 
     # Parse filter data from the message
-    # Parse Buy/Sell percentages
     buy_sell_match = re.search(r'Sum 🅑:(\d+\.?\d*)% \| Sum 🅢:(\d+\.?\d*)%', text)
     if buy_sell_match:
         buy_percent = float(buy_sell_match.group(1))
         sell_percent = float(buy_sell_match.group(2))
 
-    # Parse DevSold
     dev_sold_match = re.search(r'Dev:(✅|❌)\s*(?:\((\d+\.?\d*)%\s*left\))?', text)
     if dev_sold_match:
         dev_sold = "Yes" if dev_sold_match.group(1) == "✅" else "No"
         if dev_sold_match.group(2):
             dev_sold_left_value = float(dev_sold_match.group(2))
 
-    # Parse Top 10
     top_10_match = re.search(r'Top 10:\s*(\d+\.?\d*)%', text)
     if top_10_match:
         top_10 = float(top_10_match.group(1))
 
-    # Parse Snipers
     snipers_match = re.search(r'Sniper:\s*\d+\s*buy\s*(\d+\.?\d*)%', text)
     if snipers_match:
         snipers = float(snipers_match.group(1))
 
-    # Parse Bundles
     bundles_match = re.search(r'Bundle:\s*\d+\s*buy\s*(\d+\.?\d*)%', text)
     if bundles_match:
         bundles = float(bundles_match.group(1))
 
-    # Parse Insiders
     insiders_match = re.search(r'🐁Insiders:\s*(\d+)', text)
     if insiders_match:
         insiders = int(insiders_match.group(1))
 
-    # Parse KOLs
     kols_match = re.search(r'🌟KOLs:\s*(\d+)', text)
     if kols_match:
         kols = int(kols_match.group(1))
@@ -782,7 +781,6 @@ async def convert_link_to_button(message: types.Message) -> None:
     all_filters_pass = False
     filter_results = []
 
-    # BSRatio filter
     bs_ratio = buy_percent / sell_percent if sell_percent != 0 else float('inf')
     bs_ratio_pass = False
     if CheckHighEnabled and bs_ratio >= PassValue:
@@ -791,7 +789,6 @@ async def convert_link_to_button(message: types.Message) -> None:
         bs_ratio_pass = True
     filter_results.append(f"BSRatio: {bs_ratio:.2f} {'✅' if bs_ratio_pass else '🚫'} (Threshold: >= {PassValue} or 1 to {RangeLow})")
 
-    # DevSold filter
     dev_sold_pass = False
     if not DevSoldFilterEnabled:
         filter_results.append(f"DevSold: {dev_sold} (Disabled)")
@@ -805,7 +802,6 @@ async def convert_link_to_button(message: types.Message) -> None:
         else:
             filter_results.append(f"DevSold: {dev_sold} {'🚫' if dev_sold_left_value is None else f'({dev_sold_left_value}% left) 🚫'} (Threshold: {DevSoldThreshold}, Left <= {DevSoldLeft}%)")
 
-    # Top10 filter
     top_10_pass = False
     if not Top10FilterEnabled:
         filter_results.append(f"Top10: {top_10} (Disabled)")
@@ -813,7 +809,6 @@ async def convert_link_to_button(message: types.Message) -> None:
         top_10_pass = top_10 <= Top10Threshold
         filter_results.append(f"Top10: {top_10} {'✅' if top_10_pass else '🚫'} (Threshold: <= {Top10Threshold})")
 
-    # Snipers filter
     if not SniphersFilterEnabled or SnipersThreshold is None:
         filter_results.append(f"Snipers: {snipers} (Disabled)")
         snipers_pass = True
@@ -821,7 +816,6 @@ async def convert_link_to_button(message: types.Message) -> None:
         snipers_pass = snipers <= SnipersThreshold
         filter_results.append(f"Snipers: {snipers} {'✅' if snipers_pass else '🚫'} (Threshold: <= {SnipersThreshold})")
 
-    # Bundles filter
     if not BundlesFilterEnabled:
         filter_results.append(f"Bundles: {bundles} (Disabled)")
         bundles_pass = True
@@ -829,7 +823,6 @@ async def convert_link_to_button(message: types.Message) -> None:
         bundles_pass = bundles <= BundlesThreshold
         filter_results.append(f"Bundles: {bundles} {'✅' if bundles_pass else '🚫'} (Threshold: <= {BundlesThreshold})")
 
-    # Insiders filter
     if not InsidersFilterEnabled or InsidersThreshold is None:
         filter_results.append(f"Insiders: {insiders} (Disabled)")
         insiders_pass = True
@@ -837,7 +830,6 @@ async def convert_link_to_button(message: types.Message) -> None:
         insiders_pass = insiders <= InsidersThreshold
         filter_results.append(f"Insiders: {insiders} {'✅' if insiders_pass else '🚫'} (Threshold: <= {InsidersThreshold})")
 
-    # KOLs filter
     if not KOLsFilterEnabled:
         filter_results.append(f"KOLs: {kols} (Disabled)")
         kols_pass = True
@@ -845,7 +837,6 @@ async def convert_link_to_button(message: types.Message) -> None:
         kols_pass = kols >= KOLsThreshold
         filter_results.append(f"KOLs: {kols} {'✅' if kols_pass else '🚫'} (Threshold: >= {KOLsThreshold})")
 
-    # Determine if all filters pass
     all_filters_pass = all([
         bs_ratio_pass,
         dev_sold_pass if DevSoldFilterEnabled else True,
@@ -856,7 +847,7 @@ async def convert_link_to_button(message: types.Message) -> None:
         kols_pass if KOLsFilterEnabled else True
     ])
 
-    # Log filter results to CSV (always use PUBLIC_CSV_FILE for "Early" tokens)
+    # Log filter results to CSV
     log_to_csv(
         ca=ca,
         bs_ratio=bs_ratio,
@@ -880,22 +871,29 @@ async def convert_link_to_button(message: types.Message) -> None:
         is_vip_channel=False  # Always log "Early" tokens to PUBLIC_CSV_FILE
     )
 
-    # Prepare and send the output message with filter results
+    # Prepare the output message with filter results
     first_line = text.split('\n')[0].strip()
-    output_text = f"{'CA qualified: ✅' if all_filters_pass else 'CA did not qualify: 🚫'}\n**{first_line}**\n**🔗 CA: {ca}**\n" + "\n".join(filter_results)
+    output_text = f"{text}\n\n{'CA qualified: ✅' if all_filters_pass else 'CA did not qualify: 🚫'}\n**{first_line}**\n**🔗 CA: `{ca}`**\n" + "\n".join(filter_results)
 
-    await message.reply(
-        text=output_text,
-        parse_mode="Markdown",
-        reply_to_message_id=message_id,
-        entities=[
-            MessageEntity(
-                type="code",
-                offset=output_text.index(ca),
-                length=len(ca)
-            )
-        ]
-    )
+    try:
+        # Edit the original message with filter results
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=output_text,
+            parse_mode="Markdown",
+            disable_web_page_preview=True
+        )
+        logger.info(f"Edited message with filter results for CA {ca} in chat {chat_id}")
+    except Exception as e:
+        logger.error(f"Failed to edit message for CA {ca}: {e}")
+        # Fallback to reply if editing fails
+        await message.reply(
+            text=output_text,
+            parse_mode="Markdown",
+            reply_to_message_id=message_id
+        )
+        logger.info(f"Fell back to replying for CA {ca} due to edit failure")
 # Chunk 3 ends
 
 # Chunk 4 starts
