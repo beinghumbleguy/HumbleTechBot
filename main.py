@@ -26,19 +26,17 @@ import pytz
 
 # Chunk 1 starts
 
-# Chunk 1 starts
-# ... [existing imports] ...
 from aiogram.filters import BaseFilter
 from aiogram import types
 
 # Custom filter to detect non-command messages
 class NotCommandFilter(BaseFilter):
     def __call__(self, message: types.Message) -> bool:
-        logger.debug(f"NotCommandFilter checking: '{message.text}'")
-        result = message.text and not message.text.startswith('/')
+        logger.debug(f"NotCommandFilter checking message: '{message.text}'")
+        result = bool(message.text and not message.text.startswith('/'))
         logger.debug(f"NotCommandFilter result: {result}")
         return result
-
+        
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
