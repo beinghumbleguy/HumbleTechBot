@@ -227,8 +227,8 @@ def log_to_csv(ca, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold, dev_sold_l
                 insiders_pass if InsidersFilterEnabled and insiders is not None else "N/A",
                 kols if kols is not None else "N/A",
                 kols_pass if KOLsFilterEnabled and kols is not None else "N/A",
-                bonding_curve=bonding_curve,
-                bc_pass=bc_pass if BondingCurveFilterEnabled else None,
+                bonding_curve if bonding_curve is not None else "N/A",
+                bc_pass if BondingCurveFilterEnabled and bonding_curve is not None else "N/A",
                 overall_pass,
                 market_cap if market_cap else "N/A"
             ])
