@@ -1078,6 +1078,77 @@ async def cmd_ca(message: types.Message):
         logger.error(f"Error in cmd_ca: {e}")
         await message.answer(f"Error processing /ca: {e}")
 
+# Handler for /mastersetup command to display all filter settings
+@dp.message(Command(commands=["mastersetup"]))
+async def master_setup(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /mastersetup command from user: @{username}")
+
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /mastersetup attempt by @{username}")
+        return
+
+    response = "📋 **Master Setup - Current Filter Configurations**\n\n"
+    
+    response += "🔧 **Filter Toggles**\n"
+    response += f"- Filter Enabled: {filter_enabled}\n"
+    response += f"- CheckHigh Enabled: {CheckHighEnabled}\n"
+    response += f"- CheckLow Enabled: {CheckLowEnabled}\n"
+    response += f"- DevSold Filter Enabled: {DevSoldFilterEnabled}\n"
+    response += f"- Top10 Filter Enabled: {Top10FilterEnabled}\n"
+    response += f"- Snipers Filter Enabled: {SniphersFilterEnabled}\n"
+    response += f"- Bundles Filter Enabled: {BundlesFilterEnabled}\n"
+    response += f"- Insiders Filter Enabled: {InsidersFilterEnabled}\n"
+    response += f"- KOLs Filter Enabled: {KOLsFilterEnabled}\n\n"
+
+    response += "📊 **Threshold Settings**\n"
+    pass_value_str = str(PassValue) if PassValue is not None else "Not set"
+    range_low_str = str(RangeLow) if RangeLow is not None else "Not set"
+    dev_sold_threshold_str = str(DevSoldThreshold) if DevSoldThreshold is not None else "Not set"
+    dev_sold_left_str = str(DevSoldLeft) if DevSoldLeft is not None else "Not set"
+    top_10_threshold_str = str(Top10Threshold) if Top10Threshold is not None else "Not set"
+    snipers_threshold_str = str(SnipersThreshold) if SnipersThreshold is not None else "Not set"
+    bundles_threshold_str = str(BundlesThreshold) if BundlesThreshold is not None else "Not set"
+    insiders_threshold_str = str(InsidersThreshold) if InsidersThreshold is not None else "Not set"
+    kols_threshold_str = str(KOLsThreshold) if KOLsThreshold is not None else "Not set"
+
+    def escape_markdown(text):
+        special_chars = r'\*_`\[\]\(\)#\+-=!|{}\.%'
+        return re.sub(f'([{re.escape(special_chars)}])', r'\\\1', text)
+
+    lines = [
+        f"- PassValue (CheckHigh): {escape_markdown(pass_value_str)}\n",
+        f"- RangeLow (CheckLow): {escape_markdown(range_low_str)}\n",
+        f"- DevSold Threshold: {escape_markdown(dev_sold_threshold_str)}\n",
+        f"- DevSoldLeft Threshold: {escape_markdown(dev_sold_left_str)}%\n",
+        f"- Top10 Threshold: {escape_markdown(top_10_threshold_str)}\n",
+        f"- Snipers Threshold: {escape_markdown(snipers_threshold_str)}\n",
+        f"- Bundles Threshold: {escape_markdown(bundles_threshold_str)}\n",
+        f"- Insiders Threshold: {escape_markdown(insiders_threshold_str)}\n",
+        f"- KOLs Threshold: {escape_markdown(kols_threshold_str)}\n"
+    ]
+    
+    current_offset = len(response.encode('utf-8'))
+    for i, line in enumerate(lines):
+        logger.info(f"Line {i+1} byte offset: {current_offset} - {line.strip()}")
+        response += line
+        current_offset += len(line.encode('utf-8'))
+
+    response += "\n🔍 Use the respective /set* and /filter commands to adjust these settings."
+
+    logger.info(f"Full master setup response: {response}")
+
+    try:
+        logger.info(f"Sending master setup response: {response[:100]}...")
+        await message.answer(response, parse_mode="Markdown")
+        logger.info("Master setup response sent successfully")
+    except Exception as e:
+        logger.error(f"Failed to send master setup response: {e}")
+        logger.info("Retrying without Markdown parsing...")
+        await message.answer(response, parse_mode=None)
+        logger.info("Sent response without Markdown parsing as a fallback")
+
 # Handler for /setfilter command to toggle filter_enabled
 @dp.message(Command(commands=["setfilter"]))
 async def set_filter(message: types.Message):
