@@ -1001,10 +1001,10 @@ async def cmd_ca(message: types.Message):
 
 # Chunk 6 starts
 
-# Define the middleware as an async function
-async def log_update(update: types.Update, handler, dp: Dispatcher):
-    logger.info(f"Raw update received: {update}")
-    return await handler(update)  # Pass control to the next handler
+# Define the middleware with the correct signature
+async def log_update(handler, event: types.Update, data: dict):
+    logger.info(f"Raw update received: {event}")
+    return await handler(event, data)  # Pass event and data to the next handler
 
 # Register the middleware for all updates
 dp.update.middleware(log_update)
@@ -1204,4 +1204,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 # Chunk 6 ends
