@@ -627,7 +627,7 @@ async def get_token_market_cap(mint_address):
 
 # Chunk 3 starts
 from aiogram import types
-from aiogram.filters import Command  # Updated import for Command filter
+from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, MessageEntity
 
 @dp.message(~Command(commands=[
@@ -656,6 +656,11 @@ async def convert_link_to_button(message: types.Message) -> None:
     # Check for keywords
     has_early = "Early" in text
     has_fasol = "Fasol" in text
+
+    # Send an initial reply that the bot can edit
+    processing_msg = await message.reply("Processing token data...", reply_to_message_id=message_id)
+    processing_chat_id = processing_msg.chat.id
+    processing_message_id = processing_msg.message_id
 
     # Extract market cap from the message (e.g., "💎 C: 43.7k")
     mc_match = re.search(r'💎\s*C:\s*(\d+\.?\d*[KM]?)', text, re.IGNORECASE)
@@ -697,26 +702,40 @@ async def convert_link_to_button(message: types.Message) -> None:
         ])
 
         try:
-            # Edit the original message (direct or forwarded)
+            # Edit the bot's own reply
             await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
+                chat_id=processing_chat_id,
+                message_id=processing_message_id,
                 text=output_text,
                 reply_markup=keyboard,
                 parse_mode="Markdown",
                 disable_web_page_preview=True
             )
-            logger.info(f"Edited message with trading buttons for CA {ca} in chat {chat_id}")
+            logger.info(f"Edited bot reply with trading buttons for CA {ca} in chat {processing_chat_id}")
+
+            # Delete the original source message
+            try:
+                await bot.delete_message(chat_id=chat_id, message_id=message_id)
+                logger.info(f"Deleted original message {message_id} in chat {chat_id}")
+            except Exception as e:
+                logger.warning(f"Failed to delete original message {message_id} in chat {chat_id}: {e}")
+
         except Exception as e:
-            logger.error(f"Failed to edit message for CA {ca}: {e}")
-            # Fallback to reply if editing fails (e.g., bot lacks permissions)
+            logger.error(f"Failed to edit bot reply for CA {ca}: {e}")
+            await bot.delete_message(chat_id=processing_chat_id, message_id=processing_message_id)
             await message.reply(
                 text=output_text,
                 reply_markup=keyboard,
                 parse_mode="Markdown",
                 reply_to_message_id=message_id
             )
-            logger.info(f"Fell back to replying for CA {ca} due to edit failure")
+            logger.info(f"Fell back to new reply for CA {ca} after edit failure")
+            # Attempt to delete original even on fallback
+            try:
+                await bot.delete_message(chat_id=chat_id, message_id=message_id)
+                logger.info(f"Deleted original message {message_id} in chat {chat_id} after fallback")
+            except Exception as e:
+                logger.warning(f"Failed to delete original message {message_id} in chat {chat_id} after fallback: {e}")
 
         # Add to monitored_tokens
         first_line = text.split('\n')[0].strip()
@@ -732,6 +751,7 @@ async def convert_link_to_button(message: types.Message) -> None:
 
     # If "Fasol" is not present but "Early" is, apply filter logic
     if not has_early:
+        await bot.delete_message(chat_id=processing_chat_id, message_id=processing_message_id)
         return  # Skip processing if neither "Fasol" nor "Early" is present
 
     # Initialize filter variables with defaults
@@ -876,24 +896,39 @@ async def convert_link_to_button(message: types.Message) -> None:
     output_text = f"{text}\n\n{'CA qualified: ✅' if all_filters_pass else 'CA did not qualify: 🚫'}\n**{first_line}**\n**🔗 CA: `{ca}`**\n" + "\n".join(filter_results)
 
     try:
-        # Edit the original message with filter results
+        # Edit the bot's own reply with filter results
         await bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
+            chat_id=processing_chat_id,
+            message_id=processing_message_id,
             text=output_text,
             parse_mode="Markdown",
             disable_web_page_preview=True
         )
-        logger.info(f"Edited message with filter results for CA {ca} in chat {chat_id}")
+        logger.info(f"Edited bot reply with filter results for CA {ca} in chat {processing_chat_id}")
+
+        # Delete the original source message
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
+            logger.info(f"Deleted original message {message_id} in chat {chat_id}")
+        except Exception as e:
+            logger.warning(f"Failed to delete original message {message_id} in chat {chat_id}: {e}")
+
     except Exception as e:
-        logger.error(f"Failed to edit message for CA {ca}: {e}")
-        # Fallback to reply if editing fails
+        logger.error(f"Failed to edit bot reply for CA {ca}: {e}")
+        await bot.delete_message(chat_id=processing_chat_id, message_id=processing_message_id)
         await message.reply(
             text=output_text,
             parse_mode="Markdown",
             reply_to_message_id=message_id
         )
-        logger.info(f"Fell back to replying for CA {ca} due to edit failure")
+        logger.info(f"Fell back to new reply for CA {ca} after edit failure")
+        # Attempt to delete original even on fallback
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
+            logger.info(f"Deleted original message {message_id} in chat {chat_id} after fallback")
+        except Exception as e:
+            logger.warning(f"Failed to delete original message {message_id} in chat {chat_id} after fallback: {e}")
+
 # Chunk 3 ends
 
 # Chunk 4 starts
