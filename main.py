@@ -104,8 +104,6 @@ MONITORING_DURATION = 21600  # 6 hours in seconds
 monitored_tokens = {}
 last_growth_ratios = {}
 
-import csv
-import os
 def save_monitored_tokens():
     csv_file = "monitored_tokens.csv"  # Adjust path if needed (e.g., "/app/monitored_tokens.csv")
     try:
@@ -662,8 +660,9 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, MessageEnt
     "setbcthreshold", "setbcfilter"  # Added for Bonding Curve
 ]), F.text)
 async def convert_link_to_button(message: types.Message) -> None:
-    logger.info(f"Processing message in convert_link_to_button: '{message.text}'")
+    logger.info(f"Handler triggered for message: '{message.text}' (chat_id={message.chat.id}, type={message.chat.type}, message_id={message.message_id})")
     if not message.text:
+        logger.debug("Message has no text, skipping")
         return
     chat_id = message.chat.id
     message_id = message.message_id
@@ -673,12 +672,15 @@ async def convert_link_to_button(message: types.Message) -> None:
     # Extract CA from the message
     ca_match = re.search(r'[A-Za-z0-9]{44}', text)
     if not ca_match:
+        logger.debug("No CA found in message")
         return
     ca = ca_match.group(0)
+    logger.debug(f"Extracted CA: {ca}")
 
-    # Check for keywords
-    has_early = "Early" in text
-    has_fasol = "Fasol" in text
+    # Check for keywords (case-insensitive)
+    has_early = "early" in text.lower()
+    has_fasol = "fasol" in text.lower()
+    logger.debug(f"Keyword check - Has Early: {has_early}, Has Fasol: {has_fasol}")
 
     # Extract market cap from the message (e.g., "💎 C: 43.7k")
     mc_match = re.search(r'💎\s*C:\s*(\d+\.?\d*[KM]?)', text, re.IGNORECASE)
@@ -689,11 +691,13 @@ async def convert_link_to_button(message: types.Message) -> None:
         try:
             original_mc = parse_market_cap(mc_str)
             market_cap_str = f"${original_mc / 1000:.1f}K" if original_mc is not None and original_mc > 0 else "N/A"
+            logger.debug(f"Parsed market cap: {market_cap_str}")
         except ValueError as e:
             logger.error(f"Failed to parse market cap '{mc_str}': {str(e)}")
 
     # If "Fasol" keyword is present, process silently and post final output
     if has_fasol:
+        logger.info("Processing 'Fasol' message")
         # Extract the message details up to the CA
         ca_index = text.find(ca)
         if ca_index != -1:
@@ -738,7 +742,8 @@ async def convert_link_to_button(message: types.Message) -> None:
                 logger.warning(f"Failed to delete original message {message_id} in chat {chat_id}: {e}")
 
         except Exception as e:
-            logger.error(f"Failed to post final message for CA {ca}: {e}")
+            logger.error(f"Failed to post final message for CA {ca}: {str(e)}")
+            return  # Exit early if reply fails
 
         # Add to monitored_tokens
         first_line = text.split('\n')[0].strip()
@@ -749,12 +754,16 @@ async def convert_link_to_button(message: types.Message) -> None:
             "message_id": message_id,
             "chat_id": chat_id
         }
-        save_monitored_tokens()  # Save to CSV after adding
+        logger.debug(f"Updated monitored_tokens with CA {ca}")
+        save_monitored_tokens()  # Save to CSV after adding, now defined in Chunk 1
         return  # Exit after handling "Fasol" token
 
     # If "Fasol" is not present but "Early" is, apply filter logic
     if not has_early:
-        return  # Skip processing if neither "Fasol" nor "Early" is present
+        logger.debug("No 'Early' keyword found, skipping filter logic")
+        return
+
+    logger.info("Processing 'Early' message")
 
     # Initialize filter variables with defaults
     buy_percent = 0
@@ -890,7 +899,6 @@ async def convert_link_to_button(message: types.Message) -> None:
         bc_pass if BondingCurveFilterEnabled else True
     ])
 
-
     # Log filter results to CSV (always use PUBLIC_CSV_FILE for "Early" tokens)
     log_to_csv(
         ca=ca,
@@ -915,24 +923,28 @@ async def convert_link_to_button(message: types.Message) -> None:
         overall_pass=all_filters_pass,
         market_cap=market_cap_str,
         is_vip_channel=False
-            )
+    )
 
     # Prepare and send the output message with filter results
     first_line = text.split('\n')[0].strip()
     output_text = f"{'CA qualified: ✅' if all_filters_pass else 'CA did not qualify: 🚫'}\n**{first_line}**\n**🔗 CA: {ca}**\n" + "\n".join(filter_results)
 
-    await message.reply(
-        text=output_text,
-        parse_mode="Markdown",
-        reply_to_message_id=message_id,
-        entities=[
-            MessageEntity(
-                type="code",
-                offset=output_text.index(ca),
-                length=len(ca)
-            )
-        ]
-    )
+    try:
+        await message.reply(
+            text=output_text,
+            parse_mode="Markdown",
+            reply_to_message_id=message_id,
+            entities=[
+                MessageEntity(
+                    type="code",
+                    offset=output_text.index(ca),
+                    length=len(ca)
+                )
+            ]
+        )
+        logger.info(f"Filter results sent for CA {ca} in chat {chat_id}")
+    except Exception as e:
+        logger.error(f"Failed to send filter results for CA {ca}: {str(e)}")
 
 # Chunk 3 ends
 
