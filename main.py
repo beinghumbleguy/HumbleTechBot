@@ -93,7 +93,11 @@ InsidersFilterEnabled = False
 KOLsFilterEnabled = True
 BondingCurveFilterEnabled = True
 
+import csv
+import os
+import logging
 
+logger = logging.getLogger(__name__)  # Assuming logging is set up
 
 # Growth check variables
 growth_notifications_enabled = True
@@ -650,16 +654,11 @@ from aiogram import types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, MessageEntity
 
-@dp.message(~Command(commands=[
-    "test", "ca", "setfilter", "setpassvalue", "setrangelow", "setcheckhigh", 
-    "setchecklow", "setdevsoldthreshold", "setdevsoldleft", "setdevsoldfilter", 
-    "settop10threshold", "settop10filter", "setsnipersthreshold", "setsnipersfilter", 
-    "setbundlesthreshold", "setbundlesfilter", "setinsidersthreshold", "setinsidersfilter", 
-    "setkolsthreshold", "setkolsfilter", "adduser", "downloadcsv", "downloadgrowthcsv", 
-    "growthnotify", "mastersetup", "resetdefaults",
-    "setbcthreshold", "setbcfilter"  # Added for Bonding Curve
-]), F.text)
-async def convert_link_to_button(message: types.Message) -> None:
+# Define VIP channel IDs
+VIP_CHANNEL_IDS = {-1002365061913}  # Only VIP channel
+
+# Shared logic for both message and channel post handling
+async def process_message_or_post(message: types.Message | types.ChannelPost) -> None:
     logger.info(f"Handler triggered for message: '{message.text}' (chat_id={message.chat.id}, type={message.chat.type}, message_id={message.message_id})")
     if not message.text:
         logger.debug("Message has no text, skipping")
@@ -682,8 +681,8 @@ async def convert_link_to_button(message: types.Message) -> None:
     has_fasol = "fasol" in text.lower()
     logger.debug(f"Keyword check - Has Early: {has_early}, Has Fasol: {has_fasol}")
 
-    # Extract market cap from the message (e.g., "💎 C: 43.7k")
-    mc_match = re.search(r'💎\s*C:\s*(\d+\.?\d*[KM]?)', text, re.IGNORECASE)
+    # Extract market cap from the message (e.g., "💎 MC: $46.6k" or "💎 C: 43.7k")
+    mc_match = re.search(r'💎\s*(?:MC|C):\s*\$?(\d+\.?\d*[KM]?)', text, re.IGNORECASE)
     original_mc = 0  # Default to 0 if market cap cannot be parsed
     market_cap_str = "N/A"
     if mc_match:
@@ -695,24 +694,20 @@ async def convert_link_to_button(message: types.Message) -> None:
         except ValueError as e:
             logger.error(f"Failed to parse market cap '{mc_str}': {str(e)}")
 
-    # If "Fasol" keyword is present, process silently and post final output
+    # If "Fasol" keyword is present, process silently and post final output with trading buttons
     if has_fasol:
         logger.info("Processing 'Fasol' message")
-        # Extract the message details up to the CA
         ca_index = text.find(ca)
         if ca_index != -1:
-            details = text[:ca_index].strip()  # Everything before the CA
+            details = text[:ca_index].strip()
         else:
-            details = text.split('\n')[:5]  # Fallback: Take first 5 lines if CA isn't found
+            details = text.split('\n')[:5]
             details = '\n'.join(details).strip()
 
-        # Prepare the output with details, CA, and market cap
         output_text = f"{details}\n🔗 CA: `{ca}`"
-
-        # Add buttons
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🌟🚀 Join VIP 🚀🌟", url="https://t.me/HumbleMoonshotsPay_bot?start=start")]
-            if not is_vip_channel else [],  # Only include "Join VIP" in public channel
+            if not is_vip_channel else [],  # Show "Join VIP" only in test and public channels
             [
                 InlineKeyboardButton(text="Bloom", url=f"https://t.me/BloomSolana_bot?start=ref_humbleguy_ca_{ca}"),
                 InlineKeyboardButton(text="Fasol", url=f"https://t.me/fasol_robot?start=ref_humbleguy_ca_{ca}"),
@@ -723,29 +718,34 @@ async def convert_link_to_button(message: types.Message) -> None:
             ]
         ])
 
-        # Send the final message and delete the original
         try:
-            final_msg = await message.reply(
-                text=output_text,
-                reply_markup=keyboard,
-                parse_mode="Markdown",
-                reply_to_message_id=message_id,
-                disable_web_page_preview=True
-            )
+            if message.chat.type == "channel":
+                final_msg = await bot.send_message(
+                    chat_id=chat_id,
+                    text=output_text,
+                    reply_markup=keyboard,
+                    parse_mode="Markdown",
+                    disable_web_page_preview=True
+                )
+            else:
+                final_msg = await message.reply(
+                    text=output_text,
+                    reply_markup=keyboard,
+                    parse_mode="Markdown",
+                    reply_to_message_id=message_id,
+                    disable_web_page_preview=True
+                )
             logger.info(f"Posted final message with trading buttons for CA {ca} in chat {chat_id}")
-
-            # Delete the original source message
+            
             try:
                 await bot.delete_message(chat_id=chat_id, message_id=message_id)
                 logger.info(f"Deleted original message {message_id} in chat {chat_id}")
             except Exception as e:
                 logger.warning(f"Failed to delete original message {message_id} in chat {chat_id}: {e}")
-
         except Exception as e:
             logger.error(f"Failed to post final message for CA {ca}: {str(e)}")
-            return  # Exit early if reply fails
+            return
 
-        # Add to monitored_tokens
         first_line = text.split('\n')[0].strip()
         monitored_tokens[ca] = {
             "token_name": first_line,
@@ -755,17 +755,15 @@ async def convert_link_to_button(message: types.Message) -> None:
             "chat_id": chat_id
         }
         logger.debug(f"Updated monitored_tokens with CA {ca}")
-        save_monitored_tokens()  # Save to CSV after adding, now defined in Chunk 1
-        return  # Exit after handling "Fasol" token
+        save_monitored_tokens()
+        return
 
-    # If "Fasol" is not present but "Early" is, apply filter logic
+    # If "Fasol" is not present but "Early" is, apply filter logic (no buttons)
     if not has_early:
         logger.debug("No 'Early' keyword found, skipping filter logic")
         return
 
     logger.info("Processing 'Early' message")
-
-    # Initialize filter variables with defaults
     buy_percent = 0
     sell_percent = 0
     dev_sold = "N/A"
@@ -775,9 +773,8 @@ async def convert_link_to_button(message: types.Message) -> None:
     bundles = 0
     insiders = 0
     kols = 0
-    bonding_curve = 0  # Added for BC
+    bonding_curve = 0
 
-    # Parse filter data from the message
     buy_sell_match = re.search(r'Sum 🅑:(\d+\.?\d*)% \| Sum 🅢:(\d+\.?\d*)%', text)
     if buy_sell_match:
         buy_percent = float(buy_sell_match.group(1))
@@ -785,8 +782,6 @@ async def convert_link_to_button(message: types.Message) -> None:
         logger.debug(f"Extracted Buy: {buy_percent}%, Sell: {sell_percent}%")
     else:
         logger.warning(f"Failed to extract Buy/Sell percentages from: '{text}'")
-        buy_percent = 0
-        sell_percent = 0
 
     dev_sold_match = re.search(r'Dev:(✅|❌)\s*(?:\((\d+\.?\d*)%\s*left\))?', text)
     if dev_sold_match:
@@ -820,8 +815,7 @@ async def convert_link_to_button(message: types.Message) -> None:
         logger.debug(f"Extracted Bonding Curve: {bonding_curve}%")
     else:
         logger.warning(f"Failed to extract Bonding Curve from: '{text}'")
-        
-    # Apply filters
+
     all_filters_pass = False
     filter_results = []
 
@@ -899,7 +893,6 @@ async def convert_link_to_button(message: types.Message) -> None:
         bc_pass if BondingCurveFilterEnabled else True
     ])
 
-    # Log filter results to CSV (always use PUBLIC_CSV_FILE for "Early" tokens)
     log_to_csv(
         ca=ca,
         bs_ratio=bs_ratio,
@@ -925,26 +918,51 @@ async def convert_link_to_button(message: types.Message) -> None:
         is_vip_channel=False
     )
 
-    # Prepare and send the output message with filter results
     first_line = text.split('\n')[0].strip()
     output_text = f"{'CA qualified: ✅' if all_filters_pass else 'CA did not qualify: 🚫'}\n**{first_line}**\n**🔗 CA: {ca}**\n" + "\n".join(filter_results)
 
     try:
-        await message.reply(
-            text=output_text,
-            parse_mode="Markdown",
-            reply_to_message_id=message_id,
-            entities=[
-                MessageEntity(
-                    type="code",
-                    offset=output_text.index(ca),
-                    length=len(ca)
-                )
-            ]
-        )
+        if message.chat.type == "channel":
+            await bot.send_message(
+                chat_id=chat_id,
+                text=output_text,
+                parse_mode="Markdown",
+                disable_web_page_preview=True
+            )
+        else:
+            await message.reply(
+                text=output_text,
+                parse_mode="Markdown",
+                reply_to_message_id=message_id,
+                entities=[
+                    MessageEntity(
+                        type="code",
+                        offset=output_text.index(ca),
+                        length=len(ca)
+                    )
+                ]
+            )
         logger.info(f"Filter results sent for CA {ca} in chat {chat_id}")
     except Exception as e:
         logger.error(f"Failed to send filter results for CA {ca}: {str(e)}")
+
+# Handler for regular messages (private chats, groups)
+@dp.message(~Command(commands=[
+    "test", "ca", "setfilter", "setpassvalue", "setrangelow", "setcheckhigh", 
+    "setchecklow", "setdevsoldthreshold", "setdevsoldleft", "setdevsoldfilter", 
+    "settop10threshold", "settop10filter", "setsnipersthreshold", "setsnipersfilter", 
+    "setbundlesthreshold", "setbundlesfilter", "setinsidersthreshold", "setinsidersfilter", 
+    "setkolsthreshold", "setkolsfilter", "adduser", "downloadcsv", "downloadgrowthcsv", 
+    "growthnotify", "mastersetup", "resetdefaults",
+    "setbcthreshold", "setbcfilter"
+]), F.text)
+async def handle_message(message: types.Message) -> None:
+    await process_message_or_post(message)
+
+# Handler for channel posts
+@dp.channel_post(F.text)
+async def handle_channel_post(post: types.ChannelPost) -> None:
+    await process_message_or_post(post)
 
 # Chunk 3 ends
 
