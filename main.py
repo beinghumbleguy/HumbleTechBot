@@ -817,7 +817,7 @@ async def process_message(message: types.Message) -> None:
     if kols_match:
         kols = int(kols_match.group(1))
 
-    bc_match = re.search(r'BC:\s+(\d+\.?\d*)%', text)
+    bc_match = re.search(r'Bonding Curve:\s+(\d+\.?\d*)%', text)
     if bc_match:
         bonding_curve = float(bc_match.group(1))
         logger.debug(f"Extracted Bonding Curve: {bonding_curve}%")
