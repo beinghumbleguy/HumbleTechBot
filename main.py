@@ -664,8 +664,17 @@ from aiogram import F
 # Define VIP channel IDs
 VIP_CHANNEL_IDS = {-1002365061913}  # Only VIP channel
 
-# Shared logic for both message and channel post handling
-async def process_message_or_post(message: types.Message | types.ChannelPost) -> None:
+# Handler for all messages (private chats, groups, channels)
+@dp.message(~Command(commands=[
+    "test", "ca", "setfilter", "setpassvalue", "setrangelow", "setcheckhigh", 
+    "setchecklow", "setdevsoldthreshold", "setdevsoldleft", "setdevsoldfilter", 
+    "settop10threshold", "settop10filter", "setsnipersthreshold", "setsnipersfilter", 
+    "setbundlesthreshold", "setbundlesfilter", "setinsidersthreshold", "setinsidersfilter", 
+    "setkolsthreshold", "setkolsfilter", "adduser", "downloadcsv", "downloadgrowthcsv", 
+    "growthnotify", "mastersetup", "resetdefaults",
+    "setbcthreshold", "setbcfilter"
+]), F.text)
+async def convert_link_to_button(message: types.Message) -> None:
     logger.info(f"Handler triggered for message: '{message.text}' (chat_id={message.chat.id}, type={message.chat.type}, message_id={message.message_id})")
     if not message.text:
         logger.debug("Message has no text, skipping")
@@ -952,24 +961,6 @@ async def process_message_or_post(message: types.Message | types.ChannelPost) ->
         logger.info(f"Filter results sent for CA {ca} in chat {chat_id}")
     except Exception as e:
         logger.error(f"Failed to send filter results for CA {ca}: {str(e)}")
-
-# Handler for regular messages (private chats, groups)
-@dp.message(~Command(commands=[
-    "test", "ca", "setfilter", "setpassvalue", "setrangelow", "setcheckhigh", 
-    "setchecklow", "setdevsoldthreshold", "setdevsoldleft", "setdevsoldfilter", 
-    "settop10threshold", "settop10filter", "setsnipersthreshold", "setsnipersfilter", 
-    "setbundlesthreshold", "setbundlesfilter", "setinsidersthreshold", "setinsidersfilter", 
-    "setkolsthreshold", "setkolsfilter", "adduser", "downloadcsv", "downloadgrowthcsv", 
-    "growthnotify", "mastersetup", "resetdefaults",
-    "setbcthreshold", "setbcfilter"
-]), F.text)
-async def handle_message(message: types.Message) -> None:
-    await process_message_or_post(message)
-
-# Handler for channel posts
-@dp.channel_post(F.text)
-async def handle_channel_post(post: types.ChannelPost) -> None:
-    await process_message_or_post(post)
 
 # Chunk 3 ends
 
