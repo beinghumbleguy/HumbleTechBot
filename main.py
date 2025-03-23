@@ -104,6 +104,8 @@ MONITORING_DURATION = 21600  # 6 hours in seconds
 monitored_tokens = {}
 last_growth_ratios = {}
 
+import csv
+import os
 def save_monitored_tokens():
     csv_file = "monitored_tokens.csv"  # Adjust path if needed (e.g., "/app/monitored_tokens.csv")
     try:
