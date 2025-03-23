@@ -30,6 +30,12 @@ import pytz
 from aiogram.filters import BaseFilter
 from aiogram import types
 
+import aiogram
+import logging
+
+logger = logging.getLogger(__name__)
+logger.info(f"Using Aiogram version: {aiogram.__version__}")
+
 # Custom filter to detect non-command messages
 class NotCommandFilter(BaseFilter):
     def __call__(self, message: types.Message) -> bool:
