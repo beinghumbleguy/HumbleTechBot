@@ -354,6 +354,7 @@ async def add_user(message: types.Message):
 # Chunk 2 starts
 import cloudscraper
 import json
+from fake_useragent import UserAgent
 
 # Session management for API requests
 class APISessionManager:
@@ -367,8 +368,9 @@ class APISessionManager:
         self.retry_delay = 5  # Increased to 5 seconds
         self.base_url = "https://gmgn.ai/api/v1/mutil_window_token_info"
         self._executor = _executor
+        self.ua = UserAgent()  # Initialize fake-useragent for randomization
 
-        # Browser-like headers to assist Cloudflare bypass
+        # Base headers (User-Agent will be randomized)
         self.headers_dict = {
             "Accept": "application/json, text/plain, */*",
             "Accept-Encoding": "gzip, deflate, br",
@@ -380,17 +382,16 @@ class APISessionManager:
             "Sec-Fetch-Dest": "empty",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "same-origin",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
         }
 
-        # Proxy list in dict format (using your original proxy)
+        # Proxy list (enhanced to match your original 9 proxies)
         self.proxy_list = [
             {
                 "host": "residential.birdproxies.com",
                 "port": 7777,
                 "username": "pool-p1-cc-us",
                 "password": "sf3lefz1yj3zwjvy"
-            },
+            } for _ in range(9)  # Replicates your original list
         ]
         self.current_proxy_index = 0
         logger.info(f"Initialized proxy list with {len(self.proxy_list)} proxies")
@@ -440,7 +441,6 @@ class APISessionManager:
         too_many_requests = self._session_requests >= self._session_max_requests
         
         if self.session is None or force or session_expired or too_many_requests:
-            # Create a new cloudscraper session
             self.session = cloudscraper.create_scraper(
                 browser={
                     'browser': 'chrome',
@@ -448,7 +448,12 @@ class APISessionManager:
                     'mobile': False
                 }
             )
+            
+            # Randomize User-Agent
+            user_agent = self.ua.random
+            self.headers_dict["User-Agent"] = user_agent
             self.session.headers.update(self.headers_dict)
+            logger.debug(f"Randomized User-Agent: {user_agent}")
             
             if use_proxy and self.proxy_list:
                 proxy_dict = await self.get_proxy()
@@ -500,7 +505,6 @@ class APISessionManager:
             if attempt < self.max_retries - 1:
                 await asyncio.sleep(self.retry_delay)
         
-        # Fallback: Try without proxy
         if self.proxy_list:
             logger.info("All proxy attempts failed, trying without proxy as final fallback")
             await self.randomize_session(force=True, use_proxy=False)
@@ -527,7 +531,6 @@ api_session_manager = APISessionManager()
 
 # Updated function to get token data using the new API endpoint
 async def get_gmgn_token_data(mint_address):
-    # Check cache first
     if mint_address in token_data_cache:
         logger.info(f"Returning cached data for CA: {mint_address}")
         return token_data_cache[mint_address]
@@ -541,32 +544,30 @@ async def get_gmgn_token_data(mint_address):
     try:
         token_data = {}
         
-        # Assuming the API returns a list with one token's data
-        if not token_data_raw or "tokens" not in token_data_raw or len(token_data_raw["tokens"]) == 0:
+        if not token_data_raw or "data" not in token_data_raw or len(token_data_raw["data"]) == 0:
             logger.warning(f"No valid token data in response: {token_data_raw}")
             return {"error": "No token data returned from API."}
         
-        token_info = token_data_raw["tokens"][0]
+        token_info = token_data_raw["data"][0]
         
-        # Extract basic token data (adjust keys based on actual API response)
-        token_data["market_cap"] = token_info.get("market_cap_usd", 0)
+        price = float(token_info.get("price", "0"))
+        circulating_supply = float(token_info.get("circulating_supply", "0"))
+        token_data["market_cap"] = price * circulating_supply
         token_data["market_cap_str"] = format_market_cap(token_data["market_cap"])
-        token_data["liquidity"] = token_info.get("liquidity_usd", "0")
-        token_data["price"] = token_info.get("price_usd", "0")
+        token_data["liquidity"] = token_info.get("liquidity", "0")
+        token_data["price"] = token_info.get("price", "0")
         token_data["contract"] = mint_address
 
-        # Additional data points (adjust based on actual API response structure)
-        token_data["buy_percent"] = token_info.get("buy_percentage", 0)
-        token_data["sell_percent"] = token_info.get("sell_percentage", 0)
-        token_data["dev_sold"] = token_info.get("dev_sold", "N/A")
-        token_data["dev_sold_left_value"] = token_info.get("dev_sold_left_percentage", None)
-        token_data["top_10"] = token_info.get("top_10_holders_percentage", 0)
-        token_data["snipers"] = token_info.get("snipers_percentage", 0)
-        token_data["bundles"] = token_info.get("bundles_percentage", 0)
-        token_data["insiders"] = token_info.get("insiders_count", 0)
-        token_data["kols"] = token_info.get("kols_count", 0)
+        token_data["buy_percent"] = (token_info.get("buys_24h", 0) / (token_info.get("buys_24h", 0) + token_info.get("sells_24h", 0))) * 100 if (token_info.get("buys_24h", 0) + token_info.get("sells_24h", 0)) > 0 else 0
+        token_data["sell_percent"] = (token_info.get("sells_24h", 0) / (token_info.get("buys_24h", 0) + token_info.get("sells_24h", 0))) * 100 if (token_info.get("buys_24h", 0) + token_info.get("sells_24h", 0)) > 0 else 0
+        token_data["dev_sold"] = "N/A" if token_info.get("creator_token_balance", "0") == "0" else token_info.get("creator_token_balance", "N/A")
+        token_data["dev_sold_left_value"] = None
+        token_data["top_10"] = float(token_info.get("top_10_holder_rate", "0")) * 100
+        token_data["snipers"] = 0
+        token_data["bundles"] = 0
+        token_data["insiders"] = 0
+        token_data["kols"] = 0
 
-        # Cache the result
         token_data_cache[mint_address] = token_data
         logger.info(f"Cached token data for CA: {mint_address}")
         return token_data
@@ -584,12 +585,14 @@ async def get_token_market_cap(mint_address):
         return {"error": token_data_raw["error"]}
 
     try:
-        if not token_data_raw or "tokens" not in token_data_raw or len(token_data_raw["tokens"]) == 0:
+        if not token_data_raw or "data" not in token_data_raw or len(token_data_raw["data"]) == 0:
             logger.warning(f"No valid token data in response: {token_data_raw}")
             return {"error": "No token data returned from API."}
         
-        token_info = token_data_raw["tokens"][0]
-        market_cap = token_info.get("market_cap_usd", 0)
+        token_info = token_data_raw["data"][0]
+        price = float(token_info.get("price", "0"))
+        circulating_supply = float(token_info.get("circulating_supply", "0"))
+        market_cap = price * circulating_supply
         return {"market_cap": market_cap}
     except Exception as e:
         logger.error(f"Error fetching market cap for CA {mint_address}: {str(e)}")
