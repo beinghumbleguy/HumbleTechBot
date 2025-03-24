@@ -25,10 +25,13 @@ from typing import Optional, Dict
 from cachetools import TTLCache
 import pytz
 import aiogram
-import logging
 
+
+# Enable debug logging
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 logger.info(f"Using Aiogram version: {aiogram.__version__}")
+
 
 # Chunk 1 starts
 
