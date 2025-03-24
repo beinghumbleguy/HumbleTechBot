@@ -89,7 +89,7 @@ SnipersThreshold = None
 BundlesThreshold = 8.0
 InsidersThreshold = None
 KOLsThreshold = 1.0
-BondingCurveThreshold = 85.0  # Example: Filter out if BC > 95%
+BondingCurveThreshold = 78.0  # Example: Filter out if BC > 95%
 
 # New filter toggles
 DevSoldFilterEnabled = True
@@ -367,7 +367,7 @@ class APISessionManager:
         self.base_url = "https://gmgn.ai/api/v1/mutil_window_token_info"
         self._executor = _executor
 
-        # Browser-like headers to bypass Cloudflare
+        # Enhanced browser-like headers to bypass Cloudflare
         self.headers_dict = {
             "Accept": "application/json, text/plain, */*",
             "Accept-Encoding": "gzip, deflate, br",
@@ -379,16 +379,17 @@ class APISessionManager:
             "Sec-Fetch-Dest": "empty",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "same-origin",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
         }
 
-        # Proxy list in dict format (disabled for now to isolate Cloudflare issue)
+        # Proxy list in dict format (using your original proxy)
         self.proxy_list = [
-            # {
-            #     "host": "residential.birdproxies.com",
-            #     "port": 7777,
-            #     "username": "pool-p1-cc-us",
-            #     "password": "sf3lefz1yj3zwjvy"
-            # },
+            {
+                "host": "residential.birdproxies.com",
+                "port": 7777,
+                "username": "pool-p1-cc-us",
+                "password": "sf3lefz1yj3zwjvy"
+            },
         ]
         self.current_proxy_index = 0
         logger.info(f"Initialized proxy list with {len(self.proxy_list)} proxies")
@@ -446,16 +447,14 @@ class APISessionManager:
                     logger.error(f"Error closing aiohttp session: {str(e)}")
                 self.aio_session = None
                 
-            # Use a specific modern browser identifier to match TLS fingerprint
-            identifier = "chrome120"  # Fixed to a recent Chrome version
+            # Use a newer Chrome identifier to match current browsers
+            identifier = "chrome126"  # Updated to a more recent version
             self.session = tls_client.Session(
                 client_identifier=identifier,
                 random_tls_extension_order=True,
-                ja3_string="771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513,29-23-24,0"  # Chrome 120 JA3
+                ja3_string="771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513,29-23-24,0"  # Chrome JA3
             )
             
-            user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            self.headers_dict["User-Agent"] = user_agent
             self.session.headers.update(self.headers_dict)
             
             if use_proxy and self.proxy_list:
@@ -478,7 +477,7 @@ class APISessionManager:
                 headers=self.headers_dict,
                 trust_env=False
             )
-            self._active_sessions.add(self.aio_session)  # Fixed typo here
+            self._active_sessions.add(self.aio_session)
             logger.debug(f"Created new aiohttp session {id(self.aio_session)}")
             
             self._session_created_at = current_time
@@ -767,7 +766,7 @@ async def process_message(message: types.Message) -> None:
     if kols_match:
         kols = int(kols_match.group(1))
 
-    bc_match = re.search(r'BC:\s+(\d+\.?\d*)%', text)
+    bc_match = re.search(r'Bonding Curve:\s+(\d+\.?\d*)%', text)
     if bc_match:
         bonding_curve = float(bc_match.group(1))
         logger.debug(f"Extracted Bonding Curve: {bonding_curve}%")
