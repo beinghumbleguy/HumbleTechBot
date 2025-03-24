@@ -89,7 +89,7 @@ SnipersThreshold = None
 BundlesThreshold = 8.0
 InsidersThreshold = None
 KOLsThreshold = 1.0
-BondingCurveThreshold = 76.0  # Example: Filter out if BC > 95%
+BondingCurveThreshold = 78.0  # Example: Filter out if BC > 95%
 
 # New filter toggles
 DevSoldFilterEnabled = True
@@ -364,56 +364,54 @@ class APISessionManager:
         self._session_max_requests = 100
         self.max_retries = 3
         self.retry_delay = 5  # Increased to 5 seconds
-        self.base_url = "https://gmgn.ai"
+        self.base_url = "https://gmgn.ai/api/v1/mutil_window_token_info"
         self._executor = _executor
 
         # Default headers
         self.headers_dict = {
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
             "Accept-Language": "en-US,en;q=0.5",
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
         }
 
-        self.custom_headers_dict = {
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5",
-            "Connection": "keep-alive",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-            "Upgrade-Insecure-Requests": "1",
-        }
-
-        # Proxy list (formatted as username:password@host:port)
-        raw_proxies = [
-            "residential.birdproxies.com:7777:pool-p1-cc-us:sf3lefz1yj3zwjvy",
+        # Proxy list in the sample format: list of dicts with host, port, username, password
+        self.proxy_list = [
+            {
+                "host": "residential.birdproxies.com",
+                "port": 7777,
+                "username": "pool-p1-cc-us",
+                "password": "sf3lefz1yj3zwjvy"
+            },
             # Add more proxies here if available, e.g.:
-            # "proxy2.example.com:8080:username:password",
+            # {"host": "proxy2.example.com", "port": 8080, "username": "user2", "password": "pass2"},
         ]
-        self.proxy_list = []
-        for proxy in raw_proxies:
-            host, port, username, password = proxy.split(":")
-            formatted_proxy = f"{username}:{password}@{host}:{port}"
-            self.proxy_list.append(formatted_proxy)
         self.current_proxy_index = 0
         logger.info(f"Initialized proxy list with {len(self.proxy_list)} proxies")
 
-    async def get_proxy_url(self):
+    async def get_proxy(self):
         if not self.proxy_list:
             logger.warning("No proxies available in the proxy list")
             return None
         proxy = self.proxy_list[self.current_proxy_index]
         self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxy_list)
-        logger.debug(f"Selected proxy: {proxy}")
-        return proxy
+        proxy_url = f"http://{proxy['username']}:{proxy['password']}@{proxy['host']}:{proxy['port']}"
+        logger.debug(f"Selected proxy: {proxy_url}")
+        return proxy_url
 
-    def update_proxy_list(self, proxy: str, append: bool = True):
-        try:
-            host, port, username, password = proxy.split(":")
-            formatted_proxy = f"{username}:{password}@{host}:{port}"
-        except ValueError:
-            logger.error(f"Invalid proxy format: {proxy}. Expected host:port:username:password")
+    def update_proxy_list(self, proxy: dict, append: bool = True):
+        required_keys = {"host", "port", "username", "password"}
+        if not all(key in proxy for key in required_keys):
+            logger.error(f"Invalid proxy format: {proxy}. Expected {required_keys}")
             return False
 
+        formatted_proxy = {
+            "host": proxy["host"],
+            "port": proxy["port"],
+            "username": proxy["username"],
+            "password": proxy["password"]
+        }
         if append:
             if formatted_proxy not in self.proxy_list:
                 self.proxy_list.append(formatted_proxy)
@@ -459,10 +457,8 @@ class APISessionManager:
             self.session.headers.update(self.headers_dict)
             
             if use_proxy:
-                proxy_url = await self.get_proxy_url()
+                proxy_url = await self.get_proxy()
                 if proxy_url:
-                    if not proxy_url.startswith('http'):
-                        proxy_url = f'http://{proxy_url}'
                     self.session.proxies = {
                         'http': proxy_url,
                         'https': proxy_url
@@ -493,32 +489,28 @@ class APISessionManager:
             lambda: func(*args, **kwargs)
         )
 
-    async def _make_request(self, endpoint: str, params: Optional[Dict] = None, data: Optional[Dict] = None) -> str:
-        url = f"{self.base_url}/{endpoint}"
-        logger.debug(f"Making request to: {url}")
-        
-        if self.session is None:
-            await self.randomize_session()
+    async def fetch_token_data(self, mint_address):
+        await self.randomize_session()
+        if not self.session or not self.aio_session:
+            return {"error": "TLS client session not initialized"}
         
         self._session_requests += 1
+        payload = {"chain": "sol", "addresses": [mint_address]}
         
-        # Try with proxy first
         for attempt in range(self.max_retries):
             try:
-                if attempt > 0:
-                    await self.randomize_session(force=True, use_proxy=True)
-                logger.info(f"Attempt {attempt + 1} with proxy: {self.session.proxies}")
                 response = await self._run_in_executor(
-                    self.session.get,
-                    url,
-                    params=params,
+                    self.session.post,
+                    self.base_url,
+                    json=payload,
                     allow_redirects=True
                 )
                 if response.status_code == 200:
-                    return response.text
-                logger.warning(f"TLS client attempt {attempt + 1} failed with status {response.status_code}")
+                    import json
+                    return json.loads(response.text)
+                logger.warning(f"Attempt {attempt + 1} failed with status {response.status_code}")
             except Exception as e:
-                logger.warning(f"TLS client attempt {attempt + 1} failed: {str(e)}")
+                logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
             if attempt < self.max_retries - 1:
                 await asyncio.sleep(self.retry_delay)
         
@@ -527,128 +519,82 @@ class APISessionManager:
         await self.randomize_session(force=True, use_proxy=False)
         try:
             response = await self._run_in_executor(
-                self.session.get,
-                url,
-                params=params,
+                self.session.post,
+                self.base_url,
+                json=payload,
                 allow_redirects=True
             )
             if response.status_code == 200:
-                return response.text
+                import json
+                return json.loads(response.text)
             logger.warning(f"Request without proxy failed with status {response.status_code}")
         except Exception as e:
             logger.error(f"Final attempt without proxy failed: {str(e)}")
         
-        return ""
+        return {"error": "Failed to fetch data after retries."}
 
 # Initialize API session manager
 api_session_manager = APISessionManager()
 
-# Updated function to get token data using API session manager
+# Updated function to get token data using the new API endpoint
 async def get_gmgn_token_data(mint_address):
     # Check cache first
     if mint_address in token_data_cache:
         logger.info(f"Returning cached data for CA: {mint_address}")
         return token_data_cache[mint_address]
 
-    endpoint = f"sol/token/{mint_address}"
+    token_data_raw = await api_session_manager.fetch_token_data(mint_address)
+    if "error" in token_data_raw:
+        return {"error": token_data_raw["error"]}
+
     try:
-        html_content = await api_session_manager._make_request(endpoint)
-        if not html_content:
-            return {"error": "Failed to fetch data after retries."}
-
-        soup = BeautifulSoup(html_content, "html.parser")
         token_data = {}
-        try:
-            # Fetch basic token data
-            market_cap_str = soup.find("div", string="Market Cap").find_next_sibling("div").text.strip()
-            token_data["market_cap"] = parse_market_cap(market_cap_str)
-            token_data["market_cap_str"] = market_cap_str
-            token_data["liquidity"] = soup.find("div", string="Liquidity").find_next_sibling("div").text.strip()
-            token_data["price"] = soup.find("div", string="Price").find_next_sibling("div").text.strip()
-            token_data["contract"] = mint_address
+        
+        # Assuming the API returns a list with one token's data
+        if not token_data_raw or "tokens" not in token_data_raw or len(token_data_raw["tokens"]) == 0:
+            return {"error": "No token data returned from API."}
+        
+        token_info = token_data_raw["tokens"][0]
+        
+        # Extract basic token data (adjust keys based on actual API response)
+        token_data["market_cap"] = token_info.get("market_cap_usd", 0)
+        token_data["market_cap_str"] = format_market_cap(token_data["market_cap"])
+        token_data["liquidity"] = token_info.get("liquidity_usd", "0")
+        token_data["price"] = token_info.get("price_usd", "0")
+        token_data["contract"] = mint_address
 
-            # Attempt to fetch additional data points (adjust selectors based on actual HTML)
-            buy_sell_section = soup.find("div", string=re.compile(r"Buy/Sell Ratio"))
-            if buy_sell_section:
-                bs_text = buy_sell_section.find_next_sibling("div").text.strip()
-                bs_match = re.search(r'(\d+\.?\d*)/(\d+\.?\d*)', bs_text)
-                if bs_match:
-                    token_data["buy_percent"] = float(bs_match.group(1))
-                    token_data["sell_percent"] = float(bs_match.group(2))
+        # Additional data points (adjust based on actual API response structure)
+        token_data["buy_percent"] = token_info.get("buy_percentage", 0)
+        token_data["sell_percent"] = token_info.get("sell_percentage", 0)
+        token_data["dev_sold"] = token_info.get("dev_sold", "N/A")
+        token_data["dev_sold_left_value"] = token_info.get("dev_sold_left_percentage", None)
+        token_data["top_10"] = token_info.get("top_10_holders_percentage", 0)
+        token_data["snipers"] = token_info.get("snipers_percentage", 0)
+        token_data["bundles"] = token_info.get("bundles_percentage", 0)
+        token_data["insiders"] = token_info.get("insiders_count", 0)
+        token_data["kols"] = token_info.get("kols_count", 0)
 
-            dev_sold_section = soup.find("div", string=re.compile(r"Dev Sold"))
-            if dev_sold_section:
-                dev_text = dev_sold_section.find_next_sibling("div").text.strip()
-                if "Yes" in dev_text:
-                    token_data["dev_sold"] = "Yes"
-                elif "left" in dev_text:
-                    dev_left_match = re.search(r'(\d+\.?\d*)%\s*left', dev_text)
-                    if dev_left_match:
-                        token_data["dev_sold"] = "No"
-                        token_data["dev_sold_left_value"] = float(dev_left_match.group(1))
+        # Cache the result
+        token_data_cache[mint_address] = token_data
+        logger.info(f"Cached token data for CA: {mint_address}")
+        return token_data
 
-            top_10_section = soup.find("div", string=re.compile(r"Top 10"))
-            if top_10_section:
-                top_10_text = top_10_section.find_next_sibling("div").text.strip()
-                top_10_match = re.search(r'(\d+\.?\d*)', top_10_text)
-                if top_10_match:
-                    token_data["top_10"] = float(top_10_match.group(1))
-
-            snipers_section = soup.find("div", string=re.compile(r"Sniper"))
-            if snipers_section:
-                snipers_text = snipers_section.find_next_sibling("div").text.strip()
-                snipers_match = re.search(r'(\d+\.?\d*)', snipers_text)
-                if snipers_match:
-                    token_data["snipers"] = float(snipers_match.group(1))
-
-            bundles_section = soup.find("div", string=re.compile(r"Bundle"))
-            if bundles_section:
-                bundles_text = bundles_section.find_next_sibling("div").text.strip()
-                bundles_match = re.search(r'(\d+\.?\d*)', bundles_text)
-                if bundles_match:
-                    token_data["bundles"] = float(bundles_match.group(1))
-
-            insiders_section = soup.find("div", string=re.compile(r"Insiders"))
-            if insiders_section:
-                insiders_text = insiders_section.find_next_sibling("div").text.strip()
-                insiders_match = re.search(r'(\d+\.?\d*)', insiders_text)
-                if insiders_match:
-                    token_data["insiders"] = float(insiders_match.group(1))
-
-            kols_section = soup.find("div", string=re.compile(r"KOLs"))
-            if kols_section:
-                kols_text = kols_section.find_next_sibling("div").text.strip()
-                kols_match = re.search(r'(\d+\.?\d*)', kols_text)
-                if kols_match:
-                    token_data["kols"] = float(kols_match.group(1))
-
-            # Cache the result
-            token_data_cache[mint_address] = token_data
-            logger.info(f"Cached token data for CA: {mint_address}")
-            return token_data
-
-        except AttributeError as e:
-            logger.error(f"Failed to extract data for CA {mint_address}: {str(e)}")
-            return {"error": "Failed to extract data. Structure may have changed."}
     except Exception as e:
-        logger.error(f"Network error for CA {mint_address}: {str(e)}")
-        return {"error": f"Network error: {str(e)}"}
+        logger.error(f"Error processing API response for CA {mint_address}: {str(e)}")
+        return {"error": f"Network or parsing error: {str(e)}"}
 
 # Function to fetch only the market cap for growth check
 async def get_token_market_cap(mint_address):
-    endpoint = f"sol/token/{mint_address}"
-    try:
-        html_content = await api_session_manager._make_request(endpoint)
-        if not html_content:
-            return {"error": "Failed to fetch data after retries."}
+    token_data_raw = await api_session_manager.fetch_token_data(mint_address)
+    if "error" in token_data_raw:
+        return {"error": token_data_raw["error"]}
 
-        soup = BeautifulSoup(html_content, "html.parser")
-        market_cap_elem = soup.find("div", string="Market Cap")
-        if not market_cap_elem:
-            logger.error(f"Market Cap element not found for CA {mint_address}")
-            return {"error": "Market Cap element not found in HTML"}
-        market_cap_str = market_cap_elem.find_next_sibling("div").text.strip()
-        market_cap = parse_market_cap(market_cap_str)
+    try:
+        if not token_data_raw or "tokens" not in token_data_raw or len(token_data_raw["tokens"]) == 0:
+            return {"error": "No token data returned from API."}
+        
+        token_info = token_data_raw["tokens"][0]
+        market_cap = token_info.get("market_cap_usd", 0)
         return {"market_cap": market_cap}
     except Exception as e:
         logger.error(f"Error fetching market cap for CA {mint_address}: {str(e)}")
@@ -817,7 +763,7 @@ async def process_message(message: types.Message) -> None:
     if kols_match:
         kols = int(kols_match.group(1))
 
-    bc_match = re.search(r'Bonding Curve:\s+(\d+\.?\d*)%', text)
+    bc_match = re.search(r'BC:\s+(\d+\.?\d*)%', text)
     if bc_match:
         bonding_curve = float(bc_match.group(1))
         logger.debug(f"Extracted Bonding Curve: {bonding_curve}%")
@@ -1132,23 +1078,56 @@ async def cmd_ca(message: types.Message):
             return
         token_ca = parts[1].strip()
         logger.info(f"Processing token CA: {token_ca}")
+
+        # Fetch token data using the updated function from Chunk 2
         token_data = await get_gmgn_token_data(token_ca)
         if "error" in token_data:
             await message.reply(f"Error: {token_data['error']}")
-        else:
-            price = float(token_data['price'].replace('$', ''))
-            liquidity = parse_market_cap(token_data['liquidity'])
-            liquidity_str = format_market_cap(liquidity)
-            response = (
-                f"Token Data for CA: {token_data['contract']}\n"
-                f"📈 Market Cap: ${format_market_cap(token_data['market_cap'])}\n"
-                f"💧 Liquidity: ${liquidity_str}\n"
-                f"💰 Price: ${price:.6f}"
-            )
-            await message.reply(response)
+            return
+
+        # Extract and format data points
+        price = float(token_data.get('price', '0'))
+        liquidity = parse_market_cap(token_data.get('liquidity', '0'))
+        liquidity_str = format_market_cap(liquidity)
+        market_cap = token_data.get('market_cap', 0)
+        market_cap_str = format_market_cap(market_cap)
+
+        # Additional data points with fallbacks
+        buy_percent = token_data.get('buy_percent', 0)
+        sell_percent = token_data.get('sell_percent', 0)
+        bs_ratio = buy_percent / sell_percent if sell_percent != 0 else "N/A"
+        dev_sold = token_data.get('dev_sold', 'N/A')
+        dev_sold_left = token_data.get('dev_sold_left_value', 'N/A')
+        top_10 = token_data.get('top_10', 0)
+        snipers = token_data.get('snipers', 0)
+        bundles = token_data.get('bundles', 0)
+        insiders = token_data.get('insiders', 0)
+        kols = token_data.get('kols', 0)
+
+        # Build the response
+        response = (
+            f"**Token Data for CA: `{token_ca}`**\n\n"
+            f"📈 Market Cap: ${market_cap_str}\n"
+            f"💧 Liquidity: ${liquidity_str}\n"
+            f"💰 Price: ${price:.6f}\n"
+            f"📊 Buy/Sell Ratio: {buy_percent}/{sell_percent} (Ratio: {bs_ratio:.2f if isinstance(bs_ratio, (int, float)) else bs_ratio})\n"
+            f"🛠 Dev Sold: {dev_sold}"
+        )
+        if dev_sold_left != 'N/A' and dev_sold_left is not None:
+            response += f" ({dev_sold_left}% left)"
+        response += (
+            f"\n📋 Top 10 Holders: {top_10}%\n"
+            f"🎯 Snipers: {snipers}%\n"
+            f"📦 Bundles: {bundles}%\n"
+            f"🕵️‍♂️ Insiders: {insiders}\n"
+            f"🌟 KOLs: {kols}"
+        )
+
+        await message.reply(response, parse_mode="Markdown")
+        logger.info(f"Sent token data for CA {token_ca} to @{username}")
     except Exception as e:
         logger.error(f"Error in cmd_ca: {e}")
-        await message.answer(f"Error processing /ca: {e}")
+        await message.answer(f"Error processing /ca: {str(e)}")
 
 # Handler for /setfilter command to toggle filter_enabled
 @dp.message(Command(commands=["setfilter"]))
@@ -1848,4 +1827,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 # Chunk 6 ends
