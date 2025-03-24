@@ -472,12 +472,15 @@ class APISessionManager:
         )
 
     async def fetch_token_data(self, mint_address):
+        logger.debug(f"Fetching data for mint_address: {mint_address}")
         await self.randomize_session()
         if not self.session:
+            logger.error("Cloudscraper session not initialized")
             return {"error": "Cloudscraper session not initialized"}
         
         self._session_requests += 1
         payload = {"chain": "sol", "addresses": [mint_address]}
+        logger.debug(f"Sending payload: {payload}")
         
         for attempt in range(self.max_retries):
             try:
@@ -488,6 +491,7 @@ class APISessionManager:
                     headers=self.headers_dict
                 )
                 logger.debug(f"Attempt {attempt + 1} - Status: {response.status_code}, Headers: {response.headers}")
+                logger.debug(f"Raw response: {response.text}")
                 if response.status_code == 200:
                     return response.json()
                 logger.warning(f"Attempt {attempt + 1} failed with status {response.status_code}. Response: {response.text}")
@@ -508,12 +512,14 @@ class APISessionManager:
                     headers=self.headers_dict
                 )
                 logger.debug(f"Fallback attempt - Status: {response.status_code}, Headers: {response.headers}")
+                logger.debug(f"Fallback raw response: {response.text}")
                 if response.status_code == 200:
                     return response.json()
                 logger.warning(f"Request without proxy failed with status {response.status_code}. Response: {response.text}")
             except Exception as e:
                 logger.error(f"Final attempt without proxy failed: {str(e)}")
         
+        logger.error("Failed to fetch data after retries")
         return {"error": "Failed to fetch data after retries."}
 
 # Initialize API session manager
@@ -527,7 +533,9 @@ async def get_gmgn_token_data(mint_address):
         return token_data_cache[mint_address]
 
     token_data_raw = await api_session_manager.fetch_token_data(mint_address)
+    logger.debug(f"Received raw token data: {token_data_raw}")
     if "error" in token_data_raw:
+        logger.error(f"Error from fetch_token_data: {token_data_raw['error']}")
         return {"error": token_data_raw["error"]}
 
     try:
@@ -535,6 +543,7 @@ async def get_gmgn_token_data(mint_address):
         
         # Assuming the API returns a list with one token's data
         if not token_data_raw or "tokens" not in token_data_raw or len(token_data_raw["tokens"]) == 0:
+            logger.warning(f"No valid token data in response: {token_data_raw}")
             return {"error": "No token data returned from API."}
         
         token_info = token_data_raw["tokens"][0]
@@ -569,11 +578,14 @@ async def get_gmgn_token_data(mint_address):
 # Function to fetch only the market cap for growth check
 async def get_token_market_cap(mint_address):
     token_data_raw = await api_session_manager.fetch_token_data(mint_address)
+    logger.debug(f"Received raw market cap data: {token_data_raw}")
     if "error" in token_data_raw:
+        logger.error(f"Error from fetch_token_data: {token_data_raw['error']}")
         return {"error": token_data_raw["error"]}
 
     try:
         if not token_data_raw or "tokens" not in token_data_raw or len(token_data_raw["tokens"]) == 0:
+            logger.warning(f"No valid token data in response: {token_data_raw}")
             return {"error": "No token data returned from API."}
         
         token_info = token_data_raw["tokens"][0]
@@ -584,6 +596,7 @@ async def get_token_market_cap(mint_address):
         return {"error": f"Network error: {str(e)}"}
 
 # Chunk 2 ends
+
 # Chunk 3 starts
 from aiogram import types
 from aiogram.filters import Command
