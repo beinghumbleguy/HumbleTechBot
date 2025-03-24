@@ -525,9 +525,16 @@ class APISessionManager:
 # Initialize API session manager
 api_session_manager = APISessionManager()
 
-# Updated function to get token data using the new API endpoint
+# Function to format market cap in K or M
+def format_market_cap(market_cap: float) -> str:
+    if market_cap >= 1_000_000:
+        return f"{market_cap / 1_000_000:.2f}M"
+    elif market_cap >= 1_000:
+        return f"{market_cap / 1_000:.2f}K"
+    elif market_cap > 0:
+        return f"{market_cap:.2f}"
+    return "N/A"
 
-# Inside Chunk 2, replace get_gmgn_token_data with this:
 async def get_gmgn_token_data(mint_address):
     if mint_address in token_data_cache:
         logger.info(f"Returning cached data for CA: {mint_address}")
@@ -549,23 +556,26 @@ async def get_gmgn_token_data(mint_address):
         token_info = token_data_raw["data"][0]
         logger.debug(f"Token info for CA {mint_address}: {token_info}")
         
-        # Price handling
+        # Price extraction
         price_val = token_info.get("price", "0")
+        logger.debug(f"Raw price for CA {mint_address}: {price_val}")
         price = float(price_val if isinstance(price_val, (str, int, float)) else price_val.get("value", "0") if isinstance(price_val, dict) else "0")
         token_data["price"] = str(price) if price != 0 else "N/A"
         
-        # Circulating supply handling
+        # Circulating supply extraction
         supply_val = token_info.get("circulating_supply", "0")
+        logger.debug(f"Raw circulating supply for CA {mint_address}: {supply_val}")
         circulating_supply = float(supply_val if isinstance(supply_val, (str, int, float)) else supply_val.get("value", "0") if isinstance(supply_val, dict) else "0")
         token_data["circulating_supply"] = circulating_supply
         
-        # Market cap
+        # Market cap calculation
         token_data["market_cap"] = price * circulating_supply
         token_data["market_cap_str"] = format_market_cap(token_data["market_cap"])
         token_data["liquidity"] = token_info.get("liquidity", "0")
         token_data["contract"] = mint_address
         token_data["name"] = token_info.get("name", "Unknown")
 
+        logger.debug(f"Processed token data for CA {mint_address}: {token_data}")
         token_data_cache[mint_address] = token_data
         logger.info(f"Cached token data for CA: {mint_address}")
         return token_data
@@ -574,7 +584,7 @@ async def get_gmgn_token_data(mint_address):
         logger.error(f"Error processing API response for CA {mint_address}: {str(e)}")
         return {"error": f"Network or parsing error: {str(e)}"}
 
-# Function to fetch only the market cap for growth check
+# Function to fetch only the market cap for growth check (retained for now)
 async def get_token_market_cap(mint_address):
     token_data_raw = await api_session_manager.fetch_token_data(mint_address)
     logger.debug(f"Received raw market cap data: {token_data_raw}")
@@ -599,7 +609,6 @@ async def get_token_market_cap(mint_address):
         return {"error": f"Network error: {str(e)}"}
 
 # Chunk 2 ends
-
 # Chunk 3 starts
 from aiogram import types
 from aiogram.filters import Command
