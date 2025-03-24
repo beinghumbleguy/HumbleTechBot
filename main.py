@@ -359,16 +359,15 @@ import cloudscraper
 import json
 from fake_useragent import UserAgent
 
-# Session management for API requests
 class APISessionManager:
     def __init__(self):
         self.session = None
         self._session_created_at = 0
         self._session_requests = 0
-        self._session_max_age = 3600  # 1 hour
+        self._session_max_age = 3600
         self._session_max_requests = 100
         self.max_retries = 3
-        self.retry_delay = 5  # Increased to 5 seconds
+        self.retry_delay = 5
         self.base_url = "https://gmgn.ai/api/v1/mutil_window_token_info"
         self._executor = _executor
         self.ua = UserAgent()
@@ -525,10 +524,8 @@ class APISessionManager:
         logger.error("Failed to fetch data after retries")
         return {"error": "Failed to fetch data after retries."}
 
-# Initialize API session manager
 api_session_manager = APISessionManager()
 
-# Function to format market cap in K or M
 def format_market_cap(market_cap: float) -> str:
     if market_cap >= 1_000_000:
         return f"{market_cap / 1_000_000:.2f}M"
@@ -562,7 +559,10 @@ async def get_gmgn_token_data(mint_address):
         # Price extraction
         price_val = token_info.get("price", "0")
         logger.debug(f"Raw price for CA {mint_address}: {price_val}")
-        price = float(price_val if isinstance(price_val, (str, int, float)) else price_val.get("value", "0") if isinstance(price_val, dict) else "0")
+        if isinstance(price_val, dict):
+            price = float(price_val.get("price", "0"))  # Extract 'price' from dict
+        else:
+            price = float(price_val if isinstance(price_val, (str, int, float)) else "0")
         token_data["price"] = str(price) if price != 0 else "N/A"
         
         # Circulating supply extraction
@@ -587,7 +587,6 @@ async def get_gmgn_token_data(mint_address):
         logger.error(f"Error processing API response for CA {mint_address}: {str(e)}")
         return {"error": f"Network or parsing error: {str(e)}"}
 
-# Function to fetch only the market cap for growth check (retained for now)
 async def get_token_market_cap(mint_address):
     token_data_raw = await api_session_manager.fetch_token_data(mint_address)
     logger.debug(f"Received raw market cap data: {token_data_raw}")
@@ -602,7 +601,10 @@ async def get_token_market_cap(mint_address):
         
         token_info = token_data_raw["data"][0]
         price_val = token_info.get("price", "0")
-        price = float(price_val if isinstance(price_val, (str, int, float)) else price_val.get("value", "0") if isinstance(price_val, dict) else "0")
+        if isinstance(price_val, dict):
+            price = float(price_val.get("price", "0"))
+        else:
+            price = float(price_val if isinstance(price_val, (str, int, float)) else "0")
         supply_val = token_info.get("circulating_supply", "0")
         circulating_supply = float(supply_val if isinstance(supply_val, (str, int, float)) else supply_val.get("value", "0") if isinstance(supply_val, dict) else "0")
         market_cap = price * circulating_supply
