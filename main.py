@@ -352,12 +352,13 @@ async def add_user(message: types.Message):
 # Chunk 1 ends
 
 # Chunk 2 starts
+import cloudscraper
+import json
+
 # Session management for API requests
 class APISessionManager:
     def __init__(self):
         self.session = None
-        self.aio_session = None
-        self._active_sessions = set()
         self._session_created_at = 0
         self._session_requests = 0
         self._session_max_age = 3600  # 1 hour
@@ -367,7 +368,7 @@ class APISessionManager:
         self.base_url = "https://gmgn.ai/api/v1/mutil_window_token_info"
         self._executor = _executor
 
-        # Enhanced browser-like headers to bypass Cloudflare
+        # Browser-like headers to assist Cloudflare bypass
         self.headers_dict = {
             "Accept": "application/json, text/plain, */*",
             "Accept-Encoding": "gzip, deflate, br",
@@ -402,7 +403,7 @@ class APISessionManager:
         self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxy_list)
         proxy_url = f"http://{proxy['username']}:{proxy['password']}@{proxy['host']}:{proxy['port']}"
         logger.debug(f"Selected proxy: {proxy_url}")
-        return proxy_url
+        return {"http": proxy_url, "https": proxy_url}
 
     def update_proxy_list(self, proxy: dict, append: bool = True):
         required_keys = {"host", "port", "username", "password"}
@@ -439,50 +440,30 @@ class APISessionManager:
         too_many_requests = self._session_requests >= self._session_max_requests
         
         if self.session is None or force or session_expired or too_many_requests:
-            if self.aio_session and not self.aio_session.closed:
-                try:
-                    await self.aio_session.close()
-                    logger.debug(f"Closed aiohttp session {id(self.aio_session)}")
-                except Exception as e:
-                    logger.error(f"Error closing aiohttp session: {str(e)}")
-                self.aio_session = None
-                
-            # Use a newer Chrome identifier to match current browsers
-            identifier = "chrome126"  # Updated to a more recent version
-            self.session = tls_client.Session(
-                client_identifier=identifier,
-                random_tls_extension_order=True,
-                ja3_string="771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513,29-23-24,0"  # Chrome JA3
+            # Create a new cloudscraper session
+            self.session = cloudscraper.create_scraper(
+                browser={
+                    'browser': 'chrome',
+                    'platform': 'windows',
+                    'mobile': False
+                }
             )
-            
             self.session.headers.update(self.headers_dict)
             
             if use_proxy and self.proxy_list:
-                proxy_url = await self.get_proxy()
-                if proxy_url:
-                    self.session.proxies = {
-                        'http': proxy_url,
-                        'https': proxy_url
-                    }
-                    logger.debug(f"Successfully configured proxy {proxy_url}.")
+                proxy_dict = await self.get_proxy()
+                if proxy_dict:
+                    self.session.proxies = proxy_dict
+                    logger.debug(f"Successfully configured proxy {proxy_dict}")
                 else:
                     logger.warning("No proxy available, proceeding without proxy.")
             else:
                 self.session.proxies = None
                 logger.debug("Proceeding without proxy as per request.")
             
-            connector = aiohttp.TCPConnector(ssl=False)
-            self.aio_session = aiohttp.ClientSession(
-                connector=connector,
-                headers=self.headers_dict,
-                trust_env=False
-            )
-            self._active_sessions.add(self.aio_session)
-            logger.debug(f"Created new aiohttp session {id(self.aio_session)}")
-            
             self._session_created_at = current_time
             self._session_requests = 0
-            logger.debug("Created new TLS client session")
+            logger.debug("Created new cloudscraper session")
 
     async def _run_in_executor(self, func, *args, **kwargs):
         return await asyncio.get_event_loop().run_in_executor(
@@ -492,8 +473,8 @@ class APISessionManager:
 
     async def fetch_token_data(self, mint_address):
         await self.randomize_session()
-        if not self.session or not self.aio_session:
-            return {"error": "TLS client session not initialized"}
+        if not self.session:
+            return {"error": "Cloudscraper session not initialized"}
         
         self._session_requests += 1
         payload = {"chain": "sol", "addresses": [mint_address]}
@@ -504,12 +485,11 @@ class APISessionManager:
                     self.session.post,
                     self.base_url,
                     json=payload,
-                    allow_redirects=True
+                    headers=self.headers_dict
                 )
                 logger.debug(f"Attempt {attempt + 1} - Status: {response.status_code}, Headers: {response.headers}")
                 if response.status_code == 200:
-                    import json
-                    return json.loads(response.text)
+                    return response.json()
                 logger.warning(f"Attempt {attempt + 1} failed with status {response.status_code}. Response: {response.text}")
             except Exception as e:
                 logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
@@ -525,12 +505,11 @@ class APISessionManager:
                     self.session.post,
                     self.base_url,
                     json=payload,
-                    allow_redirects=True
+                    headers=self.headers_dict
                 )
                 logger.debug(f"Fallback attempt - Status: {response.status_code}, Headers: {response.headers}")
                 if response.status_code == 200:
-                    import json
-                    return json.loads(response.text)
+                    return response.json()
                 logger.warning(f"Request without proxy failed with status {response.status_code}. Response: {response.text}")
             except Exception as e:
                 logger.error(f"Final attempt without proxy failed: {str(e)}")
