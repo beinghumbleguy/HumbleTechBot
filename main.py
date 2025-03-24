@@ -526,6 +526,7 @@ class APISessionManager:
 api_session_manager = APISessionManager()
 
 # Updated function to get token data using the new API endpoint
+
 async def get_gmgn_token_data(mint_address):
     if mint_address in token_data_cache:
         logger.info(f"Returning cached data for CA: {mint_address}")
@@ -545,35 +546,19 @@ async def get_gmgn_token_data(mint_address):
             return {"error": "No token data returned from API."}
         
         token_info = token_data_raw["data"][0]
-        logger.debug(f"Token info for CA {mint_address}: {token_info}")  # Log raw token_info
+        logger.debug(f"Token info for CA {mint_address}: {token_info}")
         
-        # Safely extract price, handling potential dict
         price_val = token_info.get("price", "0")
         price = float(price_val if isinstance(price_val, (str, int, float)) else price_val.get("value", "0") if isinstance(price_val, dict) else "0")
-        
-        # Safely extract circulating supply
         supply_val = token_info.get("circulating_supply", "0")
         circulating_supply = float(supply_val if isinstance(supply_val, (str, int, float)) else supply_val.get("value", "0") if isinstance(supply_val, dict) else "0")
         
         token_data["market_cap"] = price * circulating_supply
         token_data["market_cap_str"] = format_market_cap(token_data["market_cap"])
         token_data["liquidity"] = token_info.get("liquidity", "0")
-        token_data["price"] = str(price)  # Store as string to match API format
+        token_data["price"] = str(price)
         token_data["contract"] = mint_address
-
-        token_data["buy_percent"] = (token_info.get("buys_24h", 0) / (token_info.get("buys_24h", 0) + token_info.get("sells_24h", 0))) * 100 if (token_info.get("buys_24h", 0) + token_info.get("sells_24h", 0)) > 0 else 0
-        token_data["sell_percent"] = (token_info.get("sells_24h", 0) / (token_info.get("buys_24h", 0) + token_info.get("sells_24h", 0))) * 100 if (token_info.get("buys_24h", 0) + token_info.get("sells_24h", 0)) > 0 else 0
-        token_data["dev_sold"] = "N/A" if token_info.get("creator_token_balance", "0") == "0" else token_info.get("creator_token_balance", "N/A")
-        token_data["dev_sold_left_value"] = None
-        
-        # Safely extract top_10_holder_rate
-        top_10_val = token_info.get("top_10_holder_rate", "0")
-        token_data["top_10"] = float(top_10_val if isinstance(top_10_val, (str, int, float)) else top_10_val.get("value", "0") if isinstance(top_10_val, dict) else "0") * 100
-        
-        token_data["snipers"] = 0
-        token_data["bundles"] = 0
-        token_data["insiders"] = 0
-        token_data["kols"] = 0
+        token_data["name"] = token_info.get("name", "Unknown")  # Add name to token_data
 
         token_data_cache[mint_address] = token_data
         logger.info(f"Cached token data for CA: {mint_address}")
@@ -1069,6 +1054,7 @@ async def test_command(message: types.Message):
         await message.answer(f"Error: {e}")
 
 # Handler for /ca <token_ca> command
+# Updated cmd_ca
 @dp.message(Command(commands=["ca"]))
 async def cmd_ca(message: types.Message):
     try:
@@ -1078,56 +1064,34 @@ async def cmd_ca(message: types.Message):
             await message.answer("⚠️ You are not authorized to use this command.")
             logger.info(f"Unauthorized /ca attempt by @{username}")
             return
+        
         text = message.text
         parts = text.split()
         if len(parts) != 2:
             await message.answer("Usage: /ca <token_ca>")
             return
+        
         token_ca = parts[1].strip()
         logger.info(f"Processing token CA: {token_ca}")
 
-        # Fetch token data using the updated function from Chunk 2
         token_data = await get_gmgn_token_data(token_ca)
         if "error" in token_data:
             await message.reply(f"Error: {token_data['error']}")
             return
 
-        # Extract and format data points
-        price = float(token_data.get('price', '0'))
-        liquidity = parse_market_cap(token_data.get('liquidity', '0'))
-        liquidity_str = format_market_cap(liquidity)
-        market_cap = token_data.get('market_cap', 0)
-        market_cap_str = format_market_cap(market_cap)
+        # Extract required data points
+        price = token_data.get('price', '0')
+        market_cap_str = token_data.get('market_cap_str', '0')
+        liquidity = float(token_data.get('liquidity', '0'))
+        token_name = token_data.get('name', 'Unknown')
 
-        # Additional data points with fallbacks
-        buy_percent = token_data.get('buy_percent', 0)
-        sell_percent = token_data.get('sell_percent', 0)
-        bs_ratio = buy_percent / sell_percent if sell_percent != 0 else "N/A"
-        dev_sold = token_data.get('dev_sold', 'N/A')
-        dev_sold_left = token_data.get('dev_sold_left_value', 'N/A')
-        top_10 = token_data.get('top_10', 0)
-        snipers = token_data.get('snipers', 0)
-        bundles = token_data.get('bundles', 0)
-        insiders = token_data.get('insiders', 0)
-        kols = token_data.get('kols', 0)
-
-        # Build the response
         response = (
-            f"**Token Data for CA: `{token_ca}`**\n\n"
+            f"**Token Data**\n\n"
+            f"🔖 Token Name: {token_name}\n"
+            f"📍 CA: `{token_ca}`\n"
             f"📈 Market Cap: ${market_cap_str}\n"
-            f"💧 Liquidity: ${liquidity_str}\n"
-            f"💰 Price: ${price:.6f}\n"
-            f"📊 Buy/Sell Ratio: {buy_percent}/{sell_percent} (Ratio: {bs_ratio:.2f if isinstance(bs_ratio, (int, float)) else bs_ratio})\n"
-            f"🛠 Dev Sold: {dev_sold}"
-        )
-        if dev_sold_left != 'N/A' and dev_sold_left is not None:
-            response += f" ({dev_sold_left}% left)"
-        response += (
-            f"\n📋 Top 10 Holders: {top_10}%\n"
-            f"🎯 Snipers: {snipers}%\n"
-            f"📦 Bundles: {bundles}%\n"
-            f"🕵️‍♂️ Insiders: {insiders}\n"
-            f"🌟 KOLs: {kols}"
+            f"💧 Liquidity: ${liquidity:.2f}\n"
+            f"💰 Price: ${price}"
         )
 
         await message.reply(response, parse_mode="Markdown")
