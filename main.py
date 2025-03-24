@@ -89,7 +89,7 @@ SnipersThreshold = None
 BundlesThreshold = 8.0
 InsidersThreshold = None
 KOLsThreshold = 1.0
-BondingCurveThreshold = 78.0  # Example: Filter out if BC > 95%
+BondingCurveThreshold = 85.0  # Example: Filter out if BC > 95%
 
 # New filter toggles
 DevSoldFilterEnabled = True
@@ -367,25 +367,28 @@ class APISessionManager:
         self.base_url = "https://gmgn.ai/api/v1/mutil_window_token_info"
         self._executor = _executor
 
-        # Default headers
+        # Browser-like headers to bypass Cloudflare
         self.headers_dict = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "Accept-Language": "en-US,en;q=0.5",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Accept-Language": "en-US,en;q=0.9",
             "Connection": "keep-alive",
-            "Upgrade-Insecure-Requests": "1",
+            "Content-Type": "application/json",
+            "Origin": "https://gmgn.ai",
+            "Referer": "https://gmgn.ai/",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
         }
 
-        # Proxy list in the sample format: list of dicts with host, port, username, password
+        # Proxy list in dict format (disabled for now to isolate Cloudflare issue)
         self.proxy_list = [
-            {
-                "host": "residential.birdproxies.com",
-                "port": 7777,
-                "username": "pool-p1-cc-us",
-                "password": "sf3lefz1yj3zwjvy"
-            },
-            # Add more proxies here if available, e.g.:
-            # {"host": "proxy2.example.com", "port": 8080, "username": "user2", "password": "pass2"},
+            # {
+            #     "host": "residential.birdproxies.com",
+            #     "port": 7777,
+            #     "username": "pool-p1-cc-us",
+            #     "password": "sf3lefz1yj3zwjvy"
+            # },
         ]
         self.current_proxy_index = 0
         logger.info(f"Initialized proxy list with {len(self.proxy_list)} proxies")
@@ -443,20 +446,19 @@ class APISessionManager:
                     logger.error(f"Error closing aiohttp session: {str(e)}")
                 self.aio_session = None
                 
-            browser_names = [name for name in tls_client.settings.ClientIdentifiers.__args__ 
-                            if name.startswith(('chrome', 'safari', 'firefox', 'opera'))]
-            identifier = random.choice(browser_names)
-            
+            # Use a specific modern browser identifier to match TLS fingerprint
+            identifier = "chrome120"  # Fixed to a recent Chrome version
             self.session = tls_client.Session(
                 client_identifier=identifier,
-                random_tls_extension_order=True
+                random_tls_extension_order=True,
+                ja3_string="771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513,29-23-24,0"  # Chrome 120 JA3
             )
             
-            user_agent = UserAgent().random
+            user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             self.headers_dict["User-Agent"] = user_agent
             self.session.headers.update(self.headers_dict)
             
-            if use_proxy:
+            if use_proxy and self.proxy_list:
                 proxy_url = await self.get_proxy()
                 if proxy_url:
                     self.session.proxies = {
@@ -484,7 +486,7 @@ class APISessionManager:
             logger.debug("Created new TLS client session")
 
     async def _run_in_executor(self, func, *args, **kwargs):
-        return await asyncio.get_event_loop().run_in_executor(
+        return await asyncio.get_loop().run_in_executor(
             self._executor, 
             lambda: func(*args, **kwargs)
         )
@@ -505,31 +507,34 @@ class APISessionManager:
                     json=payload,
                     allow_redirects=True
                 )
+                logger.debug(f"Attempt {attempt + 1} - Status: {response.status_code}, Headers: {response.headers}")
                 if response.status_code == 200:
                     import json
                     return json.loads(response.text)
-                logger.warning(f"Attempt {attempt + 1} failed with status {response.status_code}")
+                logger.warning(f"Attempt {attempt + 1} failed with status {response.status_code}. Response: {response.text}")
             except Exception as e:
                 logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
             if attempt < self.max_retries - 1:
                 await asyncio.sleep(self.retry_delay)
         
         # Fallback: Try without proxy
-        logger.info("All proxy attempts failed, trying without proxy as final fallback")
-        await self.randomize_session(force=True, use_proxy=False)
-        try:
-            response = await self._run_in_executor(
-                self.session.post,
-                self.base_url,
-                json=payload,
-                allow_redirects=True
-            )
-            if response.status_code == 200:
-                import json
-                return json.loads(response.text)
-            logger.warning(f"Request without proxy failed with status {response.status_code}")
-        except Exception as e:
-            logger.error(f"Final attempt without proxy failed: {str(e)}")
+        if self.proxy_list:
+            logger.info("All proxy attempts failed, trying without proxy as final fallback")
+            await self.randomize_session(force=True, use_proxy=False)
+            try:
+                response = await self._run_in_executor(
+                    self.session.post,
+                    self.base_url,
+                    json=payload,
+                    allow_redirects=True
+                )
+                logger.debug(f"Fallback attempt - Status: {response.status_code}, Headers: {response.headers}")
+                if response.status_code == 200:
+                    import json
+                    return json.loads(response.text)
+                logger.warning(f"Request without proxy failed with status {response.status_code}. Response: {response.text}")
+            except Exception as e:
+                logger.error(f"Final attempt without proxy failed: {str(e)}")
         
         return {"error": "Failed to fetch data after retries."}
 
@@ -569,7 +574,7 @@ async def get_gmgn_token_data(mint_address):
         token_data["dev_sold"] = token_info.get("dev_sold", "N/A")
         token_data["dev_sold_left_value"] = token_info.get("dev_sold_left_percentage", None)
         token_data["top_10"] = token_info.get("top_10_holders_percentage", 0)
-        token_data["snipers"] = token_info.get("snipers_percentage", 0)
+        token_data["snipers"] = token_data_raw.get("snipers_percentage", 0)
         token_data["bundles"] = token_info.get("bundles_percentage", 0)
         token_data["insiders"] = token_info.get("insiders_count", 0)
         token_data["kols"] = token_info.get("kols_count", 0)
@@ -601,7 +606,6 @@ async def get_token_market_cap(mint_address):
         return {"error": f"Network error: {str(e)}"}
 
 # Chunk 2 ends
-
 # Chunk 3 starts
 from aiogram import types
 from aiogram.filters import Command
