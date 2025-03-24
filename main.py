@@ -352,6 +352,7 @@ async def add_user(message: types.Message):
 # Chunk 1 ends
 
 # Chunk 2 starts
+
 # Session management for API requests
 class APISessionManager:
     def __init__(self):
@@ -478,7 +479,7 @@ class APISessionManager:
                 headers=self.headers_dict,
                 trust_env=False
             )
-            self._active_sessions.add(self.aio_session)
+            self DEVICE_active_sessions.add(self.aio_session)
             logger.debug(f"Created new aiohttp session {id(self.aio_session)}")
             
             self._session_created_at = current_time
@@ -486,7 +487,7 @@ class APISessionManager:
             logger.debug("Created new TLS client session")
 
     async def _run_in_executor(self, func, *args, **kwargs):
-        return await asyncio.get_loop().run_in_executor(
+        return await asyncio.get_event_loop().run_in_executor(
             self._executor, 
             lambda: func(*args, **kwargs)
         )
@@ -574,7 +575,7 @@ async def get_gmgn_token_data(mint_address):
         token_data["dev_sold"] = token_info.get("dev_sold", "N/A")
         token_data["dev_sold_left_value"] = token_info.get("dev_sold_left_percentage", None)
         token_data["top_10"] = token_info.get("top_10_holders_percentage", 0)
-        token_data["snipers"] = token_data_raw.get("snipers_percentage", 0)
+        token_data["snipers"] = token_info.get("snipers_percentage", 0)
         token_data["bundles"] = token_info.get("bundles_percentage", 0)
         token_data["insiders"] = token_info.get("insiders_count", 0)
         token_data["kols"] = token_info.get("kols_count", 0)
