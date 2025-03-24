@@ -368,9 +368,8 @@ class APISessionManager:
         self.retry_delay = 5  # Increased to 5 seconds
         self.base_url = "https://gmgn.ai/api/v1/mutil_window_token_info"
         self._executor = _executor
-        self.ua = UserAgent()  # Initialize fake-useragent for randomization
+        self.ua = UserAgent()
 
-        # Base headers (User-Agent will be randomized)
         self.headers_dict = {
             "Accept": "application/json, text/plain, */*",
             "Accept-Encoding": "gzip, deflate, br",
@@ -384,14 +383,13 @@ class APISessionManager:
             "Sec-Fetch-Site": "same-origin",
         }
 
-        # Proxy list (enhanced to match your original 9 proxies)
         self.proxy_list = [
             {
                 "host": "residential.birdproxies.com",
                 "port": 7777,
                 "username": "pool-p1-cc-us",
                 "password": "sf3lefz1yj3zwjvy"
-            } for _ in range(9)  # Replicates your original list
+            } for _ in range(9)
         ]
         self.current_proxy_index = 0
         logger.info(f"Initialized proxy list with {len(self.proxy_list)} proxies")
@@ -448,8 +446,6 @@ class APISessionManager:
                     'mobile': False
                 }
             )
-            
-            # Randomize User-Agent
             user_agent = self.ua.random
             self.headers_dict["User-Agent"] = user_agent
             self.session.headers.update(self.headers_dict)
@@ -549,20 +545,31 @@ async def get_gmgn_token_data(mint_address):
             return {"error": "No token data returned from API."}
         
         token_info = token_data_raw["data"][0]
+        logger.debug(f"Token info for CA {mint_address}: {token_info}")  # Log raw token_info
         
-        price = float(token_info.get("price", "0"))
-        circulating_supply = float(token_info.get("circulating_supply", "0"))
+        # Safely extract price, handling potential dict
+        price_val = token_info.get("price", "0")
+        price = float(price_val if isinstance(price_val, (str, int, float)) else price_val.get("value", "0") if isinstance(price_val, dict) else "0")
+        
+        # Safely extract circulating supply
+        supply_val = token_info.get("circulating_supply", "0")
+        circulating_supply = float(supply_val if isinstance(supply_val, (str, int, float)) else supply_val.get("value", "0") if isinstance(supply_val, dict) else "0")
+        
         token_data["market_cap"] = price * circulating_supply
         token_data["market_cap_str"] = format_market_cap(token_data["market_cap"])
         token_data["liquidity"] = token_info.get("liquidity", "0")
-        token_data["price"] = token_info.get("price", "0")
+        token_data["price"] = str(price)  # Store as string to match API format
         token_data["contract"] = mint_address
 
         token_data["buy_percent"] = (token_info.get("buys_24h", 0) / (token_info.get("buys_24h", 0) + token_info.get("sells_24h", 0))) * 100 if (token_info.get("buys_24h", 0) + token_info.get("sells_24h", 0)) > 0 else 0
         token_data["sell_percent"] = (token_info.get("sells_24h", 0) / (token_info.get("buys_24h", 0) + token_info.get("sells_24h", 0))) * 100 if (token_info.get("buys_24h", 0) + token_info.get("sells_24h", 0)) > 0 else 0
         token_data["dev_sold"] = "N/A" if token_info.get("creator_token_balance", "0") == "0" else token_info.get("creator_token_balance", "N/A")
         token_data["dev_sold_left_value"] = None
-        token_data["top_10"] = float(token_info.get("top_10_holder_rate", "0")) * 100
+        
+        # Safely extract top_10_holder_rate
+        top_10_val = token_info.get("top_10_holder_rate", "0")
+        token_data["top_10"] = float(top_10_val if isinstance(top_10_val, (str, int, float)) else top_10_val.get("value", "0") if isinstance(top_10_val, dict) else "0") * 100
+        
         token_data["snipers"] = 0
         token_data["bundles"] = 0
         token_data["insiders"] = 0
@@ -590,8 +597,10 @@ async def get_token_market_cap(mint_address):
             return {"error": "No token data returned from API."}
         
         token_info = token_data_raw["data"][0]
-        price = float(token_info.get("price", "0"))
-        circulating_supply = float(token_info.get("circulating_supply", "0"))
+        price_val = token_info.get("price", "0")
+        price = float(price_val if isinstance(price_val, (str, int, float)) else price_val.get("value", "0") if isinstance(price_val, dict) else "0")
+        supply_val = token_info.get("circulating_supply", "0")
+        circulating_supply = float(supply_val if isinstance(supply_val, (str, int, float)) else supply_val.get("value", "0") if isinstance(supply_val, dict) else "0")
         market_cap = price * circulating_supply
         return {"market_cap": market_cap}
     except Exception as e:
