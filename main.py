@@ -527,6 +527,7 @@ api_session_manager = APISessionManager()
 
 # Updated function to get token data using the new API endpoint
 
+# Inside Chunk 2, replace get_gmgn_token_data with this:
 async def get_gmgn_token_data(mint_address):
     if mint_address in token_data_cache:
         logger.info(f"Returning cached data for CA: {mint_address}")
@@ -548,17 +549,22 @@ async def get_gmgn_token_data(mint_address):
         token_info = token_data_raw["data"][0]
         logger.debug(f"Token info for CA {mint_address}: {token_info}")
         
+        # Price handling
         price_val = token_info.get("price", "0")
         price = float(price_val if isinstance(price_val, (str, int, float)) else price_val.get("value", "0") if isinstance(price_val, dict) else "0")
+        token_data["price"] = str(price) if price != 0 else "N/A"
+        
+        # Circulating supply handling
         supply_val = token_info.get("circulating_supply", "0")
         circulating_supply = float(supply_val if isinstance(supply_val, (str, int, float)) else supply_val.get("value", "0") if isinstance(supply_val, dict) else "0")
+        token_data["circulating_supply"] = circulating_supply
         
+        # Market cap
         token_data["market_cap"] = price * circulating_supply
         token_data["market_cap_str"] = format_market_cap(token_data["market_cap"])
         token_data["liquidity"] = token_info.get("liquidity", "0")
-        token_data["price"] = str(price)
         token_data["contract"] = mint_address
-        token_data["name"] = token_info.get("name", "Unknown")  # Add name to token_data
+        token_data["name"] = token_info.get("name", "Unknown")
 
         token_data_cache[mint_address] = token_data
         logger.info(f"Cached token data for CA: {mint_address}")
@@ -1080,10 +1086,21 @@ async def cmd_ca(message: types.Message):
             return
 
         # Extract required data points
-        price = token_data.get('price', '0')
-        market_cap_str = token_data.get('market_cap_str', '0')
+        price = token_data.get('price', 'N/A')
+        market_cap_str = token_data.get('market_cap_str', 'N/A')
         liquidity = float(token_data.get('liquidity', '0'))
         token_name = token_data.get('name', 'Unknown')
+        circulating_supply = token_data.get('circulating_supply', 0)
+
+        # Shorten price if numeric
+        if price != "N/A":
+            price_float = float(price)
+            price_display = f"{price_float:.1e}" if price_float < 0.001 else f"{price_float:.6f}"
+        else:
+            price_display = "N/A"
+
+        # Format circulating supply with commas
+        supply_str = f"{circulating_supply:,.0f}" if circulating_supply != 0 else "N/A"
 
         response = (
             f"**Token Data**\n\n"
@@ -1091,7 +1108,8 @@ async def cmd_ca(message: types.Message):
             f"📍 CA: `{token_ca}`\n"
             f"📈 Market Cap: ${market_cap_str}\n"
             f"💧 Liquidity: ${liquidity:.2f}\n"
-            f"💰 Price: ${price}"
+            f"💰 Price: ${price_display}\n"
+            f"📦 Circulating Supply: {supply_str}"
         )
 
         await message.reply(response, parse_mode="Markdown")
