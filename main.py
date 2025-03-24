@@ -352,7 +352,6 @@ async def add_user(message: types.Message):
 # Chunk 1 ends
 
 # Chunk 2 starts
-
 # Session management for API requests
 class APISessionManager:
     def __init__(self):
@@ -479,7 +478,7 @@ class APISessionManager:
                 headers=self.headers_dict,
                 trust_env=False
             )
-            self DEVICE_active_sessions.add(self.aio_session)
+            self._active_sessions.add(self.aio_session)  # Fixed typo here
             logger.debug(f"Created new aiohttp session {id(self.aio_session)}")
             
             self._session_created_at = current_time
