@@ -29,6 +29,11 @@ import aiogram
 
 # Enable debug logging
 
+# Chunk 1 (partial update)
+
+import logging
+import aiogram
+
 # Custom filter to suppress "Raw update received" logs
 class SuppressRawUpdateFilter(logging.Filter):
     def filter(self, record):
@@ -36,10 +41,11 @@ class SuppressRawUpdateFilter(logging.Filter):
 
 # Enable debug logging
 logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)  # __name__ is "__main__" in the main script
 
-# Apply the filter to suppress aiogram's raw update logs
-logging.getLogger("aiogram").addFilter(SuppressRawUpdateFilter())
+# Apply the filter to the __main__ logger to suppress "Raw update received"
+logger.addFilter(SuppressRawUpdateFilter())
+
 logger.info(f"Using Aiogram version: {aiogram.__version__}")
 
 # Chunk 1 starts
