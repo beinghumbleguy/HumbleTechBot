@@ -35,10 +35,22 @@ logger.info(f"Using Aiogram version: {aiogram.__version__}")
 
 # Chunk 1 starts
 
-from aiogram.filters import BaseFilter
-from aiogram import types
-
-
+from aiogram import Bot, Dispatcher, types
+from aiogram.filters import Command, BaseFilter
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+import asyncio
+import logging
+import os
+import csv
+import re
+from flask import Flask, send_file, request, abort
+from threading import Thread, Lock
+from concurrent.futures import ThreadPoolExecutor
+import secrets
+from cachetools import TTLCache
+from datetime import datetime
+import pytz
+import time
 
 # Custom filter to detect non-command messages
 class NotCommandFilter(BaseFilter):
@@ -47,7 +59,7 @@ class NotCommandFilter(BaseFilter):
         result = bool(message.text and not message.text.startswith('/'))
         logger.debug(f"NotCommandFilter result: {result}")
         return result
-        
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -63,17 +75,15 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 app = Flask(__name__)
 
-
 # Thread locks for safe CSV writing
-csv_lock = threading.Lock()
-growth_csv_lock = threading.Lock()
-monitored_tokens_lock = threading.Lock()
+csv_lock = Lock()
+growth_csv_lock = Lock()
+monitored_tokens_lock = Lock()
 
 # Thread pool executor for running blocking tasks
 _executor = ThreadPoolExecutor(max_workers=5)
 
-# Global variables with default values as specified
-# Note: Default values can only be reset to their initial state by @BeingHumbleGuy or an additional user added via /adduser
+# Global variables with default values
 filter_enabled = True
 PassValue = 1.35
 RangeLow = 1.07
@@ -92,7 +102,7 @@ SnipersThreshold = None
 BundlesThreshold = 8.0
 InsidersThreshold = None
 KOLsThreshold = 1.0
-BondingCurveThreshold = 78.0  # Example: Filter out if BC > 95%
+BondingCurveThreshold = 78.0
 
 # New filter toggles
 DevSoldFilterEnabled = True
@@ -103,12 +113,6 @@ InsidersFilterEnabled = False
 KOLsFilterEnabled = True
 BondingCurveFilterEnabled = True
 
-import csv
-import os
-import logging
-
-logger = logging.getLogger(__name__)  # Assuming logging is set up
-
 # Growth check variables
 growth_notifications_enabled = True
 GROWTH_THRESHOLD = 2.0
@@ -118,18 +122,9 @@ MONITORING_DURATION = 21600  # 6 hours in seconds
 monitored_tokens = {}
 last_growth_ratios = {}
 
-def save_monitored_tokens():
-    csv_file = "monitored_tokens.csv"  # Adjust path if needed (e.g., "/app/monitored_tokens.csv")
-    try:
-        with open(csv_file, 'w', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=["ca", "token_name", "initial_mc", "timestamp", "message_id", "chat_id"])
-            writer.writeheader()
-            for ca, data in monitored_tokens.items():
-                row = {"ca": ca, **data}
-                writer.writerow(row)
-        logger.debug(f"Saved monitored_tokens to {csv_file}")
-    except Exception as e:
-        logger.error(f"Failed to save monitored_tokens: {str(e)}")
+# Define channel IDs
+VIP_CHANNEL_IDS = {-1002365061913}
+PUBLIC_CHANNEL_IDS = {-1002272066154}
 
 # CSV file paths for public and VIP channels
 PUBLIC_CSV_FILE = "/app/data/public_ca_filter_log.csv"
@@ -142,15 +137,11 @@ MONITORED_TOKENS_CSV_FILE = "/app/data/monitored_tokens.csv"
 DOWNLOAD_TOKEN = secrets.token_urlsafe(32)
 logger.info(f"Generated download token: {DOWNLOAD_TOKEN}")
 
-# Define VIP channels
-VIP_CHANNEL_IDS = {-1002365061913}
-
 # Initialize cache for API responses (TTL of 1 hour)
 token_data_cache = TTLCache(maxsize=1000, ttl=3600)
 
 # Initialize CSV files with headers if they don't exist
 def init_csv():
-    # Ensure the /app/data directory exists
     data_dir = "/app/data"
     if not os.path.exists(data_dir):
         os.makedirs(data_dir, exist_ok=True)
@@ -162,10 +153,10 @@ def init_csv():
             with open(csv_file, mode='w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow([
-                    "Timestamp", "CA", "BSRatio", "BSRatio_Pass", "BSRatio_Low_Pass",
+                    "Timestamp", "CA", "TokenName", "BSRatio", "BSRatio_Pass", "BSRatio_Low_Pass",
                     "DevSold", "DevSoldLeftValue", "DevSold_Pass", "Top10", "Top10_Pass",
                     "Snipers", "Snipers_Pass", "Bundles", "Bundles_Pass", "Insiders", "Insiders_Pass",
-                    "KOLs", "KOLs_Pass", "Overall_Pass", "MarketCap"
+                    "KOLs", "Kols_Pass", "BondingCurve", "BCPass", "Overall_Pass", "MarketCap", "GrowthRatio"
                 ])
             logger.info(f"Created filter CSV file: {csv_file}")
 
@@ -184,9 +175,7 @@ def init_csv():
     if not os.path.exists(MONITORED_TOKENS_CSV_FILE):
         with open(MONITORED_TOKENS_CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow([
-                "CA", "TokenName", "InitialMC", "Timestamp", "MessageID", "ChatID"
-            ])
+            writer.writerow(["CA", "TokenName", "InitialMC", "Timestamp", "MessageID", "ChatID"])
         logger.info(f"Created monitored tokens CSV file: {MONITORED_TOKENS_CSV_FILE}")
 
 # Function to load monitored tokens from CSV on startup
@@ -201,7 +190,7 @@ def load_monitored_tokens():
                 monitored_tokens[ca] = {
                     "token_name": row["TokenName"],
                     "initial_mc": float(row["InitialMC"]),
-                    "timestamp": row["Timestamp"],
+                    "timestamp": float(row["Timestamp"]),  # Changed to float (epoch time)
                     "message_id": int(row["MessageID"]),
                     "chat_id": int(row["ChatID"])
                 }
@@ -214,31 +203,29 @@ def save_monitored_tokens():
     with monitored_tokens_lock:
         with open(MONITORED_TOKENS_CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow([
-                "CA", "TokenName", "InitialMC", "Timestamp", "MessageID", "ChatID"
-            ])
+            writer.writerow(["CA", "TokenName", "InitialMC", "Timestamp", "MessageID", "ChatID"])
             for ca, data in monitored_tokens.items():
                 writer.writerow([
                     ca,
                     data["token_name"],
                     data["initial_mc"],
-                    data["timestamp"],
+                    data["timestamp"],  # Now storing epoch time
                     data["message_id"],
                     data["chat_id"]
                 ])
         logger.info(f"Saved {len(monitored_tokens)} tokens to {MONITORED_TOKENS_CSV_FILE}")
 
 # Log filter results to the appropriate CSV based on channel type
-def log_to_csv(ca, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold, dev_sold_left_value, dev_sold_pass,
+def log_to_csv(ca, token_name, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold, dev_sold_left_value, dev_sold_pass,
                top_10, top_10_pass, snipers, snipers_pass, bundles, bundles_pass,
-               insiders, insiders_pass, kols, kols_pass, bonding_curve, bc_pass, overall_pass, market_cap, is_vip_channel):
+               insiders, insiders_pass, kols, kols_pass, bonding_curve, bc_pass, overall_pass, market_cap, growth_ratio, is_vip_channel):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     csv_file = VIP_CSV_FILE if is_vip_channel else PUBLIC_CSV_FILE
     with csv_lock:
         with open(csv_file, mode='a', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow([
-                timestamp, ca if ca else "N/A",
+                timestamp, ca if ca else "N/A", token_name if token_name else "N/A",
                 bs_ratio if bs_ratio is not None else "N/A",
                 bs_ratio_pass if (CheckHighEnabled or CheckLowEnabled) else "N/A",
                 check_low_pass if CheckLowEnabled else "N/A",
@@ -258,23 +245,68 @@ def log_to_csv(ca, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold, dev_sold_l
                 bonding_curve if bonding_curve is not None else "N/A",
                 bc_pass if BondingCurveFilterEnabled and bonding_curve is not None else "N/A",
                 overall_pass,
-                market_cap if market_cap else "N/A"
+                market_cap if market_cap else "N/A",
+                growth_ratio if growth_ratio is not None else "N/A"
             ])
     logger.info(f"Logged filter results to {csv_file} for CA: {ca}")
 
-# Log growth check results to the appropriate CSV based on channel type
+# Log growth check results to CSV with channel restriction
 def log_to_growthcheck_csv(chat_id, channel_id, message_id, token_name, ca, original_mc, current_mc,
                            growth_ratio, profit_percent, time_since_added, is_vip_channel):
+    if channel_id not in VIP_CHANNEL_IDS and channel_id not in PUBLIC_CHANNEL_IDS:
+        logger.debug(f"Skipping growth log for CA {ca} in channel {channel_id} (not VIP or Public)")
+        return
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     csv_file = VIP_GROWTH_CSV_FILE if is_vip_channel else PUBLIC_GROWTH_CSV_FILE
     with growth_csv_lock:
-        with open(csv_file, mode='a', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow([
+        # Read existing data
+        rows = []
+        updated = False
+        if os.path.exists(csv_file):
+            with open(csv_file, mode='r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                headers = reader.fieldnames
+                for row in reader:
+                    if row["CA"] == ca and row["MessageID"] == str(message_id):
+                        # Update existing row
+                        rows.append([
+                            timestamp, chat_id, channel_id, message_id, token_name, ca,
+                            original_mc, current_mc, growth_ratio, profit_percent, time_since_added
+                        ])
+                        updated = True
+                    else:
+                        rows.append(list(row.values()))
+        if not updated:
+            # Append new row if no match found
+            rows.append([
                 timestamp, chat_id, channel_id, message_id, token_name, ca,
                 original_mc, current_mc, growth_ratio, profit_percent, time_since_added
             ])
-    logger.info(f"Logged growth check to {csv_file} for CA: {ca}")
+        # Rewrite the file
+        with open(csv_file, mode='w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "Timestamp", "ChatID", "ChannelID", "MessageID", "TokenName", "CA",
+                "OriginalMC", "CurrentMC", "GrowthRatio", "ProfitPercent", "TimeSinceAdded"
+            ])
+            writer.writerows(rows)
+    logger.info(f"{'Updated' if updated else 'Logged'} growth check to {csv_file} for CA: {ca}")
+
+# Helper to fetch latest growth ratio from VIP growth CSV
+def get_latest_growth_ratio(ca):
+    if not os.path.exists(VIP_GROWTH_CSV_FILE):
+        return None
+    with open(VIP_GROWTH_CSV_FILE, mode='r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        latest_ratio = None
+        latest_timestamp = None
+        for row in reader:
+            if row["CA"] == ca:
+                row_time = datetime.strptime(row["Timestamp"], "%Y-%m-%d %H:%M:%S")
+                if latest_timestamp is None or row_time > latest_timestamp:
+                    latest_timestamp = row_time
+                    latest_ratio = float(row["GrowthRatio"])
+        return latest_ratio
 
 # Helper function to parse market cap string to float
 def parse_market_cap(mc_str):
@@ -620,8 +652,9 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, MessageEntity
 from aiogram import F
 
-# Define VIP channel IDs
-VIP_CHANNEL_IDS = {-1002365061913}  # Only VIP channel
+# Define channel IDs (consistent with Chunk 1)
+VIP_CHANNEL_IDS = {-1002365061913}
+PUBLIC_CHANNEL_IDS = {-1002272066154}
 
 # Shared logic for both message and channel post handling
 async def process_message(message: types.Message) -> None:
@@ -629,10 +662,18 @@ async def process_message(message: types.Message) -> None:
     if not message.text:
         logger.debug("Message has no text, skipping")
         return
+
+    # Skip if the message is from the bot itself
+    bot_info = await bot.get_me()
+    if message.from_user and message.from_user.id == bot_info.id:
+        logger.debug("Message is from the bot itself, skipping")
+        return
+
     chat_id = message.chat.id
     message_id = message.message_id
     text = message.text
     is_vip_channel = chat_id in VIP_CHANNEL_IDS
+    is_public_channel = chat_id in PUBLIC_CHANNEL_IDS
     
     # Extract CA from the message
     ca_match = re.search(r'[A-Za-z0-9]{44}', text)
@@ -642,14 +683,14 @@ async def process_message(message: types.Message) -> None:
     ca = ca_match.group(0)
     logger.debug(f"Extracted CA: {ca}")
 
-    # Check for keywords (case-insensitive)
+    # Check for keywords (case-insensitive) in the source message
     has_early = "early" in text.lower()
     has_fasol = "fasol" in text.lower()
     logger.debug(f"Keyword check - Has Early: {has_early}, Has Fasol: {has_fasol}")
 
-    # Extract market cap from the message (e.g., "💎 MC: $46.6k" or "💎 C: 43.7k")
+    # Extract market cap from the message
     mc_match = re.search(r'💎\s*(?:MC|C):\s*\$?(\d+\.?\d*[KM]?)', text, re.IGNORECASE)
-    original_mc = 0  # Default to 0 if market cap cannot be parsed
+    original_mc = 0
     market_cap_str = "N/A"
     if mc_match:
         mc_str = mc_match.group(1)
@@ -660,9 +701,9 @@ async def process_message(message: types.Message) -> None:
         except ValueError as e:
             logger.error(f"Failed to parse market cap '{mc_str}': {str(e)}")
 
-    # If "Fasol" keyword is present, process silently and post final output with trading buttons
-    if has_fasol:
-        logger.info("Processing 'Fasol' message")
+    # Process "Fasol" messages only in VIP or Public channels
+    if has_fasol and (is_vip_channel or is_public_channel):
+        logger.info(f"Processing 'Fasol' message in {'VIP' if is_vip_channel else 'Public'} channel")
         ca_index = text.find(ca)
         if ca_index != -1:
             details = text[:ca_index].strip()
@@ -713,204 +754,204 @@ async def process_message(message: types.Message) -> None:
             return
 
         first_line = text.split('\n')[0].strip()
-        monitored_tokens[ca] = {
-            "token_name": first_line,
-            "initial_mc": original_mc,
-            "timestamp": datetime.now(pytz.timezone('America/Los_Angeles')).strftime("%Y-%m-%d %H:%M:%S"),
-            "message_id": message_id,
-            "chat_id": chat_id
-        }
-        logger.debug(f"Updated monitored_tokens with CA {ca}")
-        save_monitored_tokens()
-        return
+        if ca not in monitored_tokens:
+            monitored_tokens[ca] = {
+                "token_name": first_line,
+                "initial_mc": original_mc,
+                "timestamp": datetime.now(pytz.timezone('America/Los_Angeles')).timestamp(),  # Store epoch time
+                "message_id": final_msg.message_id if message.chat.type == "channel" else message_id,
+                "chat_id": chat_id
+            }
+            logger.debug(f"Added CA {ca} to monitored_tokens")
+            save_monitored_tokens()
 
-    # If "Fasol" is not present but "Early" is, apply filter logic (no buttons)
-    if not has_early:
-        logger.debug("No 'Early' keyword found, skipping filter logic")
-        return
+    # Process "Early" messages in VIP channel only
+    if has_early and is_vip_channel:
+        logger.info("Processing 'Early' message in VIP channel")
+        buy_percent = 0
+        sell_percent = 0
+        dev_sold = "N/A"
+        dev_sold_left_value = None
+        top_10 = 0
+        snipers = 0
+        bundles = 0
+        insiders = 0
+        kols = 0
+        bonding_curve = 0
 
-    logger.info("Processing 'Early' message")
-    buy_percent = 0
-    sell_percent = 0
-    dev_sold = "N/A"
-    dev_sold_left_value = None
-    top_10 = 0
-    snipers = 0
-    bundles = 0
-    insiders = 0
-    kols = 0
-    bonding_curve = 0
-
-    buy_sell_match = re.search(r'Sum 🅑:(\d+\.?\d*)% \| Sum 🅢:(\d+\.?\d*)%', text)
-    if buy_sell_match:
-        buy_percent = float(buy_sell_match.group(1))
-        sell_percent = float(buy_sell_match.group(2))
-        logger.debug(f"Extracted Buy: {buy_percent}%, Sell: {sell_percent}%")
-    else:
-        logger.warning(f"Failed to extract Buy/Sell percentages from: '{text}'")
-
-    dev_sold_match = re.search(r'Dev:(✅|❌)\s*(?:\((\d+\.?\d*)%\s*left\))?', text)
-    if dev_sold_match:
-        dev_sold = "Yes" if dev_sold_match.group(1) == "✅" else "No"
-        if dev_sold_match.group(2):
-            dev_sold_left_value = float(dev_sold_match.group(2))
-
-    top_10_match = re.search(r'Top 10:\s*(\d+\.?\d*)%', text)
-    if top_10_match:
-        top_10 = float(top_10_match.group(1))
-
-    snipers_match = re.search(r'Sniper:\s*\d+\s*buy\s*(\d+\.?\d*)%', text)
-    if snipers_match:
-        snipers = float(snipers_match.group(1))
-
-    bundles_match = re.search(r'Bundle:\s*\d+\s*buy\s*(\d+\.?\d*)%', text)
-    if bundles_match:
-        bundles = float(bundles_match.group(1))
-
-    insiders_match = re.search(r'🐁Insiders:\s*(\d+)', text)
-    if insiders_match:
-        insiders = int(insiders_match.group(1))
-
-    kols_match = re.search(r'🌟KOLs:\s*(\d+)', text)
-    if kols_match:
-        kols = int(kols_match.group(1))
-
-    bc_match = re.search(r'Bonding Curve:\s+(\d+\.?\d*)%', text)
-    if bc_match:
-        bonding_curve = float(bc_match.group(1))
-        logger.debug(f"Extracted Bonding Curve: {bonding_curve}%")
-    else:
-        logger.warning(f"Failed to extract Bonding Curve from: '{text}'")
-
-    all_filters_pass = False
-    filter_results = []
-
-    bs_ratio = buy_percent / sell_percent if sell_percent != 0 else float('inf')
-    bs_ratio_pass = False
-    if CheckHighEnabled and bs_ratio >= PassValue:
-        bs_ratio_pass = True
-    elif CheckLowEnabled and 1 <= bs_ratio <= RangeLow:
-        bs_ratio_pass = True
-    filter_results.append(f"BSRatio: {bs_ratio:.2f} {'✅' if bs_ratio_pass else '🚫'} (Threshold: >= {PassValue} or 1 to {RangeLow})")
-
-    dev_sold_pass = False
-    if not DevSoldFilterEnabled:
-        filter_results.append(f"DevSold: {dev_sold} (Disabled)")
-    else:
-        if dev_sold == DevSoldThreshold:
-            dev_sold_pass = True
-            filter_results.append(f"DevSold: {dev_sold} ✅ (Passes because DevSold is {DevSoldThreshold})")
-        elif dev_sold == "No" and dev_sold_left_value is not None and dev_sold_left_value <= DevSoldLeft:
-            dev_sold_pass = True
-            filter_results.append(f"DevSold: {dev_sold} ({dev_sold_left_value}% left) ✅ (Threshold: {DevSoldThreshold}, Left <= {DevSoldLeft}%)")
+        buy_sell_match = re.search(r'Sum 🅑:(\d+\.?\d*)% \| Sum 🅢:(\d+\.?\d*)%', text)
+        if buy_sell_match:
+            buy_percent = float(buy_sell_match.group(1))
+            sell_percent = float(buy_sell_match.group(2))
+            logger.debug(f"Extracted Buy: {buy_percent}%, Sell: {sell_percent}%")
         else:
-            filter_results.append(f"DevSold: {dev_sold} {'🚫' if dev_sold_left_value is None else f'({dev_sold_left_value}% left) 🚫'} (Threshold: {DevSoldThreshold}, Left <= {DevSoldLeft}%)")
+            logger.warning(f"Failed to extract Buy/Sell percentages from: '{text}'")
 
-    top_10_pass = False
-    if not Top10FilterEnabled:
-        filter_results.append(f"Top10: {top_10} (Disabled)")
-    else:
-        top_10_pass = top_10 <= Top10Threshold
-        filter_results.append(f"Top10: {top_10} {'✅' if top_10_pass else '🚫'} (Threshold: <= {Top10Threshold})")
+        dev_sold_match = re.search(r'Dev:(✅|❌)\s*(?:\((\d+\.?\d*)%\s*left\))?', text)
+        if dev_sold_match:
+            dev_sold = "Yes" if dev_sold_match.group(1) == "✅" else "No"
+            if dev_sold_match.group(2):
+                dev_sold_left_value = float(dev_sold_match.group(2))
 
-    if not SniphersFilterEnabled or SnipersThreshold is None:
-        filter_results.append(f"Snipers: {snipers} (Disabled)")
-        snipers_pass = True
-    else:
-        snipers_pass = snipers <= SnipersThreshold
-        filter_results.append(f"Snipers: {snipers} {'✅' if snipers_pass else '🚫'} (Threshold: <= {SnipersThreshold})")
+        top_10_match = re.search(r'Top 10:\s*(\d+\.?\d*)%', text)
+        if top_10_match:
+            top_10 = float(top_10_match.group(1))
 
-    if not BundlesFilterEnabled:
-        filter_results.append(f"Bundles: {bundles} (Disabled)")
-        bundles_pass = True
-    else:
-        bundles_pass = bundles <= BundlesThreshold
-        filter_results.append(f"Bundles: {bundles} {'✅' if bundles_pass else '🚫'} (Threshold: <= {BundlesThreshold})")
+        snipers_match = re.search(r'Sniper:\s*\d+\s*buy\s*(\d+\.?\d*)%', text)
+        if snipers_match:
+            snipers = float(snipers_match.group(1))
 
-    if not InsidersFilterEnabled or InsidersThreshold is None:
-        filter_results.append(f"Insiders: {insiders} (Disabled)")
-        insiders_pass = True
-    else:
-        insiders_pass = insiders <= InsidersThreshold
-        filter_results.append(f"Insiders: {insiders} {'✅' if insiders_pass else '🚫'} (Threshold: <= {InsidersThreshold})")
+        bundles_match = re.search(r'Bundle:\s*\d+\s*buy\s*(\d+\.?\d*)%', text)
+        if bundles_match:
+            bundles = float(bundles_match.group(1))
 
-    if not KOLsFilterEnabled:
-        filter_results.append(f"KOLs: {kols} (Disabled)")
-        kols_pass = True
-    else:
-        kols_pass = kols >= KOLsThreshold
-        filter_results.append(f"KOLs: {kols} {'✅' if kols_pass else '🚫'} (Threshold: >= {KOLsThreshold})")
+        insiders_match = re.search(r'🐁Insiders:\s*(\d+)', text)
+        if insiders_match:
+            insiders = int(insiders_match.group(1))
 
-    if not BondingCurveFilterEnabled:
-        filter_results.append(f"BondingCurve: {bonding_curve} (Disabled)")
-        bc_pass = True
-    else:
-        bc_pass = bonding_curve >= BondingCurveThreshold
-        filter_results.append(f"BondingCurve: {bonding_curve} {'✅' if bc_pass else '🚫'} (Threshold: >= {BondingCurveThreshold})")
+        kols_match = re.search(r'🌟KOLs:\s*(\d+)', text)
+        if kols_match:
+            kols = int(kols_match.group(1))
 
-    all_filters_pass = all([
-        bs_ratio_pass,
-        dev_sold_pass if DevSoldFilterEnabled else True,
-        top_10_pass if Top10FilterEnabled else True,
-        snipers_pass if SniphersFilterEnabled and SnipersThreshold is not None else True,
-        bundles_pass if BundlesFilterEnabled else True,
-        insiders_pass if InsidersFilterEnabled and InsidersThreshold is not None else True,
-        kols_pass if KOLsFilterEnabled else True,
-        bc_pass if BondingCurveFilterEnabled else True
-    ])
-
-    log_to_csv(
-        ca=ca,
-        bs_ratio=bs_ratio,
-        bs_ratio_pass=bs_ratio_pass,
-        check_low_pass=None,
-        dev_sold=dev_sold,
-        dev_sold_left_value=dev_sold_left_value,
-        dev_sold_pass=dev_sold_pass,
-        top_10=top_10,
-        top_10_pass=top_10_pass,
-        snipers=snipers,
-        snipers_pass=snipers_pass if SniphersFilterEnabled and SnipersThreshold is not None else None,
-        bundles=bundles,
-        bundles_pass=bundles_pass if BundlesFilterEnabled else None,
-        insiders=insiders,
-        insiders_pass=insiders_pass if InsidersFilterEnabled and InsidersThreshold is not None else None,
-        kols=kols,
-        kols_pass=kols_pass if KOLsFilterEnabled else None,
-        bonding_curve=bonding_curve,
-        bc_pass=bc_pass if BondingCurveFilterEnabled else None,
-        overall_pass=all_filters_pass,
-        market_cap=market_cap_str,
-        is_vip_channel=False
-    )
-
-    first_line = text.split('\n')[0].strip()
-    output_text = f"{'CA qualified: ✅' if all_filters_pass else 'CA did not qualify: 🚫'}\n**{first_line}**\n**🔗 CA: {ca}**\n" + "\n".join(filter_results)
-
-    try:
-        if message.chat.type == "channel":
-            await bot.send_message(
-                chat_id=chat_id,
-                text=output_text,
-                parse_mode="Markdown",
-                disable_web_page_preview=True
-            )
+        bc_match = re.search(r'Bonding Curve:\s+(\d+\.?\d*)%', text)
+        if bc_match:
+            bonding_curve = float(bc_match.group(1))
+            logger.debug(f"Extracted Bonding Curve: {bonding_curve}%")
         else:
-            await message.reply(
-                text=output_text,
-                parse_mode="Markdown",
-                reply_to_message_id=message_id,
-                entities=[
-                    MessageEntity(
-                        type="code",
-                        offset=output_text.index(ca),
-                        length=len(ca)
-                    )
-                ]
-            )
-        logger.info(f"Filter results sent for CA {ca} in chat {chat_id}")
-    except Exception as e:
-        logger.error(f"Failed to send filter results for CA {ca}: {str(e)}")
+            logger.warning(f"Failed to extract Bonding Curve from: '{text}'")
+
+        all_filters_pass = False
+        filter_results = []
+
+        bs_ratio = buy_percent / sell_percent if sell_percent != 0 else float('inf')
+        bs_ratio_pass = False
+        if CheckHighEnabled and bs_ratio >= PassValue:
+            bs_ratio_pass = True
+        elif CheckLowEnabled and 1 <= bs_ratio <= RangeLow:
+            bs_ratio_pass = True
+        filter_results.append(f"BSRatio: {bs_ratio:.2f} {'✅' if bs_ratio_pass else '🚫'} (Threshold: >= {PassValue} or 1 to {RangeLow})")
+
+        dev_sold_pass = False
+        if not DevSoldFilterEnabled:
+            filter_results.append(f"DevSold: {dev_sold} (Disabled)")
+        else:
+            if dev_sold == DevSoldThreshold:
+                dev_sold_pass = True
+                filter_results.append(f"DevSold: {dev_sold} ✅ (Passes because DevSold is {DevSoldThreshold})")
+            elif dev_sold == "No" and dev_sold_left_value is not None and dev_sold_left_value <= DevSoldLeft:
+                dev_sold_pass = True
+                filter_results.append(f"DevSold: {dev_sold} ({dev_sold_left_value}% left) ✅ (Threshold: {DevSoldThreshold}, Left <= {DevSoldLeft}%)")
+            else:
+                filter_results.append(f"DevSold: {dev_sold} {'🚫' if dev_sold_left_value is None else f'({dev_sold_left_value}% left) 🚫'} (Threshold: {DevSoldThreshold}, Left <= {DevSoldLeft}%)")
+
+        top_10_pass = False
+        if not Top10FilterEnabled:
+            filter_results.append(f"Top10: {top_10} (Disabled)")
+        else:
+            top_10_pass = top_10 <= Top10Threshold
+            filter_results.append(f"Top10: {top_10} {'✅' if top_10_pass else '🚫'} (Threshold: <= {Top10Threshold})")
+
+        if not SniphersFilterEnabled or SnipersThreshold is None:
+            filter_results.append(f"Snipers: {snipers} (Disabled)")
+            snipers_pass = True
+        else:
+            snipers_pass = snipers <= SnipersThreshold
+            filter_results.append(f"Snipers: {snipers} {'✅' if snipers_pass else '🚫'} (Threshold: <= {SnipersThreshold})")
+
+        if not BundlesFilterEnabled:
+            filter_results.append(f"Bundles: {bundles} (Disabled)")
+            bundles_pass = True
+        else:
+            bundles_pass = bundles <= BundlesThreshold
+            filter_results.append(f"Bundles: {bundles} {'✅' if bundles_pass else '🚫'} (Threshold: <= {BundlesThreshold})")
+
+        if not InsidersFilterEnabled or InsidersThreshold is None:
+            filter_results.append(f"Insiders: {insiders} (Disabled)")
+            insiders_pass = True
+        else:
+            insiders_pass = insiders <= InsidersThreshold
+            filter_results.append(f"Insiders: {insiders} {'✅' if insiders_pass else '🚫'} (Threshold: <= {InsidersThreshold})")
+
+        if not KOLsFilterEnabled:
+            filter_results.append(f"KOLs: {kols} (Disabled)")
+            kols_pass = True
+        else:
+            kols_pass = kols >= KOLsThreshold
+            filter_results.append(f"KOLs: {kols} {'✅' if kols_pass else '🚫'} (Threshold: >= {KOLsThreshold})")
+
+        if not BondingCurveFilterEnabled:
+            filter_results.append(f"BondingCurve: {bonding_curve} (Disabled)")
+            bc_pass = True
+        else:
+            bc_pass = bonding_curve >= BondingCurveThreshold
+            filter_results.append(f"BondingCurve: {bonding_curve} {'✅' if bc_pass else '🚫'} (Threshold: >= {BondingCurveThreshold})")
+
+        all_filters_pass = all([
+            bs_ratio_pass,
+            dev_sold_pass if DevSoldFilterEnabled else True,
+            top_10_pass if Top10FilterEnabled else True,
+            snipers_pass if SniphersFilterEnabled and SnipersThreshold is not None else True,
+            bundles_pass if BundlesFilterEnabled else True,
+            insiders_pass if InsidersFilterEnabled and InsidersThreshold is not None else True,
+            kols_pass if KOLsFilterEnabled else True,
+            bc_pass if BondingCurveFilterEnabled else True
+        ])
+
+        first_line = text.split('\n')[0].strip()
+        growth_ratio = get_latest_growth_ratio(ca)
+        log_to_csv(
+            ca=ca,
+            token_name=first_line,
+            bs_ratio=bs_ratio,
+            bs_ratio_pass=bs_ratio_pass,
+            check_low_pass=None,
+            dev_sold=dev_sold,
+            dev_sold_left_value=dev_sold_left_value,
+            dev_sold_pass=dev_sold_pass,
+            top_10=top_10,
+            top_10_pass=top_10_pass,
+            snipers=snipers,
+            snipers_pass=snipers_pass if SniphersFilterEnabled and SnipersThreshold is not None else None,
+            bundles=bundles,
+            bundles_pass=bundles_pass if BundlesFilterEnabled else None,
+            insiders=insiders,
+            insiders_pass=insiders_pass if InsidersFilterEnabled and InsidersThreshold is not None else None,
+            kols=kols,
+            kols_pass=kols_pass if KOLsFilterEnabled else None,
+            bonding_curve=bonding_curve,
+            bc_pass=bc_pass if BondingCurveFilterEnabled else None,
+            overall_pass=all_filters_pass,
+            market_cap=market_cap_str,
+            growth_ratio=growth_ratio,
+            is_vip_channel=is_vip_channel
+        )
+
+        output_text = f"{'CA qualified: ✅' if all_filters_pass else 'CA did not qualify: 🚫'}\n**{first_line}**\n**🔗 CA: {ca}**\n" + "\n".join(filter_results)
+
+        try:
+            if message.chat.type == "channel":
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=output_text,
+                    parse_mode="Markdown",
+                    disable_web_page_preview=True
+                )
+            else:
+                await message.reply(
+                    text=output_text,
+                    parse_mode="Markdown",
+                    reply_to_message_id=message_id,
+                    entities=[
+                        MessageEntity(
+                            type="code",
+                            offset=output_text.index(ca),
+                            length=len(ca)
+                        )
+                    ]
+                )
+            logger.info(f"Filter results sent for CA {ca} in chat {chat_id}")
+        except Exception as e:
+            logger.error(f"Failed to send filter results for CA {ca}: {str(e)}")
 
 # Handler for regular messages (private chats, groups)
 @dp.message(~Command(commands=[
@@ -934,6 +975,8 @@ async def handle_channel_post(message: types.Message) -> None:
 
 # Chunk 4 starts
 # Background task to monitor token market cap growth
+# Chunk 4 Modifications
+
 async def growthcheck() -> None:
     current_time = datetime.now(pytz.timezone('America/Los_Angeles'))
     to_remove = []
@@ -941,20 +984,18 @@ async def growthcheck() -> None:
     for ca, data in monitored_tokens.items():
         token_name = data["token_name"]
         initial_mc = data["initial_mc"]
-        timestamp_str = data["timestamp"]
+        timestamp = data["timestamp"]  # Now an epoch float
         message_id = data["message_id"]
         chat_id = data["chat_id"]
+        is_vip_channel = chat_id in VIP_CHANNEL_IDS
 
-        # Parse the timestamp
-        token_time = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.timezone('America/Los_Angeles'))
-        time_diff = (current_time - token_time).total_seconds() / 3600  # Time difference in hours
+        token_time = datetime.fromtimestamp(timestamp, pytz.timezone('America/Los_Angeles'))
+        time_diff = (current_time - token_time).total_seconds() / 3600
 
-        # Remove tokens older than 6 hours
         if time_diff > 6:
             to_remove.append(ca)
             continue
 
-        # Fetch current market cap using API
         token_data = await get_token_market_cap(ca)
         if "error" in token_data:
             continue
@@ -962,18 +1003,14 @@ async def growthcheck() -> None:
         if current_mc is None or current_mc == 0:
             continue
 
-        # Calculate growth
         growth_ratio = current_mc / initial_mc if initial_mc != 0 else 0
         profit_percent = ((current_mc - initial_mc) / initial_mc) * 100 if initial_mc != 0 else 0
 
-        # Check if growth meets the threshold
         last_growth_ratio = last_growth_ratios.get(ca, 1.0)
         if growth_ratio >= GROWTH_THRESHOLD and growth_ratio >= last_growth_ratio + INCREMENT_THRESHOLD:
             last_growth_ratios[ca] = growth_ratio
 
-            # Log growth to CSV
-            time_since_added = calculate_time_since(token_time.timestamp())
-            is_vip_channel = chat_id in VIP_CHANNEL_IDS
+            time_since_added = calculate_time_since(timestamp)  # Use epoch timestamp directly
             log_to_growthcheck_csv(
                 chat_id=chat_id,
                 channel_id=chat_id,
@@ -988,10 +1025,9 @@ async def growthcheck() -> None:
                 is_vip_channel=is_vip_channel
             )
 
-            # Send growth notification as a reply to the original message
             if growth_notifications_enabled:
-                initial_mc_str = f"${initial_mc / 1000:.1f}K" if initial_mc is not None and initial_mc > 0 else "N/A"
-                current_mc_str = f"${current_mc / 1000:.1f}K" if current_mc is not None and current_mc > 0 else "N/A"
+                initial_mc_str = f"${initial_mc / 1000:.1f}K" if initial_mc > 0 else "N/A"
+                current_mc_str = f"${current_mc / 1000:.1f}K" if current_mc > 0 else "N/A"
                 growth_message = (
                     f"⚡ **{token_name} Pumps Hard!** 💎\n"
                     f"MC: {initial_mc_str} ➡ {current_mc_str} | 🚀 {growth_ratio:.1f}x | Profit: +{profit_percent:.1f}% | ⏳ {time_since_added}"
@@ -1002,14 +1038,13 @@ async def growthcheck() -> None:
                     parse_mode="Markdown",
                     reply_to_message_id=message_id
                 )
+                logger.info(f"Sent growth notification for CA {ca} in chat {chat_id}")
 
-    # Remove expired tokens
     for ca in to_remove:
         monitored_tokens.pop(ca, None)
         last_growth_ratios.pop(ca, None)
-    if to_remove:  # Only save if we removed tokens
-        save_monitored_tokens()  # Save to CSV after removing
-
+    if to_remove:
+        save_monitored_tokens()
 # Chunk 4 ends
 """
 # Chunk 5 starts
