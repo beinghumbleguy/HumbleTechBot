@@ -687,7 +687,7 @@ async def process_message(message: types.Message) -> None:
     chat_id = message.chat.id
     message_id = message.message_id
 
-    # Early check for CA and keywords to avoid processing irrelevant messages
+    # Early check for CA and keywords
     ca_match = re.search(r'[A-Za-z0-9]{44}', text)
     if not ca_match:
         logger.debug("No CA found in message, skipping")
@@ -700,7 +700,6 @@ async def process_message(message: types.Message) -> None:
         logger.debug("No 'Early' or 'Fasol' keywords found, skipping")
         return
 
-    # Only log handler trigger if message is relevant
     logger.info(f"Handler triggered for message: '{text}' (chat_id={chat_id}, type={message.chat.type}, message_id={message_id})")
     logger.debug(f"Extracted CA: {ca}")
     logger.debug(f"Keyword check - Has Early: {has_early}, Has Fasol: {has_fasol}")
@@ -708,7 +707,7 @@ async def process_message(message: types.Message) -> None:
     is_vip_channel = chat_id in VIP_CHANNEL_IDS
     is_public_channel = chat_id in PUBLIC_CHANNEL_IDS
     
-    # Extract market cap from the message
+    # Extract market cap
     mc_match = re.search(r'💎\s*(?:MC|C):\s*\$?(\d+\.?\d*[KM]?)', text, re.IGNORECASE)
     original_mc = 0
     market_cap_str = "N/A"
@@ -721,9 +720,9 @@ async def process_message(message: types.Message) -> None:
         except ValueError as e:
             logger.error(f"Failed to parse market cap '{mc_str}': {str(e)}")
 
-    # Process "Fasol" messages only in VIP or Public channels
-    if has_fasol and (is_vip_channel or is_public_channel):
-        logger.info(f"Processing 'Fasol' message in {'VIP' if is_vip_channel else 'Public'} channel")
+    # Process "Fasol" messages in any chat
+    if has_fasol:
+        logger.info(f"Processing 'Fasol' message in chat {chat_id} (type: {message.chat.type})")
         ca_index = text.find(ca)
         if ca_index != -1:
             details = text[:ca_index].strip()
@@ -746,7 +745,6 @@ async def process_message(message: types.Message) -> None:
         ])
 
         try:
-            # Edit the original message instead of posting a new one
             await bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
@@ -758,7 +756,6 @@ async def process_message(message: types.Message) -> None:
             logger.info(f"Edited original message with trading buttons for CA {ca} in chat {chat_id}")
         except Exception as e:
             logger.warning(f"Failed to edit message {message_id} in chat {chat_id}: {e}")
-            # Fallback: Post new message and delete original if edit fails
             try:
                 if message.chat.type == "channel":
                     final_msg = await bot.send_message(
@@ -786,205 +783,212 @@ async def process_message(message: types.Message) -> None:
                 logger.error(f"Failed to post fallback message for CA {ca}: {post_e}")
                 return
 
-        first_line = text.split('\n')[0].strip()
-        if ca not in monitored_tokens:
-            monitored_tokens[ca] = {
-                "token_name": first_line,
-                "initial_mc": original_mc,
-                "timestamp": datetime.now(pytz.timezone('America/Los_Angeles')).timestamp(),
-                "message_id": message_id,  # Use original message_id since we edited it
-                "chat_id": chat_id
-            }
-            logger.debug(f"Added CA {ca} to monitored_tokens")
-            save_monitored_tokens()
-
-    # Process "Early" messages in VIP channel only
-    if has_early and is_vip_channel:
-        logger.info("Processing 'Early' message in VIP channel")
-        buy_percent = 0
-        sell_percent = 0
-        dev_sold = "N/A"
-        dev_sold_left_value = None
-        top_10 = 0
-        snipers = 0
-        bundles = 0
-        insiders = 0
-        kols = 0
-        bonding_curve = 0
-
-        buy_sell_match = re.search(r'Sum 🅑:(\d+\.?\d*)% \| Sum 🅢:(\d+\.?\d*)%', text)
-        if buy_sell_match:
-            buy_percent = float(buy_sell_match.group(1))
-            sell_percent = float(buy_sell_match.group(2))
-            logger.debug(f"Extracted Buy: {buy_percent}%, Sell: {sell_percent}%")
+        if is_vip_channel or is_public_channel:
+            first_line = text.split('\n')[0].strip()
+            if ca not in monitored_tokens:
+                monitored_tokens[ca] = {
+                    "token_name": first_line,
+                    "initial_mc": original_mc,
+                    "timestamp": datetime.now(pytz.timezone('America/Los_Angeles')).timestamp(),
+                    "message_id": message_id,
+                    "chat_id": chat_id
+                }
+                logger.debug(f"Added CA {ca} to monitored_tokens for growth tracking")
+                save_monitored_tokens()
         else:
-            logger.warning(f"Failed to extract Buy/Sell percentages from: '{text}'")
+            logger.debug(f"CA {ca} not added to monitored_tokens (not in VIP or Public channel)")
+        return  # Exit after Fasol processing
 
-        dev_sold_match = re.search(r'Dev:(✅|❌)\s*(?:\((\d+\.?\d*)%\s*left\))?', text)
-        if dev_sold_match:
-            dev_sold = "Yes" if dev_sold_match.group(1) == "✅" else "No"
-            if dev_sold_match.group(2):
-                dev_sold_left_value = float(dev_sold_match.group(2))
+    # Process "Early" messages in any chat
+    if not has_early:
+        logger.debug("No 'Early' keyword found, skipping filter logic")
+        return
 
-        top_10_match = re.search(r'Top 10:\s*(\d+\.?\d*)%', text)
-        if top_10_match:
-            top_10 = float(top_10_match.group(1))
+    logger.info(f"Processing 'Early' message in chat {chat_id} (type: {message.chat.type})")
+    buy_percent = 0
+    sell_percent = 0
+    dev_sold = "N/A"
+    dev_sold_left_value = None
+    top_10 = 0
+    snipers = 0
+    bundles = 0
+    insiders = 0
+    kols = 0
+    bonding_curve = 0
 
-        snipers_match = re.search(r'Sniper:\s*\d+\s*buy\s*(\d+\.?\d*)%', text)
-        if snipers_match:
-            snipers = float(snipers_match.group(1))
+    buy_sell_match = re.search(r'Sum 🅑:(\d+\.?\d*)% \| Sum 🅢:(\d+\.?\d*)%', text)
+    if buy_sell_match:
+        buy_percent = float(buy_sell_match.group(1))
+        sell_percent = float(buy_sell_match.group(2))
+        logger.debug(f"Extracted Buy: {buy_percent}%, Sell: {sell_percent}%")
+    else:
+        logger.warning(f"Failed to extract Buy/Sell percentages from: '{text}'")
 
-        bundles_match = re.search(r'Bundle:\s*\d+\s*buy\s*(\d+\.?\d*)%', text)
-        if bundles_match:
-            bundles = float(bundles_match.group(1))
+    dev_sold_match = re.search(r'Dev:(✅|❌)\s*(?:\((\d+\.?\d*)%\s*left\))?', text)
+    if dev_sold_match:
+        dev_sold = "Yes" if dev_sold_match.group(1) == "✅" else "No"
+        if dev_sold_match.group(2):
+            dev_sold_left_value = float(dev_sold_match.group(2))
 
-        insiders_match = re.search(r'🐁Insiders:\s*(\d+)', text)
-        if insiders_match:
-            insiders = int(insiders_match.group(1))
+    top_10_match = re.search(r'Top 10:\s*(\d+\.?\d*)%', text)
+    if top_10_match:
+        top_10 = float(top_10_match.group(1))
 
-        kols_match = re.search(r'🌟KOLs:\s*(\d+)', text)
-        if kols_match:
-            kols = int(kols_match.group(1))
+    snipers_match = re.search(r'Sniper:\s*\d+\s*buy\s*(\d+\.?\d*)%', text)
+    if snipers_match:
+        snipers = float(snipers_match.group(1))
 
-        bc_match = re.search(r'Bonding Curve:\s+(\d+\.?\d*)%', text)
-        if bc_match:
-            bonding_curve = float(bc_match.group(1))
-            logger.debug(f"Extracted Bonding Curve: {bonding_curve}%")
+    bundles_match = re.search(r'Bundle:\s*\d+\s*buy\s*(\d+\.?\d*)%', text)
+    if bundles_match:
+        bundles = float(bundles_match.group(1))
+
+    insiders_match = re.search(r'🐁Insiders:\s*(\d+)', text)
+    if insiders_match:
+        insiders = int(insiders_match.group(1))
+
+    kols_match = re.search(r'🌟KOLs:\s*(\d+)', text)
+    if kols_match:
+        kols = int(kols_match.group(1))
+
+    bc_match = re.search(r'Bonding Curve:\s+(\d+\.?\d*)%', text)
+    if bc_match:
+        bonding_curve = float(bc_match.group(1))
+        logger.debug(f"Extracted Bonding Curve: {bonding_curve}%")
+    else:
+        logger.warning(f"Failed to extract Bonding Curve from: '{text}'")
+
+    all_filters_pass = False
+    filter_results = []
+
+    bs_ratio = buy_percent / sell_percent if sell_percent != 0 else float('inf')
+    bs_ratio_pass = False
+    if CheckHighEnabled and bs_ratio >= PassValue:
+        bs_ratio_pass = True
+    elif CheckLowEnabled and 1 <= bs_ratio <= RangeLow:
+        bs_ratio_pass = True
+    filter_results.append(f"BSRatio: {bs_ratio:.2f} {'✅' if bs_ratio_pass else '🚫'} (Threshold: >= {PassValue} or 1 to {RangeLow})")
+
+    dev_sold_pass = False
+    if not DevSoldFilterEnabled:
+        filter_results.append(f"DevSold: {dev_sold} (Disabled)")
+    else:
+        if dev_sold == DevSoldThreshold:
+            dev_sold_pass = True
+            filter_results.append(f"DevSold: {dev_sold} ✅ (Passes because DevSold is {DevSoldThreshold})")
+        elif dev_sold == "No" and dev_sold_left_value is not None and dev_sold_left_value <= DevSoldLeft:
+            dev_sold_pass = True
+            filter_results.append(f"DevSold: {dev_sold} ({dev_sold_left_value}% left) ✅ (Threshold: {DevSoldThreshold}, Left <= {DevSoldLeft}%)")
         else:
-            logger.warning(f"Failed to extract Bonding Curve from: '{text}'")
+            filter_results.append(f"DevSold: {dev_sold} {'🚫' if dev_sold_left_value is None else f'({dev_sold_left_value}% left) 🚫'} (Threshold: {DevSoldThreshold}, Left <= {DevSoldLeft}%)")
 
-        all_filters_pass = False
-        filter_results = []
+    top_10_pass = False
+    if not Top10FilterEnabled:
+        filter_results.append(f"Top10: {top_10} (Disabled)")
+    else:
+        top_10_pass = top_10 <= Top10Threshold
+        filter_results.append(f"Top10: {top_10} {'✅' if top_10_pass else '🚫'} (Threshold: <= {Top10Threshold})")
 
-        bs_ratio = buy_percent / sell_percent if sell_percent != 0 else float('inf')
-        bs_ratio_pass = False
-        if CheckHighEnabled and bs_ratio >= PassValue:
-            bs_ratio_pass = True
-        elif CheckLowEnabled and 1 <= bs_ratio <= RangeLow:
-            bs_ratio_pass = True
-        filter_results.append(f"BSRatio: {bs_ratio:.2f} {'✅' if bs_ratio_pass else '🚫'} (Threshold: >= {PassValue} or 1 to {RangeLow})")
+    if not SniphersFilterEnabled or SnipersThreshold is None:
+        filter_results.append(f"Snipers: {snipers} (Disabled)")
+        snipers_pass = True
+    else:
+        snipers_pass = snipers <= SnipersThreshold
+        filter_results.append(f"Snipers: {snipers} {'✅' if snipers_pass else '🚫'} (Threshold: <= {SnipersThreshold})")
 
-        dev_sold_pass = False
-        if not DevSoldFilterEnabled:
-            filter_results.append(f"DevSold: {dev_sold} (Disabled)")
+    if not BundlesFilterEnabled:
+        filter_results.append(f"Bundles: {bundles} (Disabled)")
+        bundles_pass = True
+    else:
+        bundles_pass = bundles <= BundlesThreshold
+        filter_results.append(f"Bundles: {bundles} {'✅' if bundles_pass else '🚫'} (Threshold: <= {BundlesThreshold})")
+
+    if not InsidersFilterEnabled or InsidersThreshold is None:
+        filter_results.append(f"Insiders: {insiders} (Disabled)")
+        insiders_pass = True
+    else:
+        insiders_pass = insiders <= InsidersThreshold
+        filter_results.append(f"Insiders: {insiders} {'✅' if insiders_pass else '🚫'} (Threshold: <= {InsidersThreshold})")
+
+    if not KOLsFilterEnabled:
+        filter_results.append(f"KOLs: {kols} (Disabled)")
+        kols_pass = True
+    else:
+        kols_pass = kols >= KOLsThreshold
+        filter_results.append(f"KOLs: {kols} {'✅' if kols_pass else '🚫'} (Threshold: >= {KOLsThreshold})")
+
+    if not BondingCurveFilterEnabled:
+        filter_results.append(f"BondingCurve: {bonding_curve} (Disabled)")
+        bc_pass = True
+    else:
+        bc_pass = bonding_curve >= BondingCurveThreshold
+        filter_results.append(f"BondingCurve: {bonding_curve} {'✅' if bc_pass else '🚫'} (Threshold: >= {BondingCurveThreshold})")
+
+    all_filters_pass = all([
+        bs_ratio_pass,
+        dev_sold_pass if DevSoldFilterEnabled else True,
+        top_10_pass if Top10FilterEnabled else True,
+        snipers_pass if SniphersFilterEnabled and SnipersThreshold is not None else True,
+        bundles_pass if BundlesFilterEnabled else True,
+        insiders_pass if InsidersFilterEnabled and InsidersThreshold is not None else True,
+        kols_pass if KOLsFilterEnabled else True,
+        bc_pass if BondingCurveFilterEnabled else True
+    ])
+
+    first_line = text.split('\n')[0].strip()
+    growth_ratio = get_latest_growth_ratio(ca)
+    log_to_csv(
+        ca=ca,
+        token_name=first_line,
+        bs_ratio=bs_ratio,
+        bs_ratio_pass=bs_ratio_pass,
+        check_low_pass=None,
+        dev_sold=dev_sold,
+        dev_sold_left_value=dev_sold_left_value,
+        dev_sold_pass=dev_sold_pass,
+        top_10=top_10,
+        top_10_pass=top_10_pass,
+        snipers=snipers,
+        snipers_pass=snipers_pass if SniphersFilterEnabled and SnipersThreshold is not None else None,
+        bundles=bundles,
+        bundles_pass=bundles_pass if BundlesFilterEnabled else None,
+        insiders=insiders,
+        insiders_pass=insiders_pass if InsidersFilterEnabled and InsidersThreshold is not None else None,
+        kols=kols,
+        kols_pass=kols_pass if KOLsFilterEnabled else None,
+        bonding_curve=bonding_curve,
+        bc_pass=bc_pass if BondingCurveFilterEnabled else None,
+        overall_pass=all_filters_pass,
+        market_cap=market_cap_str,
+        growth_ratio=growth_ratio,
+        is_vip_channel=is_vip_channel
+    )
+
+    output_text = f"{'CA qualified: ✅' if all_filters_pass else 'CA did not qualify: 🚫'}\n**{first_line}**\n**🔗 CA: {ca}**\n" + "\n".join(filter_results)
+
+    try:
+        if message.chat.type == "channel":
+            await bot.send_message(
+                chat_id=chat_id,
+                text=output_text,
+                parse_mode="Markdown",
+                disable_web_page_preview=True
+            )
         else:
-            if dev_sold == DevSoldThreshold:
-                dev_sold_pass = True
-                filter_results.append(f"DevSold: {dev_sold} ✅ (Passes because DevSold is {DevSoldThreshold})")
-            elif dev_sold == "No" and dev_sold_left_value is not None and dev_sold_left_value <= DevSoldLeft:
-                dev_sold_pass = True
-                filter_results.append(f"DevSold: {dev_sold} ({dev_sold_left_value}% left) ✅ (Threshold: {DevSoldThreshold}, Left <= {DevSoldLeft}%)")
-            else:
-                filter_results.append(f"DevSold: {dev_sold} {'🚫' if dev_sold_left_value is None else f'({dev_sold_left_value}% left) 🚫'} (Threshold: {DevSoldThreshold}, Left <= {DevSoldLeft}%)")
-
-        top_10_pass = False
-        if not Top10FilterEnabled:
-            filter_results.append(f"Top10: {top_10} (Disabled)")
-        else:
-            top_10_pass = top_10 <= Top10Threshold
-            filter_results.append(f"Top10: {top_10} {'✅' if top_10_pass else '🚫'} (Threshold: <= {Top10Threshold})")
-
-        if not SniphersFilterEnabled or SnipersThreshold is None:
-            filter_results.append(f"Snipers: {snipers} (Disabled)")
-            snipers_pass = True
-        else:
-            snipers_pass = snipers <= SnipersThreshold
-            filter_results.append(f"Snipers: {snipers} {'✅' if snipers_pass else '🚫'} (Threshold: <= {SnipersThreshold})")
-
-        if not BundlesFilterEnabled:
-            filter_results.append(f"Bundles: {bundles} (Disabled)")
-            bundles_pass = True
-        else:
-            bundles_pass = bundles <= BundlesThreshold
-            filter_results.append(f"Bundles: {bundles} {'✅' if bundles_pass else '🚫'} (Threshold: <= {BundlesThreshold})")
-
-        if not InsidersFilterEnabled or InsidersThreshold is None:
-            filter_results.append(f"Insiders: {insiders} (Disabled)")
-            insiders_pass = True
-        else:
-            insiders_pass = insiders <= InsidersThreshold
-            filter_results.append(f"Insiders: {insiders} {'✅' if insiders_pass else '🚫'} (Threshold: <= {InsidersThreshold})")
-
-        if not KOLsFilterEnabled:
-            filter_results.append(f"KOLs: {kols} (Disabled)")
-            kols_pass = True
-        else:
-            kols_pass = kols >= KOLsThreshold
-            filter_results.append(f"KOLs: {kols} {'✅' if kols_pass else '🚫'} (Threshold: >= {KOLsThreshold})")
-
-        if not BondingCurveFilterEnabled:
-            filter_results.append(f"BondingCurve: {bonding_curve} (Disabled)")
-            bc_pass = True
-        else:
-            bc_pass = bonding_curve >= BondingCurveThreshold
-            filter_results.append(f"BondingCurve: {bonding_curve} {'✅' if bc_pass else '🚫'} (Threshold: >= {BondingCurveThreshold})")
-
-        all_filters_pass = all([
-            bs_ratio_pass,
-            dev_sold_pass if DevSoldFilterEnabled else True,
-            top_10_pass if Top10FilterEnabled else True,
-            snipers_pass if SniphersFilterEnabled and SnipersThreshold is not None else True,
-            bundles_pass if BundlesFilterEnabled else True,
-            insiders_pass if InsidersFilterEnabled and InsidersThreshold is not None else True,
-            kols_pass if KOLsFilterEnabled else True,
-            bc_pass if BondingCurveFilterEnabled else True
-        ])
-
-        first_line = text.split('\n')[0].strip()
-        growth_ratio = get_latest_growth_ratio(ca)
-        log_to_csv(
-            ca=ca,
-            token_name=first_line,
-            bs_ratio=bs_ratio,
-            bs_ratio_pass=bs_ratio_pass,
-            check_low_pass=None,
-            dev_sold=dev_sold,
-            dev_sold_left_value=dev_sold_left_value,
-            dev_sold_pass=dev_sold_pass,
-            top_10=top_10,
-            top_10_pass=top_10_pass,
-            snipers=snipers,
-            snipers_pass=snipers_pass if SniphersFilterEnabled and SnipersThreshold is not None else None,
-            bundles=bundles,
-            bundles_pass=bundles_pass if BundlesFilterEnabled else None,
-            insiders=insiders,
-            insiders_pass=insiders_pass if InsidersFilterEnabled and InsidersThreshold is not None else None,
-            kols=kols,
-            kols_pass=kols_pass if KOLsFilterEnabled else None,
-            bonding_curve=bonding_curve,
-            bc_pass=bc_pass if BondingCurveFilterEnabled else None,
-            overall_pass=all_filters_pass,
-            market_cap=market_cap_str,
-            growth_ratio=growth_ratio,
-            is_vip_channel=is_vip_channel
-        )
-
-        output_text = f"{'CA qualified: ✅' if all_filters_pass else 'CA did not qualify: 🚫'}\n**{first_line}**\n**🔗 CA: {ca}**\n" + "\n".join(filter_results)
-
-        try:
-            if message.chat.type == "channel":
-                await bot.send_message(
-                    chat_id=chat_id,
-                    text=output_text,
-                    parse_mode="Markdown",
-                    disable_web_page_preview=True
-                )
-            else:
-                await message.reply(
-                    text=output_text,
-                    parse_mode="Markdown",
-                    reply_to_message_id=message_id,
-                    entities=[
-                        MessageEntity(
-                            type="code",
-                            offset=output_text.index(ca),
-                            length=len(ca)
-                        )
-                    ]
-                )
-            logger.info(f"Filter results sent for CA {ca} in chat {chat_id}")
-        except Exception as e:
-            logger.error(f"Failed to send filter results for CA {ca}: {str(e)}")
+            await message.reply(
+                text=output_text,
+                parse_mode="Markdown",
+                reply_to_message_id=message_id,
+                entities=[
+                    MessageEntity(
+                        type="code",
+                        offset=output_text.index(ca),
+                        length=len(ca)
+                    )
+                ]
+            )
+        logger.info(f"Filter results sent for CA {ca} in chat {chat_id}")
+    except Exception as e:
+        logger.error(f"Failed to send filter results for CA {ca}: {str(e)}")
 
 # Handler for regular messages (private chats, groups)
 @dp.message(~Command(commands=[
@@ -1003,7 +1007,6 @@ async def handle_message(message: types.Message) -> None:
 @dp.channel_post(F.text)
 async def handle_channel_post(message: types.Message) -> None:
     await process_message(message)
-
 # Chunk 3 ends
 
 # Chunk 4 starts
