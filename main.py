@@ -667,17 +667,15 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, MessageEntity
 from aiogram import F
 
-# Define channel IDs (consistent with Chunk 1)
+# Define channel IDs
 VIP_CHANNEL_IDS = {-1002365061913}
 PUBLIC_CHANNEL_IDS = {-1002272066154}
 
-# Shared logic for both message and channel post handling
 async def process_message(message: types.Message) -> None:
     if not message.text:
         logger.debug("Message has no text, skipping")
         return
 
-    # Skip if the message is from the bot itself
     bot_info = await bot.get_me()
     if message.from_user and message.from_user.id == bot_info.id:
         logger.debug("Message is from the bot itself, skipping")
@@ -687,7 +685,6 @@ async def process_message(message: types.Message) -> None:
     chat_id = message.chat.id
     message_id = message.message_id
 
-    # Early check for CA and keywords
     ca_match = re.search(r'[A-Za-z0-9]{44}', text)
     if not ca_match:
         logger.debug("No CA found in message, skipping")
@@ -708,7 +705,7 @@ async def process_message(message: types.Message) -> None:
     is_public_channel = chat_id in PUBLIC_CHANNEL_IDS
     
     # Extract market cap
-    mc_match = re.search(r'💎\s*(?:MC|C):\s*\$?(\d+\.?\d*[KM]?)', text, re.IGNORECASE)
+    mc_match = re.search(r'(?:💎\s*(?:MC|C)|Cap):\s*\$?(\d+\.?\d*[KM]?)', text, re.IGNORECASE)
     original_mc = 0
     market_cap_str = "N/A"
     if mc_match:
@@ -720,7 +717,7 @@ async def process_message(message: types.Message) -> None:
         except ValueError as e:
             logger.error(f"Failed to parse market cap '{mc_str}': {str(e)}")
 
-    # Process "Fasol" messages in any chat
+    # Process "Fasol" messages
     if has_fasol:
         logger.info(f"Processing 'Fasol' message in chat {chat_id} (type: {message.chat.type})")
         ca_index = text.find(ca)
@@ -758,21 +755,9 @@ async def process_message(message: types.Message) -> None:
             logger.warning(f"Failed to edit message {message_id} in chat {chat_id}: {e}")
             try:
                 if message.chat.type == "channel":
-                    final_msg = await bot.send_message(
-                        chat_id=chat_id,
-                        text=output_text,
-                        reply_markup=keyboard,
-                        parse_mode="Markdown",
-                        disable_web_page_preview=True
-                    )
+                    final_msg = await bot.send_message(chat_id=chat_id, text=output_text, reply_markup=keyboard, parse_mode="Markdown", disable_web_page_preview=True)
                 else:
-                    final_msg = await message.reply(
-                        text=output_text,
-                        reply_markup=keyboard,
-                        parse_mode="Markdown",
-                        reply_to_message_id=message_id,
-                        disable_web_page_preview=True
-                    )
+                    final_msg = await message.reply(text=output_text, reply_markup=keyboard, parse_mode="Markdown", reply_to_message_id=message_id, disable_web_page_preview=True)
                 logger.info(f"Posted new message with trading buttons for CA {ca} in chat {chat_id} (edit failed)")
                 try:
                     await bot.delete_message(chat_id=chat_id, message_id=message_id)
@@ -797,9 +782,9 @@ async def process_message(message: types.Message) -> None:
                 save_monitored_tokens()
         else:
             logger.debug(f"CA {ca} not added to monitored_tokens (not in VIP or Public channel)")
-        return  # Exit after Fasol processing
+        return
 
-    # Process "Early" messages in any chat
+    # Process "Early" messages
     if not has_early:
         logger.debug("No 'Early' keyword found, skipping filter logic")
         return
@@ -860,7 +845,12 @@ async def process_message(message: types.Message) -> None:
     all_filters_pass = False
     filter_results = []
 
-    bs_ratio = buy_percent / sell_percent if sell_percent != 0 else float('inf')
+    # Calculate BSRatio with better handling
+    if buy_percent != 0 and sell_percent != 0:
+        bs_ratio = buy_percent / sell_percent
+    else:
+        bs_ratio = float('inf') if buy_percent > 0 else 0  # Handle edge cases
+    logger.debug(f"Calculated BSRatio: {bs_ratio} (Buy: {buy_percent}, Sell: {sell_percent})")
     bs_ratio_pass = False
     if CheckHighEnabled and bs_ratio >= PassValue:
         bs_ratio_pass = True
@@ -967,30 +957,19 @@ async def process_message(message: types.Message) -> None:
 
     try:
         if message.chat.type == "channel":
-            await bot.send_message(
-                chat_id=chat_id,
-                text=output_text,
-                parse_mode="Markdown",
-                disable_web_page_preview=True
-            )
+            await bot.send_message(chat_id=chat_id, text=output_text, parse_mode="Markdown", disable_web_page_preview=True)
         else:
             await message.reply(
                 text=output_text,
                 parse_mode="Markdown",
                 reply_to_message_id=message_id,
-                entities=[
-                    MessageEntity(
-                        type="code",
-                        offset=output_text.index(ca),
-                        length=len(ca)
-                    )
-                ]
+                entities=[MessageEntity(type="code", offset=output_text.index(ca), length=len(ca))]
             )
         logger.info(f"Filter results sent for CA {ca} in chat {chat_id}")
     except Exception as e:
         logger.error(f"Failed to send filter results for CA {ca}: {str(e)}")
 
-# Handler for regular messages (private chats, groups)
+# Handlers
 @dp.message(~Command(commands=[
     "test", "ca", "setfilter", "setpassvalue", "setrangelow", "setcheckhigh", 
     "setchecklow", "setdevsoldthreshold", "setdevsoldleft", "setdevsoldfilter", 
@@ -1003,10 +982,10 @@ async def process_message(message: types.Message) -> None:
 async def handle_message(message: types.Message) -> None:
     await process_message(message)
 
-# Handler for channel posts
 @dp.channel_post(F.text)
 async def handle_channel_post(message: types.Message) -> None:
     await process_message(message)
+
 # Chunk 3 ends
 
 # Chunk 4 starts
