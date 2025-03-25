@@ -673,7 +673,6 @@ PUBLIC_CHANNEL_IDS = {-1002272066154}
 
 # Shared logic for both message and channel post handling
 async def process_message(message: types.Message) -> None:
-    logger.info(f"Handler triggered for message: '{message.text}' (chat_id={message.chat.id}, type={message.chat.type}, message_id={message.message_id})")
     if not message.text:
         logger.debug("Message has no text, skipping")
         return
@@ -684,25 +683,31 @@ async def process_message(message: types.Message) -> None:
         logger.debug("Message is from the bot itself, skipping")
         return
 
+    text = message.text
     chat_id = message.chat.id
     message_id = message.message_id
-    text = message.text
+
+    # Early check for CA and keywords to avoid processing irrelevant messages
+    ca_match = re.search(r'[A-Za-z0-9]{44}', text)
+    if not ca_match:
+        logger.debug("No CA found in message, skipping")
+        return
+    ca = ca_match.group(0)
+
+    has_early = "early" in text.lower()
+    has_fasol = "fasol" in text.lower()
+    if not (has_early or has_fasol):
+        logger.debug("No 'Early' or 'Fasol' keywords found, skipping")
+        return
+
+    # Only log handler trigger if message is relevant
+    logger.info(f"Handler triggered for message: '{text}' (chat_id={chat_id}, type={message.chat.type}, message_id={message_id})")
+    logger.debug(f"Extracted CA: {ca}")
+    logger.debug(f"Keyword check - Has Early: {has_early}, Has Fasol: {has_fasol}")
+
     is_vip_channel = chat_id in VIP_CHANNEL_IDS
     is_public_channel = chat_id in PUBLIC_CHANNEL_IDS
     
-    # Extract CA from the message
-    ca_match = re.search(r'[A-Za-z0-9]{44}', text)
-    if not ca_match:
-        logger.debug("No CA found in message")
-        return
-    ca = ca_match.group(0)
-    logger.debug(f"Extracted CA: {ca}")
-
-    # Check for keywords (case-insensitive) in the source message
-    has_early = "early" in text.lower()
-    has_fasol = "fasol" in text.lower()
-    logger.debug(f"Keyword check - Has Early: {has_early}, Has Fasol: {has_fasol}")
-
     # Extract market cap from the message
     mc_match = re.search(r'💎\s*(?:MC|C):\s*\$?(\d+\.?\d*[KM]?)', text, re.IGNORECASE)
     original_mc = 0
@@ -741,40 +746,53 @@ async def process_message(message: types.Message) -> None:
         ])
 
         try:
-            if message.chat.type == "channel":
-                final_msg = await bot.send_message(
-                    chat_id=chat_id,
-                    text=output_text,
-                    reply_markup=keyboard,
-                    parse_mode="Markdown",
-                    disable_web_page_preview=True
-                )
-            else:
-                final_msg = await message.reply(
-                    text=output_text,
-                    reply_markup=keyboard,
-                    parse_mode="Markdown",
-                    reply_to_message_id=message_id,
-                    disable_web_page_preview=True
-                )
-            logger.info(f"Posted final message with trading buttons for CA {ca} in chat {chat_id}")
-            
-            try:
-                await bot.delete_message(chat_id=chat_id, message_id=message_id)
-                logger.info(f"Deleted original message {message_id} in chat {chat_id}")
-            except Exception as e:
-                logger.warning(f"Failed to delete original message {message_id} in chat {chat_id}: {e}")
+            # Edit the original message instead of posting a new one
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=output_text,
+                reply_markup=keyboard,
+                parse_mode="Markdown",
+                disable_web_page_preview=True
+            )
+            logger.info(f"Edited original message with trading buttons for CA {ca} in chat {chat_id}")
         except Exception as e:
-            logger.error(f"Failed to post final message for CA {ca}: {str(e)}")
-            return
+            logger.warning(f"Failed to edit message {message_id} in chat {chat_id}: {e}")
+            # Fallback: Post new message and delete original if edit fails
+            try:
+                if message.chat.type == "channel":
+                    final_msg = await bot.send_message(
+                        chat_id=chat_id,
+                        text=output_text,
+                        reply_markup=keyboard,
+                        parse_mode="Markdown",
+                        disable_web_page_preview=True
+                    )
+                else:
+                    final_msg = await message.reply(
+                        text=output_text,
+                        reply_markup=keyboard,
+                        parse_mode="Markdown",
+                        reply_to_message_id=message_id,
+                        disable_web_page_preview=True
+                    )
+                logger.info(f"Posted new message with trading buttons for CA {ca} in chat {chat_id} (edit failed)")
+                try:
+                    await bot.delete_message(chat_id=chat_id, message_id=message_id)
+                    logger.info(f"Deleted original message {message_id} in chat {chat_id}")
+                except Exception as del_e:
+                    logger.warning(f"Failed to delete original message {message_id} in chat {chat_id}: {del_e}")
+            except Exception as post_e:
+                logger.error(f"Failed to post fallback message for CA {ca}: {post_e}")
+                return
 
         first_line = text.split('\n')[0].strip()
         if ca not in monitored_tokens:
             monitored_tokens[ca] = {
                 "token_name": first_line,
                 "initial_mc": original_mc,
-                "timestamp": datetime.now(pytz.timezone('America/Los_Angeles')).timestamp(),  # Store epoch time
-                "message_id": final_msg.message_id if message.chat.type == "channel" else message_id,
+                "timestamp": datetime.now(pytz.timezone('America/Los_Angeles')).timestamp(),
+                "message_id": message_id,  # Use original message_id since we edited it
                 "chat_id": chat_id
             }
             logger.debug(f"Added CA {ca} to monitored_tokens")
