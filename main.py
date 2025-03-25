@@ -100,8 +100,8 @@ _executor = ThreadPoolExecutor(max_workers=5)
 
 # Global variables with default values
 filter_enabled = True
-PassValue = 1.35
-RangeLow = 1.07
+PassValue = 0
+RangeLow = 0
 authorized_users = ["@BeingHumbleGuy"]
 additional_user_added = False
 
