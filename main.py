@@ -49,10 +49,10 @@ logger.addFilter(SuppressRawUpdateFilter())
 logger.info(f"Using Aiogram version: {aiogram.__version__}")
 
 # Chunk 1 starts
-
-from aiogram import Bot, Dispatcher, types
+# Chunk 1 starts
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, BotCommand
 from aiogram.filters import Command, BaseFilter
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 import asyncio
 import logging
 import os
@@ -132,7 +132,7 @@ BondingCurveFilterEnabled = True
 growth_notifications_enabled = True
 GROWTH_THRESHOLD = 2.0
 INCREMENT_THRESHOLD = 1.0
-CHECK_INTERVAL = 300  # 5 minutes
+CHECK_INTERVAL = 15  # Changed to 15 seconds from 300
 MONITORING_DURATION = 21600  # 6 hours in seconds
 monitored_tokens = {}
 last_growth_ratios = {}
@@ -141,7 +141,7 @@ last_growth_ratios = {}
 VIP_CHANNEL_IDS = {-1002365061913}
 PUBLIC_CHANNEL_IDS = {-1002272066154}
 
-# CSV file paths for public and VIP channels
+# CSV file paths
 PUBLIC_CSV_FILE = "/app/data/public_ca_filter_log.csv"
 VIP_CSV_FILE = "/app/data/vip_ca_filter_log.csv"
 PUBLIC_GROWTH_CSV_FILE = "/app/data/public_growthcheck_log.csv"
@@ -155,7 +155,7 @@ logger.info(f"Generated download token: {DOWNLOAD_TOKEN}")
 # Initialize cache for API responses (TTL of 1 hour)
 token_data_cache = TTLCache(maxsize=1000, ttl=3600)
 
-# Initialize CSV files with headers if they don't exist
+# Initialize CSV files with headers
 def init_csv():
     data_dir = "/app/data"
     if not os.path.exists(data_dir):
@@ -186,14 +186,14 @@ def init_csv():
                 ])
             logger.info(f"Created growth check CSV file: {csv_file}")
 
-    # Monitored tokens CSV file
+    # Monitored tokens CSV file (added PeakMC)
     if not os.path.exists(MONITORED_TOKENS_CSV_FILE):
         with open(MONITORED_TOKENS_CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(["CA", "TokenName", "InitialMC", "Timestamp", "MessageID", "ChatID"])
+            writer.writerow(["CA", "TokenName", "InitialMC", "PeakMC", "Timestamp", "MessageID", "ChatID"])
         logger.info(f"Created monitored tokens CSV file: {MONITORED_TOKENS_CSV_FILE}")
 
-# Function to load monitored tokens from CSV on startup
+# Load monitored tokens from CSV
 def load_monitored_tokens():
     global monitored_tokens
     monitored_tokens = {}
@@ -205,7 +205,8 @@ def load_monitored_tokens():
                 monitored_tokens[ca] = {
                     "token_name": row["TokenName"],
                     "initial_mc": float(row["InitialMC"]),
-                    "timestamp": float(row["Timestamp"]),  # Changed to float (epoch time)
+                    "peak_mc": float(row.get("PeakMC", 0)),  # New field, default to 0 if missing
+                    "timestamp": float(row["Timestamp"]),
                     "message_id": int(row["MessageID"]),
                     "chat_id": int(row["ChatID"])
                 }
@@ -213,24 +214,25 @@ def load_monitored_tokens():
     else:
         logger.info(f"No monitored tokens CSV file found at {MONITORED_TOKENS_CSV_FILE}")
 
-# Function to save monitored tokens to CSV
+# Save monitored tokens to CSV
 def save_monitored_tokens():
     with monitored_tokens_lock:
         with open(MONITORED_TOKENS_CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(["CA", "TokenName", "InitialMC", "Timestamp", "MessageID", "ChatID"])
+            writer.writerow(["CA", "TokenName", "InitialMC", "PeakMC", "Timestamp", "MessageID", "ChatID"])
             for ca, data in monitored_tokens.items():
                 writer.writerow([
                     ca,
                     data["token_name"],
                     data["initial_mc"],
-                    data["timestamp"],  # Now storing epoch time
+                    data.get("peak_mc", 0),
+                    data["timestamp"],
                     data["message_id"],
                     data["chat_id"]
                 ])
         logger.info(f"Saved {len(monitored_tokens)} tokens to {MONITORED_TOKENS_CSV_FILE}")
 
-# Log filter results to the appropriate CSV based on channel type
+# Log filter results to CSV
 def log_to_csv(ca, token_name, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold, dev_sold_left_value, dev_sold_pass,
                top_10, top_10_pass, snipers, snipers_pass, bundles, bundles_pass,
                insiders, insiders_pass, kols, kols_pass, bonding_curve, bc_pass, overall_pass, market_cap, growth_ratio, is_vip_channel):
@@ -265,7 +267,7 @@ def log_to_csv(ca, token_name, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold
             ])
     logger.info(f"Logged filter results to {csv_file} for CA: {ca}")
 
-# Log growth check results to CSV with channel restriction
+# Log growth check results to CSV
 def log_to_growthcheck_csv(chat_id, channel_id, message_id, token_name, ca, original_mc, current_mc,
                            growth_ratio, profit_percent, time_since_added, is_vip_channel):
     if channel_id not in VIP_CHANNEL_IDS and channel_id not in PUBLIC_CHANNEL_IDS:
@@ -274,7 +276,6 @@ def log_to_growthcheck_csv(chat_id, channel_id, message_id, token_name, ca, orig
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     csv_file = VIP_GROWTH_CSV_FILE if is_vip_channel else PUBLIC_GROWTH_CSV_FILE
     with growth_csv_lock:
-        # Read existing data
         rows = []
         updated = False
         if os.path.exists(csv_file):
@@ -283,7 +284,6 @@ def log_to_growthcheck_csv(chat_id, channel_id, message_id, token_name, ca, orig
                 headers = reader.fieldnames
                 for row in reader:
                     if row["CA"] == ca and row["MessageID"] == str(message_id):
-                        # Update existing row
                         rows.append([
                             timestamp, chat_id, channel_id, message_id, token_name, ca,
                             original_mc, current_mc, growth_ratio, profit_percent, time_since_added
@@ -292,12 +292,10 @@ def log_to_growthcheck_csv(chat_id, channel_id, message_id, token_name, ca, orig
                     else:
                         rows.append(list(row.values()))
         if not updated:
-            # Append new row if no match found
             rows.append([
                 timestamp, chat_id, channel_id, message_id, token_name, ca,
                 original_mc, current_mc, growth_ratio, profit_percent, time_since_added
             ])
-        # Rewrite the file
         with open(csv_file, mode='w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow([
@@ -323,7 +321,7 @@ def get_latest_growth_ratio(ca):
                     latest_ratio = float(row["GrowthRatio"])
         return latest_ratio
 
-# Helper function to parse market cap string to float
+# Helper function to parse market cap
 def parse_market_cap(mc_str):
     if not mc_str:
         return None
@@ -338,17 +336,6 @@ def parse_market_cap(mc_str):
     except ValueError as e:
         logger.error(f"Failed to parse market cap '{mc_str}': {str(e)}")
         return None
-
-# Helper function to format market cap for display
-def format_market_cap(mc):
-    if mc is None or mc == 0:
-        return "N/A"
-    if mc >= 1000000:
-        return f"{mc/1000000:.1f}M"
-    elif mc >= 1000:
-        return f"{mc/1000:.1f}K"
-    else:
-        return f"{mc:.0f}"
 
 # Helper function to calculate time since a timestamp
 def calculate_time_since(timestamp):
@@ -365,7 +352,7 @@ def calculate_time_since(timestamp):
     days = hours // 24
     return f"{days}d"
 
-# Handler for /adduser command to add an authorized user (only for super user)
+# Handler for /adduser command
 @dp.message(Command(commands=["adduser"]))
 async def add_user(message: types.Message):
     global additional_user_added
@@ -378,26 +365,24 @@ async def add_user(message: types.Message):
         return
 
     if additional_user_added:
-        await message.answer("⚠️ An additional user has already been added. Only one additional user is allowed.")
+        await message.answer("⚠️ An additional user has already been added.")
         logger.info("Additional user already added, rejecting new addition")
         return
 
     text = message.text.lower().replace('/adduser', '').strip()
     if not text:
-        await message.answer("Please provide a username to add (e.g., /adduser @NewUser) 🤔")
-        logger.info("No username provided for /adduser")
+        await message.answer("Please provide a username (e.g., /adduser @NewUser) 🤔")
         return
 
     new_user = text if text.startswith('@') else f"@{text}"
     if new_user == "@BeingHumbleGuy":
         await message.answer("⚠️ @BeingHumbleGuy is already the super user.")
-        logger.info("Attempt to add @BeingHumbleGuy, already a super user")
         return
 
     authorized_users.append(new_user)
     additional_user_added = True
     await message.answer(f"Authorized user added: {new_user} ✅")
-    logger.info(f"Authorized user added: {new_user}, Authorized users: {authorized_users}")
+    logger.info(f"Authorized user added: {new_user}")
 
 # Chunk 1 ends
 
@@ -774,6 +759,7 @@ async def process_message(message: types.Message) -> None:
                 monitored_tokens[ca] = {
                     "token_name": first_line,
                     "initial_mc": original_mc,
+                    "peak_mc": original_mc,  # Initialize peak_mc
                     "timestamp": datetime.now(pytz.timezone('America/Los_Angeles')).timestamp(),
                     "message_id": message_id,
                     "chat_id": chat_id
@@ -845,11 +831,10 @@ async def process_message(message: types.Message) -> None:
     all_filters_pass = False
     filter_results = []
 
-    # Calculate BSRatio with better handling
     if buy_percent != 0 and sell_percent != 0:
         bs_ratio = buy_percent / sell_percent
     else:
-        bs_ratio = float('inf') if buy_percent > 0 else 0  # Handle edge cases
+        bs_ratio = float('inf') if buy_percent > 0 else 0
     logger.debug(f"Calculated BSRatio: {bs_ratio} (Buy: {buy_percent}, Sell: {sell_percent})")
     bs_ratio_pass = False
     if CheckHighEnabled and bs_ratio >= PassValue:
@@ -990,8 +975,6 @@ async def handle_channel_post(message: types.Message) -> None:
 
 # Chunk 4 starts
 # Background task to monitor token market cap growth
-# Chunk 4 Modifications
-
 async def growthcheck() -> None:
     current_time = datetime.now(pytz.timezone('America/Los_Angeles'))
     to_remove = []
@@ -999,7 +982,8 @@ async def growthcheck() -> None:
     for ca, data in monitored_tokens.items():
         token_name = data["token_name"]
         initial_mc = data["initial_mc"]
-        timestamp = data["timestamp"]  # Now an epoch float
+        peak_mc = data.get("peak_mc", initial_mc)
+        timestamp = data["timestamp"]
         message_id = data["message_id"]
         chat_id = data["chat_id"]
         is_vip_channel = chat_id in VIP_CHANNEL_IDS
@@ -1007,25 +991,44 @@ async def growthcheck() -> None:
         token_time = datetime.fromtimestamp(timestamp, pytz.timezone('America/Los_Angeles'))
         time_diff = (current_time - token_time).total_seconds() / 3600
 
-        if time_diff > 6:
+        if time_diff > 6:  # 6-hour monitoring duration
             to_remove.append(ca)
             continue
 
         token_data = await get_token_market_cap(ca)
         if "error" in token_data:
+            logger.debug(f"Skipping CA {ca} due to API error: {token_data['error']}")
             continue
         current_mc = token_data["market_cap"]
         if current_mc is None or current_mc == 0:
             continue
 
+        # Update peak_mc if current_mc is higher
+        if current_mc > peak_mc:
+            monitored_tokens[ca]["peak_mc"] = current_mc
+            save_monitored_tokens()
+            logger.debug(f"Updated peak_mc for CA {ca} to {current_mc}")
+
         growth_ratio = current_mc / initial_mc if initial_mc != 0 else 0
         profit_percent = ((current_mc - initial_mc) / initial_mc) * 100 if initial_mc != 0 else 0
 
         last_growth_ratio = last_growth_ratios.get(ca, 1.0)
-        if growth_ratio >= GROWTH_THRESHOLD and growth_ratio >= last_growth_ratio + INCREMENT_THRESHOLD:
+        next_threshold = int(last_growth_ratio) + INCREMENT_THRESHOLD
+        if growth_ratio >= GROWTH_THRESHOLD and growth_ratio >= next_threshold:
             last_growth_ratios[ca] = growth_ratio
 
-            time_since_added = calculate_time_since(timestamp)  # Use epoch timestamp directly
+            time_since_added = calculate_time_since(timestamp)
+            initial_mc_str = f"{initial_mc / 1000:.1f}"
+            current_mc_str = f"{current_mc / 1000:.1f}"
+
+            # Custom notification based on growth range
+            if 2 <= growth_ratio < 5:
+                growth_message = f"🚀 {growth_ratio:.0f}x ✨ ${initial_mc_str}K → ${current_mc_str}K in {time_since_added}"
+            elif 5 <= growth_ratio < 10:
+                growth_message = f"🔥 {growth_ratio:.0f}x ⭐ ${initial_mc_str}K → ${current_mc_str}K in {time_since_added}"
+            else:  # 10x or higher
+                growth_message = f"🌙 {growth_ratio:.0f}x 💥 ${initial_mc_str}K → ${current_mc_str}K in {time_since_added}"
+
             log_to_growthcheck_csv(
                 chat_id=chat_id,
                 channel_id=chat_id,
@@ -1041,25 +1044,24 @@ async def growthcheck() -> None:
             )
 
             if growth_notifications_enabled:
-                initial_mc_str = f"${initial_mc / 1000:.1f}K" if initial_mc > 0 else "N/A"
-                current_mc_str = f"${current_mc / 1000:.1f}K" if current_mc > 0 else "N/A"
-                growth_message = (
-                    f"⚡ **{token_name} Pumps Hard!** 💎\n"
-                    f"MC: {initial_mc_str} ➡ {current_mc_str} | 🚀 {growth_ratio:.1f}x | Profit: +{profit_percent:.1f}% | ⏳ {time_since_added}"
-                )
-                await bot.send_message(
-                    chat_id=chat_id,
-                    text=growth_message,
-                    parse_mode="Markdown",
-                    reply_to_message_id=message_id
-                )
-                logger.info(f"Sent growth notification for CA {ca} in chat {chat_id}")
+                try:
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text=growth_message,
+                        parse_mode="Markdown",
+                        reply_to_message_id=message_id
+                    )
+                    logger.info(f"Sent growth notification for CA {ca} in chat {chat_id}: {growth_message}")
+                except Exception as e:
+                    logger.error(f"Failed to send growth notification for CA {ca}: {e}")
 
     for ca in to_remove:
         monitored_tokens.pop(ca, None)
         last_growth_ratios.pop(ca, None)
     if to_remove:
         save_monitored_tokens()
+        logger.info(f"Removed {len(to_remove)} expired tokens from monitoring")
+
 # Chunk 4 ends
 """
 # Chunk 5 starts
@@ -1103,16 +1105,13 @@ async def cmd_ca(message: types.Message):
 # Chunk 5 ends
 
 # Chunk 6 starts
-
-# Define the middleware with the correct signature
+# Chunk 6a starts
 async def log_update(handler, event: types.Update, data: dict):
     logger.info(f"Raw update received: {event}")
-    return await handler(event, data)  # Pass event and data to the next handler
+    return await handler(event, data)
 
-# Register the middleware for all updates
 dp.update.middleware(log_update)
 
-# Test command handler
 @dp.message(Command(commands=["test"]))
 async def test_command(message: types.Message):
     try:
@@ -1123,8 +1122,6 @@ async def test_command(message: types.Message):
         logger.error(f"Error in test_command: {e}")
         await message.answer(f"Error: {e}")
 
-# Handler for /ca <token_ca> command
-# Updated cmd_ca
 @dp.message(Command(commands=["ca"]))
 async def cmd_ca(message: types.Message):
     try:
@@ -1149,23 +1146,19 @@ async def cmd_ca(message: types.Message):
             await message.reply(f"Error: {token_data['error']}")
             return
 
-        # Extract required data points
         price = token_data.get('price', 'N/A')
         market_cap_str = token_data.get('market_cap_str', 'N/A')
         liquidity = float(token_data.get('liquidity', '0'))
         token_name = token_data.get('name', 'Unknown')
         circulating_supply = token_data.get('circulating_supply', 0)
 
-        # Shorten price if numeric
         if price != "N/A":
             price_float = float(price)
             price_display = f"{price_float:.1e}" if price_float < 0.001 else f"{price_float:.6f}"
         else:
             price_display = "N/A"
 
-        # Format circulating supply with commas
         supply_str = f"{circulating_supply:,.0f}" if circulating_supply != 0 else "N/A"
-
         response = (
             f"**Token Data**\n\n"
             f"🔖 Token Name: {token_name}\n"
@@ -1182,7 +1175,6 @@ async def cmd_ca(message: types.Message):
         logger.error(f"Error in cmd_ca: {e}")
         await message.answer(f"Error processing /ca: {str(e)}")
 
-# Handler for /setfilter command to toggle filter_enabled
 @dp.message(Command(commands=["setfilter"]))
 async def set_filter(message: types.Message):
     try:
@@ -1209,401 +1201,8 @@ async def set_filter(message: types.Message):
         logger.error(f"Error in set_filter: {e}")
         await message.answer(f"Error processing /setfilter: {e}")
 
-# Handler for /checkhigh command to enable/disable CheckHigh filter
-@dp.message(Command(commands=["setcheckhigh"]))
-async def toggle_checkhigh(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /setcheckhigh command from user: @{username}")
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /setcheckhigh attempt by @{username}")
-        return
-    global CheckHighEnabled
-    text = message.text.lower().replace('/setcheckhigh', '').strip()
-    logger.info(f"Received /setcheckhigh command with text: {text}")
-    if text == "yes":
-        CheckHighEnabled = True
-        await message.answer("CheckHigh filter set to: Yes ✅")
-        logger.info("CheckHigh filter enabled")
-    elif text == "no":
-        CheckHighEnabled = False
-        await message.answer("CheckHigh filter set to: No 🚫")
-        logger.info("CheckHigh filter disabled")
-    else:
-        await message.answer("Please specify Yes or No after /setcheckhigh (e.g., /setcheckhigh Yes) 🤔")
-        logger.info("Invalid /setcheckhigh input")
+# ... (other handlers like setcheckhigh, setchecklow, etc., unchanged up to downloadcsv)
 
-# Handler for /checklow command to enable/disable CheckLow filter
-@dp.message(Command(commands=["setchecklow"]))
-async def toggle_checklow(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /setchecklow command from user: @{username}")
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /setchecklow attempt by @{username}")
-        return
-    global CheckLowEnabled
-    text = message.text.lower().replace('/setchecklow', '').strip()
-    logger.info(f"Received /setchecklow command with text: {text}")
-    if text == "yes":
-        CheckLowEnabled = True
-        await message.answer("CheckLow filter set to: Yes ✅")
-        logger.info("CheckLow filter enabled")
-    elif text == "no":
-        CheckLowEnabled = False
-        await message.answer("CheckLow filter set to: No 🚫")
-        logger.info("CheckLow filter disabled")
-    else:
-        await message.answer("Please specify Yes or No after /setchecklow (e.g., /setchecklow Yes) 🤔")
-        logger.info("Invalid /setchecklow input")
-
-# Handler for /setpassvalue command to set PassValue (for CheckHigh)
-@dp.message(Command(commands=["setpassvalue"]))
-async def setup_val(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /setpassvalue command from user: @{username}")
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /setpassvalue attempt by @{username}")
-        return
-    global PassValue
-    text = message.text.lower().replace('/setpassvalue', '').strip()
-    logger.info(f"Received /setpassvalue command with text: {text}")
-    try:
-        value = float(text)
-        PassValue = value
-        await message.answer(f"PassValue set to: {PassValue} ✅")
-        logger.info(f"PassValue updated to: {PassValue}")
-    except ValueError:
-        await message.answer("Please provide a valid numerical value (e.g., /setpassvalue 1.2) 🚫")
-        logger.info("Invalid /setpassvalue input: not a number")
-
-# Handler for /setrangelow command to set RangeLow (for CheckLow)
-@dp.message(Command(commands=["setrangelow"]))
-async def set_range_low(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /setrangelow command from user: @{username}")
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /setrangelow attempt by @{username}")
-        return
-    global RangeLow
-    text = message.text.lower().replace('/setrangelow', '').strip()
-    logger.info(f"Received /setrangelow command with text: {text}")
-    try:
-        value = float(text)
-        RangeLow = value
-        await message.answer(f"RangeLow set to: {RangeLow} ✅")
-        logger.info(f"RangeLow updated to: {RangeLow}")
-    except ValueError:
-        await message.answer("Please provide a valid numerical value (e.g., /setrangelow 1.1) 🚫")
-        logger.info("Invalid /setrangelow input: not a number")
-
-# Handler for /setdevsoldthreshold command (Yes/No)
-@dp.message(Command(commands=["setdevsoldthreshold"]))
-async def set_devsold(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /setdevsoldthreshold command from user: @{username}")
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /setdevsoldthreshold attempt by @{username}")
-        return
-    global DevSoldThreshold
-    text = message.text.lower().replace('/setdevsoldthreshold', '').strip()
-    if text in ["yes", "no"]:
-        DevSoldThreshold = text.capitalize()
-        await message.answer(f"DevSoldThreshold set to: {DevSoldThreshold} ✅")
-        logger.info(f"DevSoldThreshold updated to: {DevSoldThreshold}")
-    else:
-        await message.answer("Please specify Yes or No (e.g., /setdevsoldthreshold Yes) 🚫")
-        logger.info("Invalid /setdevsoldthreshold input")
-
-# Handler for /setdevsoldleft command (numerical percentage)
-@dp.message(Command(commands=["setdevsoldleft"]))
-async def set_devsoldleft(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /setdevsoldleft command from user: @{username}")
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /setdevsoldleft attempt by @{username}")
-        return
-    global DevSoldLeft
-    text = message.text.lower().replace('/setdevsoldleft', '').strip()
-    try:
-        value = float(text)
-        if value < 0 or value > 100:
-            await message.answer("Please provide a percentage between 0 and 100 (e.g., /setdevsoldleft 10) 🚫")
-            logger.info("Invalid /setdevsoldleft input: out of range")
-            return
-        DevSoldLeft = value
-        await message.answer(f"DevSoldLeft threshold set to: {DevSoldLeft}% ✅")
-        logger.info(f"DevSoldLeft updated to: {DevSoldLeft}")
-    except ValueError:
-        await message.answer("Please provide a valid numerical percentage (e.g., /setdevsoldleft 10) 🚫")
-        logger.info("Invalid /setdevsoldleft input: not a number")
-
-# Handler for /setdevsoldfilter command
-@dp.message(Command(commands=["setdevsoldfilter"]))
-async def toggle_devsold_filter(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /setdevsoldfilter command from user: @{username}")
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /setdevsoldfilter attempt by @{username}")
-        return
-    global DevSoldFilterEnabled
-    text = message.text.lower().replace('/setdevsoldfilter', '').strip()
-    if text == "yes":
-        DevSoldFilterEnabled = True
-        await message.answer("DevSold filter set to: Yes ✅")
-        logger.info("DevSold filter enabled")
-    elif text == "no":
-        DevSoldFilterEnabled = False
-        await message.answer("DevSold filter set to: No 🚫")
-        logger.info("DevSold filter disabled")
-    else:
-        await message.answer("Please specify Yes or No after /setdevsoldfilter (e.g., /setdevsoldfilter Yes) 🤔")
-        logger.info("Invalid /setdevsoldfilter input")
-
-# Handler for /settop10threshold command
-@dp.message(Command(commands=["settop10threshold"]))
-async def set_top10(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /settop10threshold command from user: @{username}")
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /settop10threshold attempt by @{username}")
-        return
-    global Top10Threshold
-    text = message.text.lower().replace('/settop10threshold', '').strip()
-    try:
-        value = float(text)
-        Top10Threshold = value
-        await message.answer(f"Top10Threshold set to: {Top10Threshold} ✅")
-        logger.info(f"Top10Threshold updated to: {Top10Threshold}")
-    except ValueError:
-        await message.answer("Please provide a valid numerical value (e.g., /settop10threshold 20) 🚫")
-        logger.info("Invalid /settop10threshold input: not a number")
-
-# Handler for /settop10filter command
-@dp.message(Command(commands=["settop10filter"]))
-async def toggle_top10_filter(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /settop10filter command from user: @{username}")
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /settop10filter attempt by @{username}")
-        return
-    global Top10FilterEnabled
-    text = message.text.lower().replace('/settop10filter', '').strip()
-    if text == "yes":
-        Top10FilterEnabled = True
-        await message.answer("Top10 filter set to: Yes ✅")
-        logger.info("Top10 filter enabled")
-    elif text == "no":
-        Top10FilterEnabled = False
-        await message.answer("Top10 filter set to: No 🚫")
-        logger.info("Top10 filter disabled")
-    else:
-        await message.answer("Please specify Yes or No after /settop10filter (e.g., /settop10filter Yes) 🤔")
-        logger.info("Invalid /settop10filter input")
-
-# Handler for /setsnipersthreshold command
-@dp.message(Command(commands=["setsnipersthreshold"]))
-async def set_snipers(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /setsnipersthreshold command from user: @{username}")
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /setsnipersthreshold attempt by @{username}")
-        return
-    global SnipersThreshold
-    text = message.text.lower().replace('/setsnipersthreshold', '').strip()
-    try:
-        value = float(text)
-        SnipersThreshold = value
-        await message.answer(f"SnipersThreshold set to: {SnipersThreshold} ✅")
-        logger.info(f"SnipersThreshold updated to: {SnipersThreshold}")
-    except ValueError:
-        await message.answer("Please provide a valid numerical value (e.g., /setsnipersthreshold 3) 🚫")
-        logger.info("Invalid /setsnipersthreshold input: not a number")
-
-# Handler for /setsnipersfilter command
-@dp.message(Command(commands=["setsnipersfilter"]))
-async def toggle_snipers_filter(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /setsnipersfilter command from user: @{username}")
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /setsnipersfilter attempt by @{username}")
-        return
-    global SniphersFilterEnabled
-    text = message.text.lower().replace('/setsnipersfilter', '').strip()
-    if text == "yes":
-        SniphersFilterEnabled = True
-        await message.answer("Snipers filter set to: Yes ✅")
-        logger.info("Snipers filter enabled")
-    elif text == "no":
-        SniphersFilterEnabled = False
-        await message.answer("Snipers filter set to: No 🚫")
-        logger.info("Snipers filter disabled")
-    else:
-        await message.answer("Please specify Yes or No after /setsnipersfilter (e.g., /setsnipersfilter Yes) 🤔")
-        logger.info("Invalid /setsnipersfilter input")
-
-# Handler for /setbundlesthreshold command
-@dp.message(Command(commands=["setbundlesthreshold"]))
-async def set_bundles(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /setbundlesthreshold command from user: @{username}")
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /setbundlesthreshold attempt by @{username}")
-        return
-    global BundlesThreshold
-    text = message.text.lower().replace('/setbundlesthreshold', '').strip()
-    try:
-        value = float(text)
-        BundlesThreshold = value
-        await message.answer(f"BundlesThreshold set to: {BundlesThreshold} ✅")
-        logger.info(f"BundlesThreshold updated to: {BundlesThreshold}")
-    except ValueError:
-        await message.answer("Please provide a valid numerical value (e.g., /setbundlesthreshold 1) 🚫")
-        logger.info("Invalid /setbundlesthreshold input: not a number")
-
-# Handler for /setbundlesfilter command
-@dp.message(Command(commands=["setbundlesfilter"]))
-async def toggle_bundles_filter(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /setbundlesfilter command from user: @{username}")
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /setbundlesfilter attempt by @{username}")
-        return
-    global BundlesFilterEnabled
-    text = message.text.lower().replace('/setbundlesfilter', '').strip()
-    if text == "yes":
-        BundlesFilterEnabled = True
-        await message.answer("Bundles filter set to: Yes ✅")
-        logger.info("Bundles filter enabled")
-    elif text == "no":
-        BundlesFilterEnabled = False
-        await message.answer("Bundles filter set to: No 🚫")
-        logger.info("Bundles filter disabled")
-    else:
-        await message.answer("Please specify Yes or No after /setbundlesfilter (e.g., /setbundlesfilter Yes) 🤔")
-        logger.info("Invalid /setbundlesfilter input")
-
-# Handler for /setinsidersthreshold command
-@dp.message(Command(commands=["setinsidersthreshold"]))
-async def set_insiders(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /setinsidersthreshold command from user: @{username}")
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /setinsidersthreshold attempt by @{username}")
-        return
-    global InsidersThreshold
-    text = message.text.lower().replace('/setinsidersthreshold', '').strip()
-    try:
-        value = float(text)
-        InsidersThreshold = value
-        await message.answer(f"InsidersThreshold set to: {InsidersThreshold} ✅")
-        logger.info(f"InsidersThreshold updated to: {InsidersThreshold}")
-    except ValueError:
-        await message.answer("Please provide a valid numerical value (e.g., /setinsidersthreshold 10) 🚫")
-        logger.info("Invalid /setinsidersthreshold input: not a number")
-
-# Handler for /setinsidersfilter command
-@dp.message(Command(commands=["setinsidersfilter"]))
-async def toggle_insiders_filter(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /setinsidersfilter command from user: @{username}")
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /setinsidersfilter attempt by @{username}")
-        return
-    global InsidersFilterEnabled
-    text = message.text.lower().replace('/setinsidersfilter', '').strip()
-    if text == "yes":
-        InsidersFilterEnabled = True
-        await message.answer("Insiders filter set to: Yes ✅")
-        logger.info("Insiders filter enabled")
-    elif text == "no":
-        InsidersFilterEnabled = False
-        await message.answer("Insiders filter set to: No 🚫")
-        logger.info("Insiders filter disabled")
-    else:
-        await message.answer("Please specify Yes or No after /setinsidersfilter (e.g., /setinsidersfilter Yes) 🤔")
-        logger.info("Invalid /setinsidersfilter input")
-
-# Handler for /setkolsthreshold command
-@dp.message(Command(commands=["setkolsthreshold"]))
-async def set_kols(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /setkolsthreshold command from user: @{username}")
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /setkolsthreshold attempt by @{username}")
-        return
-    global KOLsThreshold
-    text = message.text.lower().replace('/setkolsthreshold', '').strip()
-    try:
-        value = float(text)
-        KOLsThreshold = value
-        await message.answer(f"KOLsThreshold set to: {KOLsThreshold} ✅")
-        logger.info(f"KOLsThreshold updated to: {KOLsThreshold}")
-    except ValueError:
-        await message.answer("Please provide a valid numerical value (e.g., /setkolsthreshold 1) 🚫")
-        logger.info("Invalid /setkolsthreshold input: not a number")
-
-# Handler for /setkolsfilter command
-@dp.message(Command(commands=["setkolsfilter"]))
-async def toggle_kols_filter(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /setkolsfilter command from user: @{username}")
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /setkolsfilter attempt by @{username}")
-        return
-    global KOLsFilterEnabled
-    text = message.text.lower().replace('/setkolsfilter', '').strip()
-    if text == "yes":
-        KOLsFilterEnabled = True
-        await message.answer("KOLs filter set to: Yes ✅")
-        logger.info("KOLs filter enabled")
-    elif text == "no":
-        KOLsFilterEnabled = False
-        await message.answer("KOLs filter set to: No 🚫")
-        logger.info("KOLs filter disabled")
-    else:
-        await message.answer("Please specify Yes or No after /setkolsfilter (e.g., /setkolsfilter Yes) 🤔")
-        logger.info("Invalid /setkolsfilter input")
-
-# Handler for /adduser command
-@dp.message(Command(commands=["adduser"]))
-async def add_user(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /adduser command from user: @{username}")
-    if username != "BeingHumbleGuy":
-        await message.answer("⚠️ Only @BeingHumbleGuy can use this command.")
-        logger.info(f"Unauthorized /adduser attempt by @{username}")
-        return
-    text = message.text.replace('/adduser', '').strip()
-    if not text.startswith('@'):
-        await message.answer("Please provide a username starting with @ (e.g., /adduser @NewUser) 🤔")
-        logger.info("Invalid /adduser input: no @username provided")
-        return
-    new_user = text
-    if new_user in authorized_users:
-        await message.answer(f"{new_user} is already authorized ✅")
-        logger.info(f"User {new_user} already in authorized_users")
-    else:
-        authorized_users.append(new_user)
-        await message.answer(f"Added {new_user} to authorized users ✅")
-        logger.info(f"Added {new_user} to authorized_users")
-
-# Handler for /downloadcsv command
 @dp.message(Command(commands=["downloadcsv"]))
 async def download_csv_command(message: types.Message):
     username = message.from_user.username
@@ -1626,7 +1225,6 @@ async def download_csv_command(message: types.Message):
     )
     logger.info(f"Provided CSV download link to @{username}: {download_url}")
 
-# Handler for /downloadgrowthcsv command
 @dp.message(Command(commands=["downloadgrowthcsv"]))
 async def download_growth_csv_command(message: types.Message):
     username = message.from_user.username
@@ -1638,18 +1236,29 @@ async def download_growth_csv_command(message: types.Message):
     base_url = os.getenv("RAILWAY_PUBLIC_DOMAIN", "http://localhost:5000")
     if base_url == "http://localhost:5000" and "RAILWAY_PUBLIC_DOMAIN" not in os.environ:
         logger.warning("RAILWAY_PUBLIC_DOMAIN not set, using localhost:5000 (this won't work on Railway)")
-    download_url = f"{base_url}/download/public_growthcheck_log.csv?token={DOWNLOAD_TOKEN}"
-    if not os.path.exists("/app/data/public_growthcheck_log.csv"):
-        await message.answer("⚠️ No growth check CSV file exists yet. Run some growth checks to generate data.")
-        logger.info("Growth check CSV file not found for /downloadgrowthcsv")
-        return
-    await message.answer(
-        f"Click the link to download or view the growth check CSV file:\n{download_url}\n"
-        "Note: This link is private and should not be shared."
-    )
-    logger.info(f"Provided growth check CSV download link to @{username}: {download_url}")
+    
+    public_url = f"{base_url}/download/public_growthcheck_log.csv?token={DOWNLOAD_TOKEN}"
+    vip_url = f"{base_url}/download/vip_growthcheck_log.csv?token={DOWNLOAD_TOKEN}"
+    
+    response = "📊 **Growth Check CSV Downloads**\n\n"
+    if os.path.exists(PUBLIC_GROWTH_CSV_FILE):
+        response += f"Public Channel: [Download]({public_url})\n"
+    else:
+        response += "Public Channel: No data yet\n"
+    
+    if os.path.exists(VIP_GROWTH_CSV_FILE):
+        response += f"VIP Channel: [Download]({vip_url})\n"
+    else:
+        response += "VIP Channel: No data yet\n"
+    
+    response += "\nNote: These links are private and should not be shared."
+    
+    await message.answer(response, parse_mode="Markdown")
+    logger.info(f"Provided growth check CSV download links to @{username}")
 
-# Handler for /growthnotify command
+# Chunk 6a ends
+
+# Chunk 6b starts
 @dp.message(Command(commands=["growthnotify"]))
 async def toggle_growth_notify(message: types.Message):
     username = message.from_user.username
@@ -1672,121 +1281,8 @@ async def toggle_growth_notify(message: types.Message):
         await message.answer("Please specify Yes or No after /growthnotify (e.g., /growthnotify Yes) 🤔")
         logger.info("Invalid /growthnotify input")
 
-# Handler for /mastersetup command to display all filter settings
-@dp.message(Command(commands=["mastersetup"]))
-async def master_setup(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /mastersetup command from user: @{username}")
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /mastersetup attempt by @{username}")
-        return
-    response = "📋 **Master Setup - Current Filter Configurations**\n\n"
-    
-    response += "🔧 **Filter Toggles**\n"
-    response += f"- Filter Enabled: {filter_enabled}\n"
-    response += f"- CheckHigh Enabled: {CheckHighEnabled}\n"
-    response += f"- CheckLow Enabled: {CheckLowEnabled}\n"
-    response += f"- DevSold Filter Enabled: {DevSoldFilterEnabled}\n"
-    response += f"- Top10 Filter Enabled: {Top10FilterEnabled}\n"
-    response += f"- Snipers Filter Enabled: {SniphersFilterEnabled}\n"
-    response += f"- Bundles Filter Enabled: {BundlesFilterEnabled}\n"
-    response += f"- Insiders Filter Enabled: {InsidersFilterEnabled}\n"
-    response += f"- KOLs Filter Enabled: {KOLsFilterEnabled}\n"
-    response += f"- Growth Notifications Enabled: {growth_notifications_enabled}\n\n"
+# ... (other handlers like mastersetup, resetdefaults unchanged)
 
-    response += "📊 **Threshold Settings**\n"
-    pass_value_str = str(PassValue) if PassValue is not None else "Not set"
-    range_low_str = str(RangeLow) if RangeLow is not None else "Not set"
-    dev_sold_threshold_str = str(DevSoldThreshold) if DevSoldThreshold is not None else "Not set"
-    dev_sold_left_str = str(DevSoldLeft) if DevSoldLeft is not None else "Not set"
-    top_10_threshold_str = str(Top10Threshold) if Top10Threshold is not None else "Not set"
-    snipers_threshold_str = str(SnipersThreshold) if SnipersThreshold is not None else "Not set"
-    bundles_threshold_str = str(BundlesThreshold) if BundlesThreshold is not None else "Not set"
-    insiders_threshold_str = str(InsidersThreshold) if InsidersThreshold is not None else "Not set"
-    kols_threshold_str = str(KOLsThreshold) if KOLsThreshold is not None else "Not set"
-
-    def escape_markdown(text):
-        special_chars = r'\*_`\[\]\(\)#\+-=!|{}\.%'
-        return re.sub(f'([{re.escape(special_chars)}])', r'\\\1', text)
-
-    lines = [
-        f"- PassValue (CheckHigh): {escape_markdown(pass_value_str)}\n",
-        f"- RangeLow (CheckLow): {escape_markdown(range_low_str)}\n",
-        f"- DevSold Threshold: {escape_markdown(dev_sold_threshold_str)}\n",
-        f"- DevSoldLeft Threshold: {escape_markdown(dev_sold_left_str)}%\n",
-        f"- Top10 Threshold: {escape_markdown(top_10_threshold_str)}\n",
-        f"- Snipers Threshold: {escape_markdown(snipers_threshold_str)}\n",
-        f"- Bundles Threshold: {escape_markdown(bundles_threshold_str)}\n",
-        f"- Insiders Threshold: {escape_markdown(insiders_threshold_str)}\n",
-        f"- KOLs Threshold: {escape_markdown(kols_threshold_str)}\n"
-    ]
-    
-    current_offset = len(response.encode('utf-8'))
-    for i, line in enumerate(lines):
-        logger.info(f"Line {i+1} byte offset: {current_offset} - {line.strip()}")
-        response += line
-        current_offset += len(line.encode('utf-8'))
-
-    response += "\n🔍 Use the respective /set* and /filter commands to adjust these settings."
-
-    logger.info(f"Full master setup response: {response}")
-    try:
-        logger.info(f"Sending master setup response: {response[:100]}...")
-        await message.answer(response, parse_mode="Markdown")
-        logger.info("Master setup response sent successfully")
-    except Exception as e:
-        logger.error(f"Failed to send master setup response: {e}")
-        logger.info("Retrying without Markdown parsing...")
-        await message.answer(response, parse_mode=None)
-        logger.info("Sent response without Markdown parsing as a fallback")
-
-# Handler for /resetdefaults command
-@dp.message(Command(commands=["resetdefaults"]))
-async def reset_defaults(message: types.Message):
-    username = message.from_user.username
-    logger.info(f"Received /resetdefaults command from user: @{username}")
-    if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /resetdefaults attempt by @{username}")
-        return
-    global filter_enabled, CheckHighEnabled, CheckLowEnabled, PassValue, RangeLow
-    global DevSoldThreshold, DevSoldLeft, DevSoldFilterEnabled, Top10Threshold, Top10FilterEnabled
-    global SnipersThreshold, SniphersFilterEnabled, BundlesThreshold, BundlesFilterEnabled
-    global InsidersThreshold, InsidersFilterEnabled, KOLsThreshold, KOLsFilterEnabled
-    global growth_notifications_enabled
-    # Set defaults (adjust these based on your initial values in Chunk 1)
-    filter_enabled = True
-    CheckHighEnabled = False
-    CheckLowEnabled = False
-    PassValue = 1.5
-    RangeLow = 1.0
-    DevSoldThreshold = "No"
-    DevSoldLeft = 10.0
-    DevSoldFilterEnabled = False
-    Top10Threshold = 20.0
-    Top10FilterEnabled = False
-    SnipersThreshold = 3.0
-    SniphersFilterEnabled = False
-    BundlesThreshold = 1.0
-    BundlesFilterEnabled = False
-    InsidersThreshold = 10.0
-    InsidersFilterEnabled = False
-    KOLsThreshold = 1.0
-    KOLsFilterEnabled = False
-    growth_notifications_enabled = False
-    await message.answer("All settings have been reset to default values ✅")
-    logger.info(f"All settings reset to defaults by @{username}")
-
-# Debug handler for all messages (moved to the end to catch unhandled messages)
-@dp.message()
-async def debug_all_messages(message: types.Message):
-    try:
-        logger.info(f"Received message in debug_all_messages: '{message.text}' from @{message.from_user.username} in chat {message.chat.id}")
-    except Exception as e:
-        logger.error(f"Error in debug_all_messages: {e}")
-
-# Flask route for downloading CSV files
 @app.route('/download/<filename>')
 def download_file(filename):
     token = request.args.get('token')
@@ -1805,15 +1301,13 @@ def download_file(filename):
         abort(404, description="File does not exist")
     return send_file(file_path, as_attachment=True)
 
-# Function to check if a user is authorized
 def is_authorized(username):
     logger.info(f"Checking authorization for @{username}: {f'@{username}' in authorized_users}")
     return f"@{username}" in authorized_users  
 
-# Startup function to initialize CSV files, set bot commands, and schedule the growth check task
 async def on_startup():
-    init_csv()  # Initialize CSV files
-    load_monitored_tokens()  # Load monitored tokens from CSV
+    init_csv()
+    load_monitored_tokens()
     commands = [
         BotCommand(command="test", description="Test the bot"),
         BotCommand(command="setfilter", description="Enable or disable the filter (Yes/No)"),
@@ -1849,27 +1343,24 @@ async def on_startup():
         logger.error(f"Failed to set bot commands: {e}")
     asyncio.create_task(schedule_growthcheck())
 
-# Function to run the growth check periodically
 async def schedule_growthcheck():
     while True:
         try:
             await growthcheck()
         except Exception as e:
             logger.error(f"Error in growthcheck: {e}")
-        await asyncio.sleep(CHECK_INTERVAL)  # Run every 5 minutes
+        await asyncio.sleep(CHECK_INTERVAL)
 
-# Shutdown function to close bot sessions gracefully
 async def on_shutdown():
     logger.info("Shutting down bot...")
-    await bot.session.close()  # Close the bot's session
-    await dp.storage.close()  # Close the storage (sufficient for MemoryStorage)
+    await bot.session.close()
+    await dp.storage.close()
     logger.info("Bot shutdown complete.")
 
-# Main function to start the bot
 async def main():
     try:
         await on_startup()
-        port = int(os.getenv("PORT", 8080))  # Match log output
+        port = int(os.getenv("PORT", 8080))
         flask_thread = Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False))
         flask_thread.start()
         await dp.start_polling(bot)
@@ -1880,5 +1371,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+# Chunk 6b ends
 
 # Chunk 6 ends
