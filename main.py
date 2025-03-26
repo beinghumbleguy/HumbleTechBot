@@ -1203,6 +1203,400 @@ async def set_filter(message: types.Message):
 
 # ... (other handlers like setcheckhigh, setchecklow, etc., unchanged up to downloadcsv)
 
+# Handler for /checkhigh command to enable/disable CheckHigh filter
+@dp.message(Command(commands=["setcheckhigh"]))
+async def toggle_checkhigh(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setcheckhigh command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /setcheckhigh attempt by @{username}")
+        return
+    global CheckHighEnabled
+    text = message.text.lower().replace('/setcheckhigh', '').strip()
+    logger.info(f"Received /setcheckhigh command with text: {text}")
+    if text == "yes":
+        CheckHighEnabled = True
+        await message.answer("CheckHigh filter set to: Yes ✅")
+        logger.info("CheckHigh filter enabled")
+    elif text == "no":
+        CheckHighEnabled = False
+        await message.answer("CheckHigh filter set to: No 🚫")
+        logger.info("CheckHigh filter disabled")
+    else:
+        await message.answer("Please specify Yes or No after /setcheckhigh (e.g., /setcheckhigh Yes) 🤔")
+        logger.info("Invalid /setcheckhigh input")
+
+# Handler for /checklow command to enable/disable CheckLow filter
+@dp.message(Command(commands=["setchecklow"]))
+async def toggle_checklow(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setchecklow command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /setchecklow attempt by @{username}")
+        return
+    global CheckLowEnabled
+    text = message.text.lower().replace('/setchecklow', '').strip()
+    logger.info(f"Received /setchecklow command with text: {text}")
+    if text == "yes":
+        CheckLowEnabled = True
+        await message.answer("CheckLow filter set to: Yes ✅")
+        logger.info("CheckLow filter enabled")
+    elif text == "no":
+        CheckLowEnabled = False
+        await message.answer("CheckLow filter set to: No 🚫")
+        logger.info("CheckLow filter disabled")
+    else:
+        await message.answer("Please specify Yes or No after /setchecklow (e.g., /setchecklow Yes) 🤔")
+        logger.info("Invalid /setchecklow input")
+
+# Handler for /setpassvalue command to set PassValue (for CheckHigh)
+@dp.message(Command(commands=["setpassvalue"]))
+async def setup_val(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setpassvalue command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /setpassvalue attempt by @{username}")
+        return
+    global PassValue
+    text = message.text.lower().replace('/setpassvalue', '').strip()
+    logger.info(f"Received /setpassvalue command with text: {text}")
+    try:
+        value = float(text)
+        PassValue = value
+        await message.answer(f"PassValue set to: {PassValue} ✅")
+        logger.info(f"PassValue updated to: {PassValue}")
+    except ValueError:
+        await message.answer("Please provide a valid numerical value (e.g., /setpassvalue 1.2) 🚫")
+        logger.info("Invalid /setpassvalue input: not a number")
+
+# Handler for /setrangelow command to set RangeLow (for CheckLow)
+@dp.message(Command(commands=["setrangelow"]))
+async def set_range_low(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setrangelow command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /setrangelow attempt by @{username}")
+        return
+    global RangeLow
+    text = message.text.lower().replace('/setrangelow', '').strip()
+    logger.info(f"Received /setrangelow command with text: {text}")
+    try:
+        value = float(text)
+        RangeLow = value
+        await message.answer(f"RangeLow set to: {RangeLow} ✅")
+        logger.info(f"RangeLow updated to: {RangeLow}")
+    except ValueError:
+        await message.answer("Please provide a valid numerical value (e.g., /setrangelow 1.1) 🚫")
+        logger.info("Invalid /setrangelow input: not a number")
+
+# Handler for /setdevsoldthreshold command (Yes/No)
+@dp.message(Command(commands=["setdevsoldthreshold"]))
+async def set_devsold(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setdevsoldthreshold command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /setdevsoldthreshold attempt by @{username}")
+        return
+    global DevSoldThreshold
+    text = message.text.lower().replace('/setdevsoldthreshold', '').strip()
+    if text in ["yes", "no"]:
+        DevSoldThreshold = text.capitalize()
+        await message.answer(f"DevSoldThreshold set to: {DevSoldThreshold} ✅")
+        logger.info(f"DevSoldThreshold updated to: {DevSoldThreshold}")
+    else:
+        await message.answer("Please specify Yes or No (e.g., /setdevsoldthreshold Yes) 🚫")
+        logger.info("Invalid /setdevsoldthreshold input")
+
+# Handler for /setdevsoldleft command (numerical percentage)
+@dp.message(Command(commands=["setdevsoldleft"]))
+async def set_devsoldleft(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setdevsoldleft command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /setdevsoldleft attempt by @{username}")
+        return
+    global DevSoldLeft
+    text = message.text.lower().replace('/setdevsoldleft', '').strip()
+    try:
+        value = float(text)
+        if value < 0 or value > 100:
+            await message.answer("Please provide a percentage between 0 and 100 (e.g., /setdevsoldleft 10) 🚫")
+            logger.info("Invalid /setdevsoldleft input: out of range")
+            return
+        DevSoldLeft = value
+        await message.answer(f"DevSoldLeft threshold set to: {DevSoldLeft}% ✅")
+        logger.info(f"DevSoldLeft updated to: {DevSoldLeft}")
+    except ValueError:
+        await message.answer("Please provide a valid numerical percentage (e.g., /setdevsoldleft 10) 🚫")
+        logger.info("Invalid /setdevsoldleft input: not a number")
+
+# Handler for /setdevsoldfilter command
+@dp.message(Command(commands=["setdevsoldfilter"]))
+async def toggle_devsold_filter(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setdevsoldfilter command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /setdevsoldfilter attempt by @{username}")
+        return
+    global DevSoldFilterEnabled
+    text = message.text.lower().replace('/setdevsoldfilter', '').strip()
+    if text == "yes":
+        DevSoldFilterEnabled = True
+        await message.answer("DevSold filter set to: Yes ✅")
+        logger.info("DevSold filter enabled")
+    elif text == "no":
+        DevSoldFilterEnabled = False
+        await message.answer("DevSold filter set to: No 🚫")
+        logger.info("DevSold filter disabled")
+    else:
+        await message.answer("Please specify Yes or No after /setdevsoldfilter (e.g., /setdevsoldfilter Yes) 🤔")
+        logger.info("Invalid /setdevsoldfilter input")
+
+# Handler for /settop10threshold command
+@dp.message(Command(commands=["settop10threshold"]))
+async def set_top10(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /settop10threshold command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /settop10threshold attempt by @{username}")
+        return
+    global Top10Threshold
+    text = message.text.lower().replace('/settop10threshold', '').strip()
+    try:
+        value = float(text)
+        Top10Threshold = value
+        await message.answer(f"Top10Threshold set to: {Top10Threshold} ✅")
+        logger.info(f"Top10Threshold updated to: {Top10Threshold}")
+    except ValueError:
+        await message.answer("Please provide a valid numerical value (e.g., /settop10threshold 20) 🚫")
+        logger.info("Invalid /settop10threshold input: not a number")
+
+# Handler for /settop10filter command
+@dp.message(Command(commands=["settop10filter"]))
+async def toggle_top10_filter(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /settop10filter command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /settop10filter attempt by @{username}")
+        return
+    global Top10FilterEnabled
+    text = message.text.lower().replace('/settop10filter', '').strip()
+    if text == "yes":
+        Top10FilterEnabled = True
+        await message.answer("Top10 filter set to: Yes ✅")
+        logger.info("Top10 filter enabled")
+    elif text == "no":
+        Top10FilterEnabled = False
+        await message.answer("Top10 filter set to: No 🚫")
+        logger.info("Top10 filter disabled")
+    else:
+        await message.answer("Please specify Yes or No after /settop10filter (e.g., /settop10filter Yes) 🤔")
+        logger.info("Invalid /settop10filter input")
+
+# Handler for /setsnipersthreshold command
+@dp.message(Command(commands=["setsnipersthreshold"]))
+async def set_snipers(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setsnipersthreshold command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /setsnipersthreshold attempt by @{username}")
+        return
+    global SnipersThreshold
+    text = message.text.lower().replace('/setsnipersthreshold', '').strip()
+    try:
+        value = float(text)
+        SnipersThreshold = value
+        await message.answer(f"SnipersThreshold set to: {SnipersThreshold} ✅")
+        logger.info(f"SnipersThreshold updated to: {SnipersThreshold}")
+    except ValueError:
+        await message.answer("Please provide a valid numerical value (e.g., /setsnipersthreshold 3) 🚫")
+        logger.info("Invalid /setsnipersthreshold input: not a number")
+
+# Handler for /setsnipersfilter command
+@dp.message(Command(commands=["setsnipersfilter"]))
+async def toggle_snipers_filter(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setsnipersfilter command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /setsnipersfilter attempt by @{username}")
+        return
+    global SniphersFilterEnabled
+    text = message.text.lower().replace('/setsnipersfilter', '').strip()
+    if text == "yes":
+        SniphersFilterEnabled = True
+        await message.answer("Snipers filter set to: Yes ✅")
+        logger.info("Snipers filter enabled")
+    elif text == "no":
+        SniphersFilterEnabled = False
+        await message.answer("Snipers filter set to: No 🚫")
+        logger.info("Snipers filter disabled")
+    else:
+        await message.answer("Please specify Yes or No after /setsnipersfilter (e.g., /setsnipersfilter Yes) 🤔")
+        logger.info("Invalid /setsnipersfilter input")
+
+# Handler for /setbundlesthreshold command
+@dp.message(Command(commands=["setbundlesthreshold"]))
+async def set_bundles(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setbundlesthreshold command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /setbundlesthreshold attempt by @{username}")
+        return
+    global BundlesThreshold
+    text = message.text.lower().replace('/setbundlesthreshold', '').strip()
+    try:
+        value = float(text)
+        BundlesThreshold = value
+        await message.answer(f"BundlesThreshold set to: {BundlesThreshold} ✅")
+        logger.info(f"BundlesThreshold updated to: {BundlesThreshold}")
+    except ValueError:
+        await message.answer("Please provide a valid numerical value (e.g., /setbundlesthreshold 1) 🚫")
+        logger.info("Invalid /setbundlesthreshold input: not a number")
+
+# Handler for /setbundlesfilter command
+@dp.message(Command(commands=["setbundlesfilter"]))
+async def toggle_bundles_filter(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setbundlesfilter command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /setbundlesfilter attempt by @{username}")
+        return
+    global BundlesFilterEnabled
+    text = message.text.lower().replace('/setbundlesfilter', '').strip()
+    if text == "yes":
+        BundlesFilterEnabled = True
+        await message.answer("Bundles filter set to: Yes ✅")
+        logger.info("Bundles filter enabled")
+    elif text == "no":
+        BundlesFilterEnabled = False
+        await message.answer("Bundles filter set to: No 🚫")
+        logger.info("Bundles filter disabled")
+    else:
+        await message.answer("Please specify Yes or No after /setbundlesfilter (e.g., /setbundlesfilter Yes) 🤔")
+        logger.info("Invalid /setbundlesfilter input")
+
+# Handler for /setinsidersthreshold command
+@dp.message(Command(commands=["setinsidersthreshold"]))
+async def set_insiders(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setinsidersthreshold command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /setinsidersthreshold attempt by @{username}")
+        return
+    global InsidersThreshold
+    text = message.text.lower().replace('/setinsidersthreshold', '').strip()
+    try:
+        value = float(text)
+        InsidersThreshold = value
+        await message.answer(f"InsidersThreshold set to: {InsidersThreshold} ✅")
+        logger.info(f"InsidersThreshold updated to: {InsidersThreshold}")
+    except ValueError:
+        await message.answer("Please provide a valid numerical value (e.g., /setinsidersthreshold 10) 🚫")
+        logger.info("Invalid /setinsidersthreshold input: not a number")
+
+# Handler for /setinsidersfilter command
+@dp.message(Command(commands=["setinsidersfilter"]))
+async def toggle_insiders_filter(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setinsidersfilter command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /setinsidersfilter attempt by @{username}")
+        return
+    global InsidersFilterEnabled
+    text = message.text.lower().replace('/setinsidersfilter', '').strip()
+    if text == "yes":
+        InsidersFilterEnabled = True
+        await message.answer("Insiders filter set to: Yes ✅")
+        logger.info("Insiders filter enabled")
+    elif text == "no":
+        InsidersFilterEnabled = False
+        await message.answer("Insiders filter set to: No 🚫")
+        logger.info("Insiders filter disabled")
+    else:
+        await message.answer("Please specify Yes or No after /setinsidersfilter (e.g., /setinsidersfilter Yes) 🤔")
+        logger.info("Invalid /setinsidersfilter input")
+
+# Handler for /setkolsthreshold command
+@dp.message(Command(commands=["setkolsthreshold"]))
+async def set_kols(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setkolsthreshold command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /setkolsthreshold attempt by @{username}")
+        return
+    global KOLsThreshold
+    text = message.text.lower().replace('/setkolsthreshold', '').strip()
+    try:
+        value = float(text)
+        KOLsThreshold = value
+        await message.answer(f"KOLsThreshold set to: {KOLsThreshold} ✅")
+        logger.info(f"KOLsThreshold updated to: {KOLsThreshold}")
+    except ValueError:
+        await message.answer("Please provide a valid numerical value (e.g., /setkolsthreshold 1) 🚫")
+        logger.info("Invalid /setkolsthreshold input: not a number")
+
+# Handler for /setkolsfilter command
+@dp.message(Command(commands=["setkolsfilter"]))
+async def toggle_kols_filter(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /setkolsfilter command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /setkolsfilter attempt by @{username}")
+        return
+    global KOLsFilterEnabled
+    text = message.text.lower().replace('/setkolsfilter', '').strip()
+    if text == "yes":
+        KOLsFilterEnabled = True
+        await message.answer("KOLs filter set to: Yes ✅")
+        logger.info("KOLs filter enabled")
+    elif text == "no":
+        KOLsFilterEnabled = False
+        await message.answer("KOLs filter set to: No 🚫")
+        logger.info("KOLs filter disabled")
+    else:
+        await message.answer("Please specify Yes or No after /setkolsfilter (e.g., /setkolsfilter Yes) 🤔")
+        logger.info("Invalid /setkolsfilter input")
+
+# Handler for /adduser command
+@dp.message(Command(commands=["adduser"]))
+async def add_user(message: types.Message):
+    username = message.from_user.username
+    logger.info(f"Received /adduser command from user: @{username}")
+    if username != "BeingHumbleGuy":
+        await message.answer("⚠️ Only @BeingHumbleGuy can use this command.")
+        logger.info(f"Unauthorized /adduser attempt by @{username}")
+        return
+    text = message.text.replace('/adduser', '').strip()
+    if not text.startswith('@'):
+        await message.answer("Please provide a username starting with @ (e.g., /adduser @NewUser) 🤔")
+        logger.info("Invalid /adduser input: no @username provided")
+        return
+    new_user = text
+    if new_user in authorized_users:
+        await message.answer(f"{new_user} is already authorized ✅")
+        logger.info(f"User {new_user} already in authorized_users")
+    else:
+        authorized_users.append(new_user)
+        await message.answer(f"Added {new_user} to authorized users ✅")
+        logger.info(f"Added {new_user} to authorized_users")
+
 @dp.message(Command(commands=["downloadcsv"]))
 async def download_csv_command(message: types.Message):
     username = message.from_user.username
