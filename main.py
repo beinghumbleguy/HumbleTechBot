@@ -162,7 +162,6 @@ def init_csv():
         os.makedirs(data_dir, exist_ok=True)
         logger.info(f"Created directory: {data_dir}")
 
-    # Filter CSV files
     for csv_file in [PUBLIC_CSV_FILE, VIP_CSV_FILE]:
         if not os.path.exists(csv_file):
             with open(csv_file, mode='w', newline='', encoding='utf-8') as f:
@@ -171,10 +170,11 @@ def init_csv():
                     "Timestamp", "CA", "TokenName", "BSRatio", "BSRatio_Pass", "BSRatio_Low_Pass",
                     "DevSold", "DevSoldLeftValue", "DevSold_Pass", "Top10", "Top10_Pass",
                     "Snipers", "Snipers_Pass", "Bundles", "Bundles_Pass", "Insiders", "Insiders_Pass",
-                    "KOLs", "Kols_Pass", "BondingCurve", "BCPass", "Overall_Pass", "MarketCap", "GrowthRatio"
+                    "KOLs", "Kols_Pass", "BondingCurve", "BCPass", "Overall_Pass", 
+                    "OriginalMC", "CurrentMC", "GrowthRatio"  # Removed MarketCap
                 ])
             logger.info(f"Created filter CSV file: {csv_file}")
-
+            
     # Growth check CSV files
     for csv_file in [PUBLIC_GROWTH_CSV_FILE, VIP_GROWTH_CSV_FILE]:
         if not os.path.exists(csv_file):
@@ -235,13 +235,51 @@ def save_monitored_tokens():
 # Log filter results to CSV
 def log_to_csv(ca, token_name, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold, dev_sold_left_value, dev_sold_pass,
                top_10, top_10_pass, snipers, snipers_pass, bundles, bundles_pass,
-               insiders, insiders_pass, kols, kols_pass, bonding_curve, bc_pass, overall_pass, market_cap, growth_ratio, is_vip_channel):
+               insiders, insiders_pass, kols, kols_pass, bonding_curve, bc_pass, overall_pass, 
+               original_mc, current_mc, growth_ratio, is_vip_channel):  # Removed market_cap
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     csv_file = VIP_CSV_FILE if is_vip_channel else PUBLIC_CSV_FILE
     with csv_lock:
-        with open(csv_file, mode='a', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow([
+        rows = []
+        updated = False
+        if os.path.exists(csv_file):
+            with open(csv_file, mode='r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                headers = reader.fieldnames
+                for row in reader:
+                    if row["CA"] == ca:
+                        # Update existing row
+                        rows.append([
+                            timestamp, ca, token_name if token_name else row["TokenName"],
+                            bs_ratio if bs_ratio is not None else row["BSRatio"],
+                            bs_ratio_pass if (CheckHighEnabled or CheckLowEnabled) and bs_ratio_pass is not None else row["BSRatio_Pass"],
+                            check_low_pass if CheckLowEnabled and check_low_pass is not None else row["BSRatio_Low_Pass"],
+                            dev_sold if dev_sold is not None else row["DevSold"],
+                            dev_sold_left_value if dev_sold_left_value is not None else row["DevSoldLeftValue"],
+                            dev_sold_pass if DevSoldFilterEnabled and dev_sold_pass is not None else row["DevSold_Pass"],
+                            top_10 if top_10 is not None else row["Top10"],
+                            top_10_pass if Top10FilterEnabled and top_10_pass is not None else row["Top10_Pass"],
+                            snipers if snipers is not None else row["Snipers"],
+                            snipers_pass if SniphersFilterEnabled and snipers_pass is not None else row["Snipers_Pass"],
+                            bundles if bundles is not None else row["Bundles"],
+                            bundles_pass if BundlesFilterEnabled and bundles_pass is not None else row["Bundles_Pass"],
+                            insiders if insiders is not None else row["Insiders"],
+                            insiders_pass if InsidersFilterEnabled and insiders_pass is not None else row["Insiders_Pass"],
+                            kols if kols is not None else row["KOLs"],
+                            kols_pass if KOLsFilterEnabled and kols_pass is not None else row["Kols_Pass"],
+                            bonding_curve if bonding_curve is not None else row["BondingCurve"],
+                            bc_pass if BondingCurveFilterEnabled and bc_pass is not None else row["BCPass"],
+                            overall_pass if overall_pass is not None else row["Overall_Pass"],
+                            original_mc if original_mc is not None else row.get("OriginalMC", "N/A"),
+                            current_mc if current_mc is not None else row.get("CurrentMC", "N/A"),
+                            growth_ratio if growth_ratio is not None else row["GrowthRatio"]
+                        ])
+                        updated = True
+                    else:
+                        rows.append(list(row.values()))
+        if not updated:
+            # Append new row if CA not found
+            rows.append([
                 timestamp, ca if ca else "N/A", token_name if token_name else "N/A",
                 bs_ratio if bs_ratio is not None else "N/A",
                 bs_ratio_pass if (CheckHighEnabled or CheckLowEnabled) else "N/A",
@@ -262,10 +300,21 @@ def log_to_csv(ca, token_name, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold
                 bonding_curve if bonding_curve is not None else "N/A",
                 bc_pass if BondingCurveFilterEnabled and bonding_curve is not None else "N/A",
                 overall_pass,
-                market_cap if market_cap else "N/A",
+                original_mc if original_mc is not None else "N/A",
+                current_mc if current_mc is not None else "N/A",
                 growth_ratio if growth_ratio is not None else "N/A"
             ])
-    logger.info(f"Logged filter results to {csv_file} for CA: {ca}")
+        with open(csv_file, mode='w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "Timestamp", "CA", "TokenName", "BSRatio", "BSRatio_Pass", "BSRatio_Low_Pass",
+                "DevSold", "DevSoldLeftValue", "DevSold_Pass", "Top10", "Top10_Pass",
+                "Snipers", "Snipers_Pass", "Bundles", "Bundles_Pass", "Insiders", "Insiders_Pass",
+                "KOLs", "Kols_Pass", "BondingCurve", "BCPass", "Overall_Pass", 
+                "OriginalMC", "CurrentMC", "GrowthRatio"  # Removed MarketCap
+            ])
+            writer.writerows(rows)
+    logger.info(f"{'Updated' if updated else 'Logged'} filter results to {csv_file} for CA: {ca}")
 
 # Log growth check results to CSV
 def log_to_growthcheck_csv(chat_id, channel_id, message_id, token_name, ca, original_mc, current_mc,
@@ -647,12 +696,12 @@ async def get_token_market_cap(mint_address):
 
 # Chunk 2 ends
 # Chunk 3 starts
+# Chunk 3a starts
 from aiogram import types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, MessageEntity
 from aiogram import F
 
-# Define channel IDs
 VIP_CHANNEL_IDS = {-1002365061913}
 PUBLIC_CHANNEL_IDS = {-1002272066154}
 
@@ -689,20 +738,16 @@ async def process_message(message: types.Message) -> None:
     is_vip_channel = chat_id in VIP_CHANNEL_IDS
     is_public_channel = chat_id in PUBLIC_CHANNEL_IDS
     
-    # Extract market cap
     mc_match = re.search(r'(?:💎\s*(?:MC|C)|Cap):\s*\$?(\d+\.?\d*[KM]?)', text, re.IGNORECASE)
     original_mc = 0
-    market_cap_str = "N/A"
     if mc_match:
         mc_str = mc_match.group(1)
         try:
             original_mc = parse_market_cap(mc_str)
-            market_cap_str = f"${original_mc / 1000:.1f}K" if original_mc is not None and original_mc > 0 else "N/A"
-            logger.debug(f"Parsed market cap: {market_cap_str}")
+            logger.debug(f"Parsed market cap: {original_mc}")
         except ValueError as e:
             logger.error(f"Failed to parse market cap '{mc_str}': {str(e)}")
 
-    # Process "Fasol" messages
     if has_fasol:
         logger.info(f"Processing 'Fasol' message in chat {chat_id} (type: {message.chat.type})")
         ca_index = text.find(ca)
@@ -753,13 +798,43 @@ async def process_message(message: types.Message) -> None:
                 logger.error(f"Failed to post fallback message for CA {ca}: {post_e}")
                 return
 
+        # Log initial filter data
+        growth_ratio = get_latest_growth_ratio(ca)
+        log_to_csv(
+            ca=ca,
+            token_name=text.split('\n')[0].strip(),
+            bs_ratio=None,
+            bs_ratio_pass=None,
+            check_low_pass=None,
+            dev_sold=None,
+            dev_sold_left_value=None,
+            dev_sold_pass=None,
+            top_10=None,
+            top_10_pass=None,
+            snipers=None,
+            snipers_pass=None,
+            bundles=None,
+            bundles_pass=None,
+            insiders=None,
+            insiders_pass=None,
+            kols=None,
+            kols_pass=None,
+            bonding_curve=None,
+            bc_pass=None,
+            overall_pass=None,
+            original_mc=original_mc,
+            current_mc=original_mc,
+            growth_ratio=growth_ratio,
+            is_vip_channel=is_vip_channel
+        )
+
         if is_vip_channel or is_public_channel:
             first_line = text.split('\n')[0].strip()
             if ca not in monitored_tokens:
                 monitored_tokens[ca] = {
                     "token_name": first_line,
                     "initial_mc": original_mc,
-                    "peak_mc": original_mc,  # Initialize peak_mc
+                    "peak_mc": original_mc,
                     "timestamp": datetime.now(pytz.timezone('America/Los_Angeles')).timestamp(),
                     "message_id": message_id,
                     "chat_id": chat_id
@@ -770,7 +845,9 @@ async def process_message(message: types.Message) -> None:
             logger.debug(f"CA {ca} not added to monitored_tokens (not in VIP or Public channel)")
         return
 
-    # Process "Early" messages
+# Chunk 3a ends
+
+# Chunk 3b starts
     if not has_early:
         logger.debug("No 'Early' keyword found, skipping filter logic")
         return
@@ -933,7 +1010,8 @@ async def process_message(message: types.Message) -> None:
         bonding_curve=bonding_curve,
         bc_pass=bc_pass if BondingCurveFilterEnabled else None,
         overall_pass=all_filters_pass,
-        market_cap=market_cap_str,
+        original_mc=original_mc,
+        current_mc=original_mc,
         growth_ratio=growth_ratio,
         is_vip_channel=is_vip_channel
     )
@@ -954,7 +1032,6 @@ async def process_message(message: types.Message) -> None:
     except Exception as e:
         logger.error(f"Failed to send filter results for CA {ca}: {str(e)}")
 
-# Handlers
 @dp.message(~Command(commands=[
     "test", "ca", "setfilter", "setpassvalue", "setrangelow", "setcheckhigh", 
     "setchecklow", "setdevsoldthreshold", "setdevsoldleft", "setdevsoldfilter", 
@@ -971,10 +1048,13 @@ async def handle_message(message: types.Message) -> None:
 async def handle_channel_post(message: types.Message) -> None:
     await process_message(message)
 
+# Chunk 3b ends
+
 # Chunk 3 ends
 
 # Chunk 4 starts
 # Background task to monitor token market cap growth
+# Chunk 4 starts
 async def growthcheck() -> None:
     current_time = datetime.now(pytz.timezone('America/Los_Angeles'))
     to_remove = []
@@ -991,7 +1071,7 @@ async def growthcheck() -> None:
         token_time = datetime.fromtimestamp(timestamp, pytz.timezone('America/Los_Angeles'))
         time_diff = (current_time - token_time).total_seconds() / 3600
 
-        if time_diff > 6:  # 6-hour monitoring duration
+        if time_diff > 6:
             to_remove.append(ca)
             continue
 
@@ -1003,7 +1083,6 @@ async def growthcheck() -> None:
         if current_mc is None or current_mc == 0:
             continue
 
-        # Update peak_mc if current_mc is higher
         if current_mc > peak_mc:
             monitored_tokens[ca]["peak_mc"] = current_mc
             save_monitored_tokens()
@@ -1021,14 +1100,14 @@ async def growthcheck() -> None:
             initial_mc_str = f"{initial_mc / 1000:.1f}"
             current_mc_str = f"{current_mc / 1000:.1f}"
 
-            # Custom notification based on growth range
             if 2 <= growth_ratio < 5:
                 growth_message = f"🚀 {growth_ratio:.0f}x ✨ ${initial_mc_str}K → ${current_mc_str}K in {time_since_added}"
             elif 5 <= growth_ratio < 10:
                 growth_message = f"🔥 {growth_ratio:.0f}x ⭐ ${initial_mc_str}K → ${current_mc_str}K in {time_since_added}"
-            else:  # 10x or higher
+            else:  # 10x+
                 growth_message = f"🌙 {growth_ratio:.0f}x 💥 ${initial_mc_str}K → ${current_mc_str}K in {time_since_added}"
 
+            # Log to growth CSV
             log_to_growthcheck_csv(
                 chat_id=chat_id,
                 channel_id=chat_id,
@@ -1040,6 +1119,35 @@ async def growthcheck() -> None:
                 growth_ratio=growth_ratio,
                 profit_percent=profit_percent,
                 time_since_added=time_since_added,
+                is_vip_channel=is_vip_channel
+            )
+
+            # Update filter CSV
+            log_to_csv(
+                ca=ca,
+                token_name=token_name,
+                bs_ratio=None,
+                bs_ratio_pass=None,
+                check_low_pass=None,
+                dev_sold=None,
+                dev_sold_left_value=None,
+                dev_sold_pass=None,
+                top_10=None,
+                top_10_pass=None,
+                snipers=None,
+                snipers_pass=None,
+                bundles=None,
+                bundles_pass=None,
+                insiders=None,
+                insiders_pass=None,
+                kols=None,
+                kols_pass=None,
+                bonding_curve=None,
+                bc_pass=None,
+                overall_pass=None,
+                original_mc=initial_mc,
+                current_mc=current_mc,
+                growth_ratio=growth_ratio,
                 is_vip_channel=is_vip_channel
             )
 
