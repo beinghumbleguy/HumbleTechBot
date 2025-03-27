@@ -438,7 +438,13 @@ async def add_user(message: types.Message):
 # Chunk 2 starts
 import cloudscraper
 import json
+import time
+import asyncio
+import logging
 from fake_useragent import UserAgent
+from concurrent.futures import ThreadPoolExecutor  # Added for executor
+
+logger = logging.getLogger(__name__)
 
 class APISessionManager:
     def __init__(self):
@@ -449,8 +455,9 @@ class APISessionManager:
         self._session_max_requests = 100
         self.max_retries = 3
         self.retry_delay = 5
-        self.base_url = "https://gmgn.ai/api/v1/mutil_window_token_info"
-        self._executor = _executor
+        self.base_url = "https://gmgn.ai/defi/quotation/v1/tokens/sol/search"  # New endpoint
+        
+        self._executor = ThreadPoolExecutor(max_workers=4)  # Initialized executor
         self.ua = UserAgent()
 
         self.headers_dict = {
@@ -563,15 +570,13 @@ class APISessionManager:
             return {"error": "Cloudscraper session not initialized"}
         
         self._session_requests += 1
-        payload = {"chain": "sol", "addresses": [mint_address]}
-        logger.debug(f"Sending payload: {payload}")
+        url = f"{self.base_url}?q={mint_address}"
         
         for attempt in range(self.max_retries):
             try:
                 response = await self._run_in_executor(
-                    self.session.post,
-                    self.base_url,
-                    json=payload,
+                    self.session.get,
+                    url,
                     headers=self.headers_dict
                 )
                 logger.debug(f"Attempt {attempt + 1} - Status: {response.status_code}, Headers: {response.headers}")
@@ -589,9 +594,8 @@ class APISessionManager:
             await self.randomize_session(force=True, use_proxy=False)
             try:
                 response = await self._run_in_executor(
-                    self.session.post,
-                    self.base_url,
-                    json=payload,
+                    self.session.get,
+                    url,
                     headers=self.headers_dict
                 )
                 logger.debug(f"Fallback attempt - Status: {response.status_code}, Headers: {response.headers}")
@@ -630,30 +634,23 @@ async def get_gmgn_token_data(mint_address):
     try:
         token_data = {}
         
-        if not token_data_raw or "data" not in token_data_raw or len(token_data_raw["data"]) == 0:
+        if not token_data_raw or "data" not in token_data_raw or "tokens" not in token_data_raw["data"] or len(token_data_raw["data"]["tokens"]) == 0:
             logger.warning(f"No valid token data in response: {token_data_raw}")
             return {"error": "No token data returned from API."}
         
-        token_info = token_data_raw["data"][0]
+        token_info = token_data_raw["data"]["tokens"][0]  # Access "tokens" array
         logger.debug(f"Token info for CA {mint_address}: {token_info}")
         
         # Price extraction
-        price_val = token_info.get("price", "0")
-        logger.debug(f"Raw price for CA {mint_address}: {price_val}")
-        if isinstance(price_val, dict):
-            price = float(price_val.get("price", "0"))  # Extract 'price' from dict
-        else:
-            price = float(price_val if isinstance(price_val, (str, int, float)) else "0")
+        price = float(token_info.get("price", 0))
         token_data["price"] = str(price) if price != 0 else "N/A"
         
-        # Circulating supply extraction
-        supply_val = token_info.get("circulating_supply", "0")
-        logger.debug(f"Raw circulating supply for CA {mint_address}: {supply_val}")
-        circulating_supply = float(supply_val if isinstance(supply_val, (str, int, float)) else supply_val.get("value", "0") if isinstance(supply_val, dict) else "0")
-        token_data["circulating_supply"] = circulating_supply
+        # Total supply (used as circulating supply approximation)
+        total_supply = float(token_info.get("total_supply", 0))
+        token_data["circulating_supply"] = total_supply  # Using total_supply since circulating_supply isn’t provided
         
         # Market cap calculation
-        token_data["market_cap"] = price * circulating_supply
+        token_data["market_cap"] = price * total_supply
         token_data["market_cap_str"] = format_market_cap(token_data["market_cap"])
         token_data["liquidity"] = token_info.get("liquidity", "0")
         token_data["contract"] = mint_address
@@ -676,19 +673,14 @@ async def get_token_market_cap(mint_address):
         return {"error": token_data_raw["error"]}
 
     try:
-        if not token_data_raw or "data" not in token_data_raw or len(token_data_raw["data"]) == 0:
+        if not token_data_raw or "data" not in token_data_raw or "tokens" not in token_data_raw["data"] or len(token_data_raw["data"]["tokens"]) == 0:
             logger.warning(f"No valid token data in response: {token_data_raw}")
             return {"error": "No token data returned from API."}
         
-        token_info = token_data_raw["data"][0]
-        price_val = token_info.get("price", "0")
-        if isinstance(price_val, dict):
-            price = float(price_val.get("price", "0"))
-        else:
-            price = float(price_val if isinstance(price_val, (str, int, float)) else "0")
-        supply_val = token_info.get("circulating_supply", "0")
-        circulating_supply = float(supply_val if isinstance(supply_val, (str, int, float)) else supply_val.get("value", "0") if isinstance(supply_val, dict) else "0")
-        market_cap = price * circulating_supply
+        token_info = token_data_raw["data"]["tokens"][0]
+        price = float(token_info.get("price", 0))
+        total_supply = float(token_info.get("total_supply", 0))
+        market_cap = price * total_supply
         return {"market_cap": market_cap}
     except Exception as e:
         logger.error(f"Error fetching market cap for CA {mint_address}: {str(e)}")
@@ -1053,8 +1045,6 @@ async def handle_channel_post(message: types.Message) -> None:
 # Chunk 3 ends
 
 # Chunk 4 starts
-# Background task to monitor token market cap growth
-# Chunk 4 starts
 async def growthcheck() -> None:
     current_time = datetime.now(pytz.timezone('America/Los_Angeles'))
     to_remove = []
@@ -1097,17 +1087,34 @@ async def growthcheck() -> None:
             last_growth_ratios[ca] = growth_ratio
 
             time_since_added = calculate_time_since(timestamp)
-            initial_mc_str = f"{initial_mc / 1000:.1f}"
-            current_mc_str = f"{current_mc / 1000:.1f}"
+            initial_mc_val = initial_mc / 1000  # In thousands
+            current_mc_val = current_mc / 1000  # In thousands
 
+            # Format initial_mc: K or M
+            if initial_mc_val >= 1000:
+                initial_mc_str = f"**{initial_mc_val / 1000:.1f}M**"
+            else:
+                initial_mc_str = f"**{initial_mc_val:.1f}K**"
+
+            # Format current_mc: K or M
+            if current_mc_val >= 1000:
+                current_mc_str = f"**{current_mc_val / 1000:.1f}M**"
+            else:
+                current_mc_str = f"**{current_mc_val:.1f}K**"
+
+            # Bold growth ratio and time
+            growth_ratio_str = f"**{growth_ratio:.0f}**"
+            time_str = f"**{time_since_added}**"
+
+            # Updated growth message format
             if 2 <= growth_ratio < 5:
-                growth_message = f"🚀 {growth_ratio:.0f}x ✨ ${initial_mc_str}K → ${current_mc_str}K in {time_since_added}"
+                growth_message = f"🚀 {growth_ratio_str}x | 💹From {initial_mc_str} ↗️ {current_mc_str} within {time_str}"
             elif 5 <= growth_ratio < 10:
-                growth_message = f"🔥 {growth_ratio:.0f}x ⭐ ${initial_mc_str}K → ${current_mc_str}K in {time_since_added}"
+                growth_message = f"🔥 {growth_ratio_str}x | 💹From {initial_mc_str} ↗️ {current_mc_str} within {time_str}"
             else:  # 10x+
-                growth_message = f"🌙 {growth_ratio:.0f}x 💥 ${initial_mc_str}K → ${current_mc_str}K in {time_since_added}"
+                growth_message = f"🌙 {growth_ratio_str}x | 💹From {initial_mc_str} ↗️ {current_mc_str} within {time_str}"
 
-            # Log to growth CSV
+            # Log to growth CSV (unchanged raw values)
             log_to_growthcheck_csv(
                 chat_id=chat_id,
                 channel_id=chat_id,
@@ -1122,7 +1129,7 @@ async def growthcheck() -> None:
                 is_vip_channel=is_vip_channel
             )
 
-            # Update filter CSV
+            # Update filter CSV (unchanged raw values)
             log_to_csv(
                 ca=ca,
                 token_name=token_name,
