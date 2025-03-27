@@ -856,11 +856,17 @@ async def process_message(message: types.Message) -> None:
     kols = 0
     bonding_curve = 0
 
-    buy_sell_match = re.search(r'Sum 🅑:(\d+\.?\d*)% \| Sum 🅢:(\d+\.?\d*)%', text)
-    if buy_sell_match:
-        buy_percent = float(buy_sell_match.group(1))
-        sell_percent = float(buy_sell_match.group(2))
-        logger.debug(f"Extracted Buy: {buy_percent}%, Sell: {sell_percent}%")
+    # Log full text for debugging
+    logger.debug(f"Full message text being searched: '{text}'")
+
+    # Updated regex to handle variations and catch last match
+    buy_sell_matches = re.findall(r'Sum\s*🅑\s*:\s*(\d+\.?\d*)%\s*(?:\|\s*Sum\s*🅢\s*:\s*(\d+\.?\d*)%)?', text)
+    if buy_sell_matches:
+        # Take the last match to handle duplicates
+        last_match = buy_sell_matches[-1]
+        buy_percent = float(last_match[0])  # First group is buy
+        sell_percent = float(last_match[1]) if last_match[1] else 0  # Second group is sell, default to 0 if missing
+        logger.debug(f"Extracted Buy: {buy_percent}%, Sell: {sell_percent}% from last match: {last_match}")
     else:
         logger.warning(f"Failed to extract Buy/Sell percentages from: '{text}'")
 
@@ -1041,7 +1047,6 @@ async def handle_channel_post(message: types.Message) -> None:
     await process_message(message)
 
 # Chunk 3b ends
-
 # Chunk 3 ends
 
 # Chunk 4 starts
