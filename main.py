@@ -385,7 +385,7 @@ def parse_market_cap(mc_str):
     except ValueError as e:
         logger.error(f"Failed to parse market cap '{mc_str}': {str(e)}")
         return None
-
+"""
 # Helper function to calculate time since a timestamp
 def calculate_time_since(timestamp):
     current_time = time.time()
@@ -400,6 +400,7 @@ def calculate_time_since(timestamp):
         return f"{hours}h"
     days = hours // 24
     return f"{days}d"
+"""
 
 # Handler for /adduser command
 @dp.message(Command(commands=["adduser"]))
@@ -1050,8 +1051,24 @@ async def handle_channel_post(message: types.Message) -> None:
 # Chunk 3 ends
 
 # Chunk 4 starts
+# Helper function to calculate time since a timestamp
+def calculate_time_since(timestamp):
+    current_time = datetime.now(pytz.timezone('America/New_York'))  # EST timezone
+    token_time = datetime.fromtimestamp(timestamp, pytz.timezone('America/New_York'))  # EST timezone
+    diff_seconds = int((current_time - token_time).total_seconds())
+    
+    if diff_seconds < 60:  # Less than 1 minute, show seconds
+        return f"{diff_seconds}s"
+    minutes = diff_seconds // 60
+    if minutes < 60:  # Less than 1 hour, show minutes
+        return f"{minutes}m"
+    hours = minutes // 60
+    remaining_minutes = minutes % 60
+    return f"{hours}h:{remaining_minutes:02d}m"  # 1 hour or more, show Xh:Ym
+
+# Chunk 4 starts
 async def growthcheck() -> None:
-    current_time = datetime.now(pytz.timezone('America/Los_Angeles'))
+    current_time = datetime.now(pytz.timezone('America/New_York'))  # Changed to EST
     to_remove = []
 
     for ca, data in monitored_tokens.items():
@@ -1063,7 +1080,7 @@ async def growthcheck() -> None:
         chat_id = data["chat_id"]
         is_vip_channel = chat_id in VIP_CHANNEL_IDS
 
-        token_time = datetime.fromtimestamp(timestamp, pytz.timezone('America/Los_Angeles'))
+        token_time = datetime.fromtimestamp(timestamp, pytz.timezone('America/New_York'))  # Changed to EST
         time_diff = (current_time - token_time).total_seconds() / 3600
 
         if time_diff > 6:
@@ -1091,7 +1108,7 @@ async def growthcheck() -> None:
         if growth_ratio >= GROWTH_THRESHOLD and growth_ratio >= next_threshold:
             last_growth_ratios[ca] = growth_ratio
 
-            time_since_added = calculate_time_since(timestamp)
+            time_since_added = calculate_time_since(timestamp)  # Now returns "30s", "2m", or "6h:11m"
             initial_mc_val = initial_mc / 1000  # In thousands
             current_mc_val = current_mc / 1000  # In thousands
 
@@ -1108,16 +1125,28 @@ async def growthcheck() -> None:
                 current_mc_str = f"**{current_mc_val:.1f}K**"
 
             # Bold growth ratio and time
-            growth_ratio_str = f"**{growth_ratio:.0f}**"
+            growth_ratio_str = f"**{growth_ratio:.1f}**"  # Using .1f for precision
             time_str = f"**{time_since_added}**"
 
-            # Updated growth message format
+            # Check for VIP overlap if posting in a public channel
+            vip_growth_str = ""
+            if not is_vip_channel:  # Only check for VIP if this is a public channel
+                for vip_ca, vip_data in monitored_tokens.items():
+                    if vip_ca == ca and vip_data["chat_id"] in VIP_CHANNEL_IDS:
+                        vip_initial_mc = vip_data["initial_mc"]
+                        vip_growth_ratio = current_mc / vip_initial_mc if vip_initial_mc != 0 else 0
+                        vip_growth_str = f"(**{vip_growth_ratio:.1f}**x from VIP)"
+                        break
+
+            # Updated growth message format with VIP info if applicable
             if 2 <= growth_ratio < 5:
-                growth_message = f"🚀 {growth_ratio_str}x | 💹From {initial_mc_str} ↗️ {current_mc_str} within {time_str}"
+                emoji = "🚀"
             elif 5 <= growth_ratio < 10:
-                growth_message = f"🔥 {growth_ratio_str}x | 💹From {initial_mc_str} ↗️ {current_mc_str} within {time_str}"
+                emoji = "🔥"
             else:  # 10x+
-                growth_message = f"🌙 {growth_ratio_str}x | 💹From {initial_mc_str} ↗️ {current_mc_str} within {time_str}"
+                emoji = "🌙"
+            
+            growth_message = f"{emoji} {growth_ratio_str}x{vip_growth_str} | 💹From {initial_mc_str} ↗️ {current_mc_str} within {time_str}"
 
             # Log to growth CSV (unchanged raw values)
             log_to_growthcheck_csv(
