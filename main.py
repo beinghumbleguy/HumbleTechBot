@@ -112,8 +112,8 @@ CheckLowEnabled = True
 # New filter thresholds
 DevSoldThreshold = "Yes"
 DevSoldLeft = 5.0
-Top10Threshold = 34.0
-SnipersThreshold = 10.0
+Top10Threshold = 35.0
+SnipersThreshold = 7.0
 BundlesThreshold = 8.0
 InsidersThreshold = 8.0
 KOLsThreshold = 1.0
@@ -761,7 +761,8 @@ async def process_message(message: types.Message) -> None:
             [
                 InlineKeyboardButton(text="Maestro", url=f"http://t.me/maestro?start={ca}-beinghumbleguy"),
                 InlineKeyboardButton(text="Trojan", url=f"https://t.me/solana_trojanbot?start=r-beinghumbleguy-{ca}")
-            ]
+            ],
+            [InlineKeyboardButton(text="Axiom", url=f"https://axiom.trade/t/{ca}/@humbleguy")]
         ])
 
         try:
