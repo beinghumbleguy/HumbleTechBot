@@ -1010,7 +1010,7 @@ async def handle_channel_post(message: types.Message) -> None:
 # Add command to download monitored_tokens.csv
 @dp.message(Command("downloadmonitoredtokens"))
 async def download_monitored_tokens(message: types.Message) -> None:
-    if message.from_user.id not in authorized_users:  # Assuming from Chunk 1
+    if message.from_user.id not in AUTHORIZED_USERS:  # Assuming from Chunk 1
         await message.reply("You are not authorized to use this command.")
         return
     try:
@@ -1688,13 +1688,13 @@ async def add_user(message: types.Message):
         logger.info("Invalid /adduser input: no @username provided")
         return
     new_user = text
-    if new_user in authorized_users:
+    if new_user in AUTHORIZED_USERS:
         await message.answer(f"{new_user} is already authorized ✅")
-        logger.info(f"User {new_user} already in authorized_users")
+        logger.info(f"User {new_user} already in AUTHORIZED_USERS")
     else:
-        authorized_users.append(new_user)
+        AUTHORIZED_USERS.append(new_user)
         await message.answer(f"Added {new_user} to authorized users ✅")
-        logger.info(f"Added {new_user} to authorized_users")
+        logger.info(f"Added {new_user} to AUTHORIZED_USERS")
 
 @dp.message(Command(commands=["downloadcsv"]))
 async def download_csv_command(message: types.Message):
@@ -1930,8 +1930,8 @@ def download_file(filename):
     return send_file(file_path, as_attachment=True)
 
 def is_authorized(username):
-    logger.info(f"Checking authorization for @{username}: {f'@{username}' in authorized_users}")
-    return f"@{username}" in authorized_users  
+    logger.info(f"Checking authorization for @{username}: {f'@{username}' in AUTHORIZED_USERS}")
+    return f"@{username}" in AUTHORIZED_USERS  
 
 async def on_startup():
     init_csv()
