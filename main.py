@@ -8,23 +8,65 @@ import os
 import csv
 import re
 from flask import Flask, send_file, request, abort
-from threading import Thread, Lock  # Lock added back
+from threading import Thread
+import requests
+from bs4 import BeautifulSoup
+import csv
+from datetime import datetime
+import threading
+import secrets
+import time
+import random
+import aiohttp
+import tls_client
+from fake_useragent import UserAgent
+from concurrent.futures import ThreadPoolExecutor
+from typing import Optional, Dict
+from cachetools import TTLCache
+import pytz
+import aiogram
+
+
+# Enable debug logging
+# New comment
+
+# Chunk 1 (partial update)
+
+import logging
+import aiogram
+
+# Custom filter to suppress "Raw update received" logs
+class SuppressRawUpdateFilter(logging.Filter):
+    def filter(self, record):
+        return "Raw update received" not in record.getMessage()
+
+# Enable debug logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)  # __name__ is "__main__" in the main script
+
+# Apply the filter to the __main__ logger to suppress "Raw update received"
+logger.addFilter(SuppressRawUpdateFilter())
+
+logger.info(f"Using Aiogram version: {aiogram.__version__}")
+
+# Chunk 1 starts
+# Chunk 1 starts
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, BotCommand
+from aiogram.filters import Command, BaseFilter
+import asyncio
+import logging
+import os
+import csv
+import re
+from flask import Flask, send_file, request, abort
+from threading import Thread, Lock
 from concurrent.futures import ThreadPoolExecutor
 import secrets
 from cachetools import TTLCache
 from datetime import datetime
 import pytz
 import time
-# Retained from your prior version
-import requests
-from bs4 import BeautifulSoup
-import aiohttp
-import tls_client
-from fake_useragent import UserAgent
-from typing import Optional, Dict
-import aiogram
-import threading  # Full threading module retained
-import random
 
 # Custom filter to detect non-command messages
 class NotCommandFilter(BaseFilter):
@@ -34,16 +76,9 @@ class NotCommandFilter(BaseFilter):
         logger.debug(f"NotCommandFilter result: {result}")
         return result
 
-# Custom filter to suppress "Raw update received" logs
-class SuppressRawUpdateFilter(logging.Filter):
-    def filter(self, record):
-        return "Raw update received" not in record.getMessage()
-
-# Configure logging (retaining your DEBUG level)
-logging.basicConfig(level=logging.DEBUG)  # Changed from INFO to DEBUG
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-logger.addFilter(SuppressRawUpdateFilter())  # Apply your filter
-logger.info(f"Using Aiogram version: {aiogram.__version__}")  # Retained version log
 
 # Load environment variables
 TOKEN = os.getenv("BOT_TOKEN")
@@ -68,7 +103,7 @@ _executor = ThreadPoolExecutor(max_workers=5)
 filter_enabled = True
 PassValue = 0
 RangeLow = 0
-AUTHORIZED_USERS = ["@BeingHumbleGuy"]
+authorized_users = ["@BeingHumbleGuy"]
 additional_user_added = False
 
 # BSRatio filter toggles
@@ -98,9 +133,10 @@ BondingCurveFilterEnabled = True
 growth_notifications_enabled = True
 GROWTH_THRESHOLD = 2.0
 INCREMENT_THRESHOLD = 1.0
-CHECK_INTERVAL = 30  # Your 15-second interval
+CHECK_INTERVAL = 30  # Changed to 15 seconds from 300
 MONITORING_DURATION = 21600  # 6 hours in seconds
 monitored_tokens = {}
+last_growth_ratios = {}
 
 # Define channel IDs
 VIP_CHANNEL_IDS = {-1002365061913}
@@ -153,7 +189,7 @@ def init_csv():
     if not os.path.exists(MONITORED_TOKENS_CSV_FILE):
         with open(MONITORED_TOKENS_CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(["CA:ChatID", "TokenName", "InitialMC", "PeakMC", "Timestamp", "MessageID", "ChatID", "LastNotified"])
+            writer.writerow(["CA:ChatID", "TokenName", "InitialMC", "PeakMC", "Timestamp", "MessageID", "ChatID"])
         logger.info(f"Created monitored tokens CSV file: {MONITORED_TOKENS_CSV_FILE}")
 
 # Load monitored tokens from CSV
@@ -164,15 +200,14 @@ def load_monitored_tokens():
         with open(MONITORED_TOKENS_CSV_FILE, mode='r', newline='', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                key = row["CA:ChatID"]
+                key = row["CA:ChatID"]  # Updated to composite key
                 monitored_tokens[key] = {
                     "token_name": row["TokenName"],
                     "initial_mc": float(row["InitialMC"]),
-                    "peak_mc": float(row.get("PeakMC", row["InitialMC"])),
+                    "peak_mc": float(row.get("PeakMC", row["InitialMC"])),  # Default to InitialMC if missing
                     "timestamp": float(row["Timestamp"]),
                     "message_id": int(row["MessageID"]),
-                    "chat_id": int(row["ChatID"]),
-                    "last_notified": float(row.get("LastNotified", 0))
+                    "chat_id": int(row["ChatID"])
                 }
         logger.info(f"Loaded {len(monitored_tokens)} tokens from {MONITORED_TOKENS_CSV_FILE}")
     else:
@@ -183,25 +218,27 @@ def save_monitored_tokens():
     with monitored_tokens_lock:
         with open(MONITORED_TOKENS_CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(["CA:ChatID", "TokenName", "InitialMC", "PeakMC", "Timestamp", "MessageID", "ChatID", "LastNotified"])
+            writer.writerow(["CA:ChatID", "TokenName", "InitialMC", "PeakMC", "Timestamp", "MessageID", "ChatID"])
             for key, data in monitored_tokens.items():
                 writer.writerow([
-                    key,
+                    key,  # Composite key
                     data["token_name"],
                     data["initial_mc"],
                     data.get("peak_mc", data["initial_mc"]),
                     data["timestamp"],
                     data["message_id"],
-                    data["chat_id"],
-                    data.get("last_notified", 0)
+                    data["chat_id"]
                 ])
         logger.info(f"Saved {len(monitored_tokens)} tokens to {MONITORED_TOKENS_CSV_FILE}")
+
+# [Rest of Chunk 1 remains unchanged: log_to_csv, log_to_growthcheck_csv, get_latest_growth_ratio, parse_market_cap, add_user]
+# Chunk 1 ends
 
 # Log filter results to CSV
 def log_to_csv(ca, token_name, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold, dev_sold_left_value, dev_sold_pass,
                top_10, top_10_pass, snipers, snipers_pass, bundles, bundles_pass,
                insiders, insiders_pass, kols, kols_pass, bonding_curve, bc_pass, overall_pass, 
-               original_mc, current_mc, growth_ratio, is_vip_channel):
+               original_mc, current_mc, growth_ratio, is_vip_channel):  # Removed market_cap
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     csv_file = VIP_CSV_FILE if is_vip_channel else PUBLIC_CSV_FILE
     with csv_lock:
@@ -213,6 +250,7 @@ def log_to_csv(ca, token_name, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold
                 headers = reader.fieldnames
                 for row in reader:
                     if row["CA"] == ca:
+                        # Update existing row
                         rows.append([
                             timestamp, ca, token_name if token_name else row["TokenName"],
                             bs_ratio if bs_ratio is not None else row["BSRatio"],
@@ -242,6 +280,7 @@ def log_to_csv(ca, token_name, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold
                     else:
                         rows.append(list(row.values()))
         if not updated:
+            # Append new row if CA not found
             rows.append([
                 timestamp, ca if ca else "N/A", token_name if token_name else "N/A",
                 bs_ratio if bs_ratio is not None else "N/A",
@@ -274,7 +313,7 @@ def log_to_csv(ca, token_name, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold
                 "DevSold", "DevSoldLeftValue", "DevSold_Pass", "Top10", "Top10_Pass",
                 "Snipers", "Snipers_Pass", "Bundles", "Bundles_Pass", "Insiders", "Insiders_Pass",
                 "KOLs", "Kols_Pass", "BondingCurve", "BCPass", "Overall_Pass", 
-                "OriginalMC", "CurrentMC", "GrowthRatio"
+                "OriginalMC", "CurrentMC", "GrowthRatio"  # Removed MarketCap
             ])
             writer.writerows(rows)
     logger.info(f"{'Updated' if updated else 'Logged'} filter results to {csv_file} for CA: {ca}")
@@ -348,6 +387,22 @@ def parse_market_cap(mc_str):
     except ValueError as e:
         logger.error(f"Failed to parse market cap '{mc_str}': {str(e)}")
         return None
+"""
+# Helper function to calculate time since a timestamp
+def calculate_time_since(timestamp):
+    current_time = time.time()
+    seconds = int(current_time - timestamp)
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes}m"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours}h"
+    days = hours // 24
+    return f"{days}d"
+"""
 
 # Handler for /adduser command
 @dp.message(Command(commands=["adduser"]))
@@ -376,38 +431,13 @@ async def add_user(message: types.Message):
         await message.answer("⚠️ @BeingHumbleGuy is already the super user.")
         return
 
-    AUTHORIZED_USERS.append(new_user)
+    authorized_users.append(new_user)
     additional_user_added = True
     await message.answer(f"Authorized user added: {new_user} ✅")
     logger.info(f"Authorized user added: {new_user}")
 
-# Handler for /downloadmonitoredtokens command
-@dp.message(Command("downloadmonitoredtokens"))
-async def download_monitored_tokens(message: types.Message) -> None:
-    username = message.from_user.username
-    logger.info(f"Received /downloadmonitoredtokens command from user: @{username}")
-    if not is_authorized(username):
-        await message.reply("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /downloadmonitoredtokens attempt by @{username}")
-        return
-    
-    base_url = os.getenv("RAILWAY_PUBLIC_DOMAIN", "http://localhost:5000")
-    if base_url == "http://localhost:5000" and "RAILWAY_PUBLIC_DOMAIN" not in os.environ:
-        logger.warning("RAILWAY_PUBLIC_DOMAIN not set, using localhost:5000 (this won't work on Railway)")
-    download_url = f"{base_url}/download/monitored_tokens.csv?token={DOWNLOAD_TOKEN}"
-    
-    if not os.path.exists(MONITORED_TOKENS_CSV_FILE):
-        await message.reply("⚠️ No monitored_tokens.csv file exists yet. Process some 'Fasol' messages to generate data.")
-        logger.info(f"monitored_tokens.csv not found at {MONITORED_TOKENS_CSV_FILE} for /downloadmonitoredtokens")
-        return
-    
-    await message.reply(
-        f"Click the link to download or view the CSV file:\n{download_url}\n"
-        "Note: This link is private and should not be shared."
-    )
-    logger.info(f"Provided monitored_tokens.csv download link to @{username}: {download_url}")
-    
 # Chunk 1 ends
+
 # Chunk 2 starts
 import cloudscraper
 import json
@@ -680,7 +710,7 @@ async def process_message(message: types.Message) -> None:
         logger.debug("Message is from the bot itself, skipping")
         return
 
-    text = message.text
+    text = message.text  # Original message text
     chat_id = message.chat.id
     message_id = message.message_id
 
@@ -691,7 +721,7 @@ async def process_message(message: types.Message) -> None:
     ca = ca_match.group(0)
 
     has_early = "early" in text.lower()
-    has_fasol = "fasol" in text.lower()
+    has_fasol = "fasol" in text.lower()  # Check original text for "Fasol"
     if not (has_early or has_fasol):
         logger.debug("No 'Early' or 'Fasol' keywords found, skipping")
         return
@@ -722,7 +752,7 @@ async def process_message(message: types.Message) -> None:
             details = text.split('\n')[:5]
             details = '\n'.join(details).strip()
 
-        output_text = f"{details}\n🔗 CA: `{ca}`"
+        output_text = f"{details}\n🔗 CA: `{ca}`"  # New text without "Fasol"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🌟🚀 Join VIP 🚀🌟", url="https://t.me/HumbleMoonshotsPay_bot?start=start")]
             if not is_vip_channel else [],
@@ -737,34 +767,24 @@ async def process_message(message: types.Message) -> None:
             [InlineKeyboardButton(text="Axiom", url=f"https://axiom.trade/t/{ca}/@humbleguy")]
         ])
 
-        try:
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=output_text,
-                reply_markup=keyboard,
-                parse_mode="Markdown",
-                disable_web_page_preview=True
-            )
-            logger.info(f"Edited original message with trading buttons for CA {ca} in chat {chat_id}")
-        except Exception as e:
-            logger.warning(f"Failed to edit message {message_id} in chat {chat_id}: {e}")
-            try:
-                if message.chat.type == "channel":
-                    final_msg = await bot.send_message(chat_id=chat_id, text=output_text, reply_markup=keyboard, parse_mode="Markdown", disable_web_page_preview=True)
-                else:
-                    final_msg = await message.reply(text=output_text, reply_markup=keyboard, parse_mode="Markdown", reply_to_message_id=message_id, disable_web_page_preview=True)
-                logger.info(f"Posted new message with trading buttons for CA {ca} in chat {chat_id} (edit failed)")
-                try:
-                    await bot.delete_message(chat_id=chat_id, message_id=message_id)
-                    logger.info(f"Deleted original message {message_id} in chat {chat_id}")
-                except Exception as del_e:
-                    logger.warning(f"Failed to delete original message {message_id} in chat {chat_id}: {del_e}")
-            except Exception as post_e:
-                logger.error(f"Failed to post fallback message for CA {ca}: {post_e}")
-                return
+        # Growth monitoring happens BEFORE editing
+        if is_vip_channel or is_public_channel:
+            first_line = text.split('\n')[0].strip()  # From original text
+            key = f"{ca}:{chat_id}"
+            monitored_tokens[key] = {
+                "token_name": first_line,
+                "initial_mc": original_mc,
+                "peak_mc": original_mc,
+                "timestamp": datetime.now(pytz.timezone('America/New_York')).timestamp(),
+                "message_id": message_id,
+                "chat_id": chat_id
+            }
+            logger.debug(f"Added CA {ca} to monitored_tokens with key {key} for growth tracking (Fasol)")
+            save_monitored_tokens()
+        else:
+            logger.debug(f"CA {ca} not added to monitored_tokens (not in VIP or Public channel)")
 
-        # Log initial filter data
+        # Log initial filter data BEFORE editing
         growth_ratio = get_latest_growth_ratio(ca)
         log_to_csv(
             ca=ca,
@@ -794,22 +814,33 @@ async def process_message(message: types.Message) -> None:
             is_vip_channel=is_vip_channel
         )
 
-        if is_vip_channel or is_public_channel:
-            first_line = text.split('\n')[0].strip()
-            key = f"{ca}:{chat_id}"
-            # Always add, even if CA exists in another chat
-            monitored_tokens[key] = {
-                "token_name": first_line,
-                "initial_mc": original_mc,
-                "peak_mc": original_mc,
-                "timestamp": datetime.now(pytz.timezone('America/New_York')).timestamp(),
-                "message_id": message_id,
-                "chat_id": chat_id
-            }
-            logger.debug(f"Added CA {ca} to monitored_tokens with key {key} for growth tracking (Fasol)")
-            save_monitored_tokens()  # Ensure this saves correctly
-        else:
-            logger.debug(f"CA {ca} not added to monitored_tokens (not in VIP or Public channel)")
+        # Edit message LAST
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=output_text,
+                reply_markup=keyboard,
+                parse_mode="Markdown",
+                disable_web_page_preview=True
+            )
+            logger.info(f"Edited original message with trading buttons for CA {ca} in chat {chat_id}")
+        except Exception as e:
+            logger.warning(f"Failed to edit message {message_id} in chat {chat_id}: {e}")
+            try:
+                if message.chat.type == "channel":
+                    final_msg = await bot.send_message(chat_id=chat_id, text=output_text, reply_markup=keyboard, parse_mode="Markdown", disable_web_page_preview=True)
+                else:
+                    final_msg = await message.reply(text=output_text, reply_markup=keyboard, parse_mode="Markdown", reply_to_message_id=message_id, disable_web_page_preview=True)
+                logger.info(f"Posted new message with trading buttons for CA {ca} in chat {chat_id} (edit failed)")
+                try:
+                    await bot.delete_message(chat_id=chat_id, message_id=message_id)
+                    logger.info(f"Deleted original message {message_id} in chat {chat_id}")
+                except Exception as del_e:
+                    logger.warning(f"Failed to delete original message {message_id} in chat {chat_id}: {del_e}")
+            except Exception as post_e:
+                logger.error(f"Failed to post fallback message for CA {ca}: {post_e}")
+                return
         return
 
 # Chunk 3a ends
@@ -1010,7 +1041,7 @@ async def process_message(message: types.Message) -> None:
     "setbundlesthreshold", "setbundlesfilter", "setinsidersthreshold", "setinsidersfilter", 
     "setkolsthreshold", "setkolsfilter", "adduser", "downloadcsv", "downloadgrowthcsv", 
     "growthnotify", "mastersetup", "resetdefaults",
-    "setbcthreshold", "setbcfilter", "downloadmonitoredtokens"  # Added new command
+    "setbcthreshold", "setbcfilter"
 ]), F.text)
 async def handle_message(message: types.Message) -> None:
     await process_message(message)
@@ -1019,32 +1050,10 @@ async def handle_message(message: types.Message) -> None:
 async def handle_channel_post(message: types.Message) -> None:
     await process_message(message)
 
-# Add command to download monitored_tokens.csv
-@dp.message(Command("downloadmonitoredtokens"))
-async def download_monitored_tokens(message: types.Message) -> None:
-    if message.from_user.username not in AUTHORIZED_USERS:  # Check username instead of ID
-        await message.reply("You are not authorized to use this command.")
-        return
-    try:
-        with open("monitored_tokens.csv", "rb") as file:  # Update path if needed (see below)
-            await bot.send_document(message.chat.id, document=file, caption="Here is the monitored_tokens.csv file.")
-        logger.info(f"User {message.from_user.username} downloaded monitored_tokens.csv")
-    except Exception as e:
-        logger.error(f"Failed to send monitored_tokens.csv: {str(e)}")
-        await message.reply("Failed to download monitored_tokens.csv.")
-
 # Chunk 3b ends
 # Chunk 3 ends
 
 # Chunk 4 starts
-from datetime import datetime
-import pytz
-import asyncio
-
-GROWTH_THRESHOLD = 2.0
-INCREMENT_THRESHOLD = 1
-CHECK_INTERVAL = 300  # 5 minutes
-
 # Helper function to calculate time since a timestamp
 def calculate_time_since(timestamp):
     current_time = datetime.now(pytz.timezone('America/New_York'))
@@ -1072,7 +1081,6 @@ async def growthcheck() -> None:
         peak_mc = data.get("peak_mc", initial_mc)
         timestamp = data["timestamp"]
         message_id = data["message_id"]
-        last_notified = data.get("last_notified", 0)  # Per ca:chat_id
         is_vip_channel = chat_id in VIP_CHANNEL_IDS
         is_public_channel = chat_id in PUBLIC_CHANNEL_IDS
 
@@ -1091,7 +1099,7 @@ async def growthcheck() -> None:
             logger.debug(f"CA {ca} expired (time_diff: {time_diff:.2f}h)")
             continue
 
-        token_data = await get_token_market_cap(ca)  # Assume this exists
+        token_data = await get_token_market_cap(ca)
         if "error" in token_data:
             logger.debug(f"Skipping CA {ca} due to API error: {token_data['error']}")
             continue
@@ -1107,10 +1115,13 @@ async def growthcheck() -> None:
 
         growth_ratio = current_mc / initial_mc if initial_mc != 0 else 0
         profit_percent = ((current_mc - initial_mc) / initial_mc) * 100 if initial_mc != 0 else 0
-        logger.debug(f"CA {ca} in chat {chat_id} - growth_ratio: {growth_ratio:.2f}, initial_mc: {initial_mc}, current_mc: {current_mc}")
+        logger.debug(f"CA {ca} growth_ratio: {growth_ratio:.2f}, initial_mc: {initial_mc}, current_mc: {current_mc}")
 
-        next_threshold = int(last_notified) + INCREMENT_THRESHOLD if last_notified >= GROWTH_THRESHOLD else GROWTH_THRESHOLD
-        if growth_ratio >= next_threshold:
+        last_growth_ratio = last_growth_ratios.get(ca, 1.0)
+        next_threshold = int(last_growth_ratio) + INCREMENT_THRESHOLD
+        if growth_ratio >= GROWTH_THRESHOLD and growth_ratio >= next_threshold:
+            last_growth_ratios[ca] = growth_ratio
+
             time_since_added = calculate_time_since(timestamp)
             initial_mc_val = initial_mc / 1000
             current_mc_val = current_mc / 1000
@@ -1120,58 +1131,36 @@ async def growthcheck() -> None:
             growth_ratio_str = f"**{growth_ratio:.1f}**"
             time_str = f"**{time_since_added}**"
 
-            # VIP notification (standalone)
-            if is_vip_channel:
-                emoji = "🚀" if 2 <= growth_ratio < 5 else "🔥" if 5 <= growth_ratio < 10 else "🌙"
-                growth_message = (
-                    f"{emoji} {growth_ratio_str}x | 💹From {initial_mc_str} ↗️ {current_mc_str} within {time_str}\n"
-                    f"🔗 CA: `{ca}`"
-                )
-                if growth_notifications_enabled:
-                    try:
-                        await bot.send_message(chat_id=chat_id, text=growth_message, parse_mode="Markdown", reply_to_message_id=message_id)
-                        logger.info(f"Sent VIP growth notification for CA {ca} in chat {chat_id}: {growth_message}")
-                    except Exception as e:
-                        logger.error(f"Failed to send VIP growth notification for CA {ca}: {e}")
-                monitored_tokens[key]["last_notified"] = growth_ratio
-                save_monitored_tokens()
+            vip_growth_str = ""
+            if is_public_channel and f"{ca}:{list(VIP_CHANNEL_IDS)[0]}" in monitored_tokens:
+                vip_data = monitored_tokens[f"{ca}:{list(VIP_CHANNEL_IDS)[0]}"]
+                vip_initial_mc = vip_data["initial_mc"]
+                vip_growth_ratio = current_mc / vip_initial_mc if vip_initial_mc != 0 else 0
+                vip_growth_str = f"(**{vip_growth_ratio:.1f}**x from VIP)"
+                logger.debug(f"CA {ca} found in VIP, vip_growth_ratio: {vip_growth_ratio:.2f}")
 
-            # Public notification (combined if in VIP)
-            elif is_public_channel:
-                vip_key = f"{ca}:{list(VIP_CHANNEL_IDS)[0]}"
-                vip_growth_str = ""
-                if vip_key in monitored_tokens:
-                    vip_data = monitored_tokens[vip_key]
-                    vip_initial_mc = vip_data["initial_mc"]
-                    vip_growth_ratio = current_mc / vip_initial_mc if vip_initial_mc != 0 else 0
-                    vip_growth_str = f"(**{vip_growth_ratio:.1f}**x from VIP)"
-                    logger.debug(f"CA {ca} found in VIP, vip_growth_ratio: {vip_growth_ratio:.2f}")
-
-                emoji = "🚀" if 2 <= growth_ratio < 5 else "🔥" if 5 <= growth_ratio < 10 else "🌙"
-                growth_message = (
-                    f"{emoji} {growth_ratio_str}x{vip_growth_str} | 💹From {initial_mc_str} ↗️ {current_mc_str} within {time_str}\n"
-                    f"🔗 CA: `{ca}`"
-                )
-                if growth_notifications_enabled:
-                    try:
-                        await bot.send_message(chat_id=chat_id, text=growth_message, parse_mode="Markdown", reply_to_message_id=message_id)
-                        logger.info(f"Sent Public growth notification for CA {ca} in chat {chat_id}: {growth_message}")
-                    except Exception as e:
-                        logger.error(f"Failed to send Public growth notification for CA {ca}: {e}")
-                monitored_tokens[key]["last_notified"] = growth_ratio
-                save_monitored_tokens()
+            emoji = "🚀" if 2 <= growth_ratio < 5 else "🔥" if 5 <= growth_ratio < 10 else "🌙"
+            growth_message = f"{emoji} {growth_ratio_str}x{vip_growth_str} | 💹From {initial_mc_str} ↗️ {current_mc_str} within {time_str}"
 
             log_to_growthcheck_csv(chat_id=chat_id, channel_id=chat_id, message_id=message_id, token_name=token_name, ca=ca, original_mc=initial_mc, current_mc=current_mc, growth_ratio=growth_ratio, profit_percent=profit_percent, time_since_added=time_since_added, is_vip_channel=is_vip_channel)
             log_to_csv(ca=ca, token_name=token_name, bs_ratio=None, bs_ratio_pass=None, check_low_pass=None, dev_sold=None, dev_sold_left_value=None, dev_sold_pass=None, top_10=None, top_10_pass=None, snipers=None, snipers_pass=None, bundles=None, bundles_pass=None, insiders=None, insiders_pass=None, kols=None, kols_pass=None, bonding_curve=None, bc_pass=None, overall_pass=None, original_mc=initial_mc, current_mc=current_mc, growth_ratio=growth_ratio, is_vip_channel=is_vip_channel)
 
+            if growth_notifications_enabled:
+                try:
+                    await bot.send_message(chat_id=chat_id, text=growth_message, parse_mode="Markdown", reply_to_message_id=message_id)
+                    logger.info(f"Sent growth notification for CA {ca} in chat {chat_id}: {growth_message}")
+                except Exception as e:
+                    logger.error(f"Failed to send growth notification for CA {ca}: {e}")
+            else:
+                logger.debug(f"Growth notification for CA {ca} not sent (notifications disabled)")
+
     for key in to_remove:
         monitored_tokens.pop(key, None)
+        ca = key.split(':')[0]
+        last_growth_ratios.pop(ca, None)
     if to_remove:
         save_monitored_tokens()
         logger.info(f"Removed {len(to_remove)} expired tokens from monitoring")
-
-async def start_growth_check():
-    asyncio.create_task(growthcheck())
 
 # Chunk 4 ends
 """
@@ -1700,13 +1689,13 @@ async def add_user(message: types.Message):
         logger.info("Invalid /adduser input: no @username provided")
         return
     new_user = text
-    if new_user in AUTHORIZED_USERS:
+    if new_user in authorized_users:
         await message.answer(f"{new_user} is already authorized ✅")
-        logger.info(f"User {new_user} already in AUTHORIZED_USERS")
+        logger.info(f"User {new_user} already in authorized_users")
     else:
-        AUTHORIZED_USERS.append(new_user)
+        authorized_users.append(new_user)
         await message.answer(f"Added {new_user} to authorized users ✅")
-        logger.info(f"Added {new_user} to AUTHORIZED_USERS")
+        logger.info(f"Added {new_user} to authorized_users")
 
 @dp.message(Command(commands=["downloadcsv"]))
 async def download_csv_command(message: types.Message):
@@ -1942,8 +1931,8 @@ def download_file(filename):
     return send_file(file_path, as_attachment=True)
 
 def is_authorized(username):
-    logger.info(f"Checking authorization for @{username}: {f'@{username}' in AUTHORIZED_USERS}")
-    return f"@{username}" in AUTHORIZED_USERS  
+    logger.info(f"Checking authorization for @{username}: {f'@{username}' in authorized_users}")
+    return f"@{username}" in authorized_users  
 
 async def on_startup():
     init_csv()
@@ -1974,8 +1963,7 @@ async def on_startup():
         BotCommand(command="downloadgrowthcsv", description="Get link to download growth check CSV log"),
         BotCommand(command="growthnotify", description="Enable/disable growth notifications (Yes/No)"),
         BotCommand(command="mastersetup", description="Display all current filter settings"),
-        BotCommand(command="resetdefaults", description="Reset all settings to default values"),
-        BotCommand(command="downloadmonitoredtokens", description="Download monitored_tokens.csv (authorized users only)")
+        BotCommand(command="resetdefaults", description="Reset all settings to default values")
     ]
     try:
         await bot.set_my_commands(commands)
