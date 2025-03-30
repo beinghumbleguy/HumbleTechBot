@@ -390,14 +390,22 @@ async def download_monitored_tokens(message: types.Message) -> None:
         await message.reply("⚠️ You are not authorized to use this command.")
         logger.info(f"Unauthorized /downloadmonitoredtokens attempt by @{username}")
         return
+    
+    file_path = MONITORED_TOKENS_CSV_FILE
+    logger.debug(f"Checking if file exists at {file_path}: {os.path.exists(file_path)}")
+    if not os.path.exists(file_path):
+        await message.reply("⚠️ No monitored_tokens.csv file exists yet. Process some 'Fasol' messages to generate data.")
+        logger.info(f"monitored_tokens.csv not found at {file_path} for /downloadmonitoredtokens")
+        return
+    
     try:
-        with open(MONITORED_TOKENS_CSV_FILE, "rb") as file:  # Consistent with Chunk 1
-            await bot.send_document(message.chat.id, document=file, caption="Here is the monitored_tokens.csv file.")
-        logger.info(f"User @{username} downloaded monitored_tokens.csv")
+        logger.debug(f"File size of {file_path}: {os.path.getsize(file_path)} bytes")
+        await bot.send_document(message.chat.id, document=file_path, caption="Here is the monitored_tokens.csv file.")
+        logger.info(f"User @{username} downloaded monitored_tokens.csv from {file_path}")
     except Exception as e:
-        logger.error(f"Failed to send monitored_tokens.csv: {str(e)}")
-        await message.reply("Failed to download monitored_tokens.csv.")
-
+        logger.error(f"Failed to send monitored_tokens.csv from {file_path}: {str(e)}")
+        await message.reply(f"Failed to download monitored_tokens.csv: {str(e)}")
+        
 # Chunk 1 ends
 # Chunk 2 starts
 import cloudscraper
