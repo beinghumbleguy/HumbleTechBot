@@ -1010,13 +1010,13 @@ async def handle_channel_post(message: types.Message) -> None:
 # Add command to download monitored_tokens.csv
 @dp.message(Command("downloadmonitoredtokens"))
 async def download_monitored_tokens(message: types.Message) -> None:
-    if message.from_user.id not in AUTHORIZED_USERS:  # Assuming from Chunk 1
+    if message.from_user.username not in AUTHORIZED_USERS:  # Check username instead of ID
         await message.reply("You are not authorized to use this command.")
         return
     try:
-        with open("monitored_tokens.csv", "rb") as file:
+        with open("monitored_tokens.csv", "rb") as file:  # Update path if needed (see below)
             await bot.send_document(message.chat.id, document=file, caption="Here is the monitored_tokens.csv file.")
-        logger.info(f"User {message.from_user.id} downloaded monitored_tokens.csv")
+        logger.info(f"User {message.from_user.username} downloaded monitored_tokens.csv")
     except Exception as e:
         logger.error(f"Failed to send monitored_tokens.csv: {str(e)}")
         await message.reply("Failed to download monitored_tokens.csv.")
@@ -1963,6 +1963,7 @@ async def on_startup():
         BotCommand(command="growthnotify", description="Enable/disable growth notifications (Yes/No)"),
         BotCommand(command="mastersetup", description="Display all current filter settings"),
         BotCommand(command="resetdefaults", description="Reset all settings to default values")
+        BotCommand(command="downloadmonitoredtokens", description="Download monitored_tokens.csv (authorized users only)")
     ]
     try:
         await bot.set_my_commands(commands)
