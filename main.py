@@ -1962,7 +1962,7 @@ async def on_startup():
         BotCommand(command="downloadgrowthcsv", description="Get link to download growth check CSV log"),
         BotCommand(command="growthnotify", description="Enable/disable growth notifications (Yes/No)"),
         BotCommand(command="mastersetup", description="Display all current filter settings"),
-        BotCommand(command="resetdefaults", description="Reset all settings to default values")
+        BotCommand(command="resetdefaults", description="Reset all settings to default values"),
         BotCommand(command="downloadmonitoredtokens", description="Download monitored_tokens.csv (authorized users only)")
     ]
     try:
