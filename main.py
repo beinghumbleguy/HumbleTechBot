@@ -384,13 +384,16 @@ async def add_user(message: types.Message):
 # Handler for /downloadmonitoredtokens command
 @dp.message(Command("downloadmonitoredtokens"))
 async def download_monitored_tokens(message: types.Message) -> None:
-    if message.from_user.username not in AUTHORIZED_USERS:
-        await message.reply("You are not authorized to use this command.")
+    username = message.from_user.username
+    logger.info(f"Received /downloadmonitoredtokens command from user: @{username}")
+    if not is_authorized(username):
+        await message.reply("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /downloadmonitoredtokens attempt by @{username}")
         return
     try:
-        with open(MONITORED_TOKENS_CSV_FILE, "rb") as file:
+        with open(MONITORED_TOKENS_CSV_FILE, "rb") as file:  # Consistent with Chunk 1
             await bot.send_document(message.chat.id, document=file, caption="Here is the monitored_tokens.csv file.")
-        logger.info(f"User {message.from_user.username} downloaded monitored_tokens.csv")
+        logger.info(f"User @{username} downloaded monitored_tokens.csv")
     except Exception as e:
         logger.error(f"Failed to send monitored_tokens.csv: {str(e)}")
         await message.reply("Failed to download monitored_tokens.csv.")
