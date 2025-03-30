@@ -391,21 +391,22 @@ async def download_monitored_tokens(message: types.Message) -> None:
         logger.info(f"Unauthorized /downloadmonitoredtokens attempt by @{username}")
         return
     
-    file_path = MONITORED_TOKENS_CSV_FILE
-    logger.debug(f"Checking if file exists at {file_path}: {os.path.exists(file_path)}")
-    if not os.path.exists(file_path):
+    base_url = os.getenv("RAILWAY_PUBLIC_DOMAIN", "http://localhost:5000")
+    if base_url == "http://localhost:5000" and "RAILWAY_PUBLIC_DOMAIN" not in os.environ:
+        logger.warning("RAILWAY_PUBLIC_DOMAIN not set, using localhost:5000 (this won't work on Railway)")
+    download_url = f"{base_url}/download/monitored_tokens.csv?token={DOWNLOAD_TOKEN}"
+    
+    if not os.path.exists(MONITORED_TOKENS_CSV_FILE):
         await message.reply("⚠️ No monitored_tokens.csv file exists yet. Process some 'Fasol' messages to generate data.")
-        logger.info(f"monitored_tokens.csv not found at {file_path} for /downloadmonitoredtokens")
+        logger.info(f"monitored_tokens.csv not found at {MONITORED_TOKENS_CSV_FILE} for /downloadmonitoredtokens")
         return
     
-    try:
-        logger.debug(f"File size of {file_path}: {os.path.getsize(file_path)} bytes")
-        await bot.send_document(message.chat.id, document=file_path, caption="Here is the monitored_tokens.csv file.")
-        logger.info(f"User @{username} downloaded monitored_tokens.csv from {file_path}")
-    except Exception as e:
-        logger.error(f"Failed to send monitored_tokens.csv from {file_path}: {str(e)}")
-        await message.reply(f"Failed to download monitored_tokens.csv: {str(e)}")
-        
+    await message.reply(
+        f"Click the link to download or view the CSV file:\n{download_url}\n"
+        "Note: This link is private and should not be shared."
+    )
+    logger.info(f"Provided monitored_tokens.csv download link to @{username}: {download_url}")
+    
 # Chunk 1 ends
 # Chunk 2 starts
 import cloudscraper
