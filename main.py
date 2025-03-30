@@ -1010,7 +1010,7 @@ async def handle_channel_post(message: types.Message) -> None:
 # Add command to download monitored_tokens.csv
 @dp.message(Command("downloadmonitoredtokens"))
 async def download_monitored_tokens(message: types.Message) -> None:
-    if message.from_user.id not in AUTHORIZED_USERS:  # Assuming from Chunk 1
+    if message.from_user.id not in authorized_users:  # Assuming from Chunk 1
         await message.reply("You are not authorized to use this command.")
         return
     try:
