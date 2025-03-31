@@ -595,18 +595,42 @@ class APISessionManager:
             lambda: func(*args, **kwargs)
         )
 
-    # In Chunk 2, update APISessionManager.fetch_token_data (around line ~300)
     async def fetch_token_data(self, mint_address):
-    logger.debug(f"Fetching data for mint_address: {mint_address}")
-    await self.randomize_session()
-    if not self.session:
-        logger.error("Cloudscraper session not initialized")
-        return {"error": "Cloudscraper session not initialized"}
-    
-    self._session_requests += 1
-    url = f"{self.base_url}?q={mint_address}"
-    
-    for attempt in range(self.max_retries):
+        logger.debug(f"Fetching data for mint_address: {mint_address}")
+        await self.randomize_session()
+        if not self.session:
+            logger.error("Cloudscraper session not initialized")
+            return {"error": "Cloudscraper session not initialized"}
+        
+        self._session_requests += 1
+        url = f"{self.base_url}?q={mint_address}"
+        
+        for attempt in range(self.max_retries):
+            try:
+                response = await self._run_in_executor(
+                    self.session.get,
+                    url,
+                    headers=self.headers_dict,
+                    timeout=10
+                )
+                logger.debug(f"Attempt {attempt + 1} - Status: {response.status_code}")
+                if response.status_code == 200:
+                    return response.json()
+                elif response.status_code == 403:
+                    logger.warning(f"Attempt {attempt + 1} failed with 403: {response.text[:100]}...")
+                    if "Just a moment" in response.text:
+                        logger.warning("Cloudflare challenge detected, rotating proxy")
+                        await self.randomize_session(force=True, use_proxy=True)
+                else:
+                    logger.warning(f"Attempt {attempt + 1} failed with status {response.status_code}")
+            except Exception as e:
+                logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
+            
+            if attempt < self.max_retries - 1:
+                await asyncio.sleep(self.retry_delay * (2 ** attempt))  # Exponential backoff
+        
+        logger.info("All proxy attempts failed, trying without proxy")
+        await self.randomize_session(force=True, use_proxy=False)
         try:
             response = await self._run_in_executor(
                 self.session.get,
@@ -614,40 +638,15 @@ class APISessionManager:
                 headers=self.headers_dict,
                 timeout=10
             )
-            logger.debug(f"Attempt {attempt + 1} - Status: {response.status_code}")
             if response.status_code == 200:
                 return response.json()
-            elif response.status_code == 403:
-                logger.warning(f"Attempt {attempt + 1} failed with 403: {response.text[:100]}...")
-                if "Just a moment" in response.text:
-                    logger.warning("Cloudflare challenge detected, rotating proxy")
-                    await self.randomize_session(force=True, use_proxy=True)
-            else:
-                logger.warning(f"Attempt {attempt + 1} failed with status {response.status_code}")
+            logger.warning(f"Fallback failed with status {response.status_code}")
         except Exception as e:
-            logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
+            logger.error(f"Final attempt failed: {str(e)}")
         
-        if attempt < self.max_retries - 1:
-            await asyncio.sleep(self.retry_delay * (2 ** attempt))  # Exponential backoff
-    
-    logger.info("All proxy attempts failed, trying without proxy")
-    await self.randomize_session(force=True, use_proxy=False)
-    try:
-        response = await self._run_in_executor(
-            self.session.get,
-            url,
-            headers=self.headers_dict,
-            timeout=10
-        )
-        if response.status_code == 200:
-            return response.json()
-        logger.warning(f"Fallback failed with status {response.status_code}")
-    except Exception as e:
-        logger.error(f"Final attempt failed: {str(e)}")
-    
-    logger.error(f"Failed to fetch data for {mint_address} after {self.max_retries} attempts")
-    return {"error": "Failed to fetch data after retries"}
-    
+        logger.error(f"Failed to fetch data for {mint_address} after {self.max_retries} attempts")
+        return {"error": "Failed to fetch data after retries"}
+
 api_session_manager = APISessionManager()
 
 def format_market_cap(market_cap: float) -> str:
