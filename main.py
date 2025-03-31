@@ -116,7 +116,7 @@ DevSoldLeft = 5.0
 Top10Threshold = 34.0
 SnipersThreshold = 10.0
 BundlesThreshold = 8.0
-InsidersThreshold = 8.0
+InsidersThreshold = 9.0
 KOLsThreshold = 0.0
 BondingCurveThreshold = 75.0
 
