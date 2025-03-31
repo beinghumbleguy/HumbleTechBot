@@ -437,35 +437,6 @@ async def add_user(message: types.Message):
     logger.info(f"Authorized user added: {new_user}")
     
     
-    # In Chunk 1, update the Flask route (around line ~600)
-@app.route('/download/<filename>')
-def download_file(filename):
-    token = request.args.get('token')
-    if token != DOWNLOAD_TOKEN:
-        logger.warning(f"Invalid download token: {token}, expected: {DOWNLOAD_TOKEN}")
-        abort(403, description="Invalid or missing token")
-    
-    allowed_files = [
-        "public_ca_filter_log.csv",
-        "vip_ca_filter_log.csv",
-        "public_growthcheck_log.csv",
-        "vip_growthcheck_log.csv",
-        "monitored_tokens.csv"  # Added
-    ]
-    if filename not in allowed_files:
-        logger.error(f"Requested file {filename} not in allowed list")
-        abort(404, description="File not found")
-    
-    file_path = os.path.join("/app/data", filename)
-    logger.debug(f"Checking file at {file_path}: exists={os.path.exists(file_path)}, size={os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'}")
-    
-    if not os.path.exists(file_path):
-        logger.error(f"File not found for download: {file_path}")
-        abort(404, description="File does not exist")
-    
-    logger.info(f"Serving file: {file_path}")
-    return send_file(file_path, as_attachment=True)
-
 # Chunk 1 ends
 
 # Chunk 2 starts
@@ -1998,18 +1969,28 @@ async def reset_defaults(message: types.Message):
 def download_file(filename):
     token = request.args.get('token')
     if token != DOWNLOAD_TOKEN:
+        logger.warning(f"Invalid download token: {token}, expected: {DOWNLOAD_TOKEN}")
         abort(403, description="Invalid or missing token")
+    
     allowed_files = [
         "public_ca_filter_log.csv",
         "vip_ca_filter_log.csv",
         "public_growthcheck_log.csv",
-        "vip_growthcheck_log.csv"
+        "vip_growthcheck_log.csv",
+        "monitored_tokens.csv"  # Added
     ]
     if filename not in allowed_files:
+        logger.error(f"Requested file {filename} not in allowed list")
         abort(404, description="File not found")
+    
     file_path = os.path.join("/app/data", filename)
+    logger.debug(f"Checking file at {file_path}: exists={os.path.exists(file_path)}, size={os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'}")
+    
     if not os.path.exists(file_path):
+        logger.error(f"File not found for download: {file_path}")
         abort(404, description="File does not exist")
+    
+    logger.info(f"Serving file: {file_path}")
     return send_file(file_path, as_attachment=True)
 
 def is_authorized(username):
