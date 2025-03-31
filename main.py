@@ -435,6 +435,36 @@ async def add_user(message: types.Message):
     additional_user_added = True
     await message.answer(f"Authorized user added: {new_user} ✅")
     logger.info(f"Authorized user added: {new_user}")
+    
+    
+    # In Chunk 1, update the Flask route (around line ~600)
+@app.route('/download/<filename>')
+def download_file(filename):
+    token = request.args.get('token')
+    if token != DOWNLOAD_TOKEN:
+        logger.warning(f"Invalid download token: {token}, expected: {DOWNLOAD_TOKEN}")
+        abort(403, description="Invalid or missing token")
+    
+    allowed_files = [
+        "public_ca_filter_log.csv",
+        "vip_ca_filter_log.csv",
+        "public_growthcheck_log.csv",
+        "vip_growthcheck_log.csv",
+        "monitored_tokens.csv"  # Added
+    ]
+    if filename not in allowed_files:
+        logger.error(f"Requested file {filename} not in allowed list")
+        abort(404, description="File not found")
+    
+    file_path = os.path.join("/app/data", filename)
+    logger.debug(f"Checking file at {file_path}: exists={os.path.exists(file_path)}, size={os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'}")
+    
+    if not os.path.exists(file_path):
+        logger.error(f"File not found for download: {file_path}")
+        abort(404, description="File does not exist")
+    
+    logger.info(f"Serving file: {file_path}")
+    return send_file(file_path, as_attachment=True)
 
 # Chunk 1 ends
 
@@ -565,53 +595,59 @@ class APISessionManager:
             lambda: func(*args, **kwargs)
         )
 
+    # In Chunk 2, update APISessionManager.fetch_token_data (around line ~300)
     async def fetch_token_data(self, mint_address):
-        logger.debug(f"Fetching data for mint_address: {mint_address}")
-        await self.randomize_session()
-        if not self.session:
-            logger.error("Cloudscraper session not initialized")
-            return {"error": "Cloudscraper session not initialized"}
+    logger.debug(f"Fetching data for mint_address: {mint_address}")
+    await self.randomize_session()
+    if not self.session:
+        logger.error("Cloudscraper session not initialized")
+        return {"error": "Cloudscraper session not initialized"}
+    
+    self._session_requests += 1
+    url = f"{self.base_url}?q={mint_address}"
+    
+    for attempt in range(self.max_retries):
+        try:
+            response = await self._run_in_executor(
+                self.session.get,
+                url,
+                headers=self.headers_dict,
+                timeout=10
+            )
+            logger.debug(f"Attempt {attempt + 1} - Status: {response.status_code}")
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 403:
+                logger.warning(f"Attempt {attempt + 1} failed with 403: {response.text[:100]}...")
+                if "Just a moment" in response.text:
+                    logger.warning("Cloudflare challenge detected, rotating proxy")
+                    await self.randomize_session(force=True, use_proxy=True)
+            else:
+                logger.warning(f"Attempt {attempt + 1} failed with status {response.status_code}")
+        except Exception as e:
+            logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
         
-        self._session_requests += 1
-        url = f"{self.base_url}?q={mint_address}"
-        
-        for attempt in range(self.max_retries):
-            try:
-                response = await self._run_in_executor(
-                    self.session.get,
-                    url,
-                    headers=self.headers_dict
-                )
-                logger.debug(f"Attempt {attempt + 1} - Status: {response.status_code}, Headers: {response.headers}")
-                logger.debug(f"Raw response: {response.text}")
-                if response.status_code == 200:
-                    return response.json()
-                logger.warning(f"Attempt {attempt + 1} failed with status {response.status_code}. Response: {response.text}")
-            except Exception as e:
-                logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
-            if attempt < self.max_retries - 1:
-                await asyncio.sleep(self.retry_delay)
-        
-        if self.proxy_list:
-            logger.info("All proxy attempts failed, trying without proxy as final fallback")
-            await self.randomize_session(force=True, use_proxy=False)
-            try:
-                response = await self._run_in_executor(
-                    self.session.get,
-                    url,
-                    headers=self.headers_dict
-                )
-                logger.debug(f"Fallback attempt - Status: {response.status_code}, Headers: {response.headers}")
-                logger.debug(f"Fallback raw response: {response.text}")
-                if response.status_code == 200:
-                    return response.json()
-                logger.warning(f"Request without proxy failed with status {response.status_code}. Response: {response.text}")
-            except Exception as e:
-                logger.error(f"Final attempt without proxy failed: {str(e)}")
-        
-        logger.error("Failed to fetch data after retries")
-        return {"error": "Failed to fetch data after retries."}
-
+        if attempt < self.max_retries - 1:
+            await asyncio.sleep(self.retry_delay * (2 ** attempt))  # Exponential backoff
+    
+    logger.info("All proxy attempts failed, trying without proxy")
+    await self.randomize_session(force=True, use_proxy=False)
+    try:
+        response = await self._run_in_executor(
+            self.session.get,
+            url,
+            headers=self.headers_dict,
+            timeout=10
+        )
+        if response.status_code == 200:
+            return response.json()
+        logger.warning(f"Fallback failed with status {response.status_code}")
+    except Exception as e:
+        logger.error(f"Final attempt failed: {str(e)}")
+    
+    logger.error(f"Failed to fetch data for {mint_address} after {self.max_retries} attempts")
+    return {"error": "Failed to fetch data after retries"}
+    
 api_session_manager = APISessionManager()
 
 def format_market_cap(market_cap: float) -> str:
@@ -1071,6 +1107,7 @@ def calculate_time_since(timestamp):
     remaining_minutes = minutes % 60
     return f"{hours}h:{remaining_minutes:02d}m"
 
+# In Chunk 4, update growthcheck (around line ~800)
 async def growthcheck() -> None:
     current_time = datetime.now(pytz.timezone('America/New_York'))
     to_remove = []
@@ -1087,7 +1124,6 @@ async def growthcheck() -> None:
         is_vip_channel = chat_id in VIP_CHANNEL_IDS
         is_public_channel = chat_id in PUBLIC_CHANNEL_IDS
 
-        # Only process VIP and Public channels
         if not (is_vip_channel or is_public_channel):
             logger.debug(f"Skipping CA {ca} in chat {chat_id} (not VIP or Public)")
             continue
@@ -1126,31 +1162,46 @@ async def growthcheck() -> None:
             last_growth_ratios[ca] = growth_ratio
 
             time_since_added = calculate_time_since(timestamp)
-            initial_mc_val = initial_mc / 1000
-            current_mc_val = current_mc / 1000
+            initial_mc_val = initial_mc  # Keep in raw form for consistency
+            current_mc_val = current_mc
 
-            initial_mc_str = f"**{initial_mc_val / 1000:.1f}M**" if initial_mc_val >= 1000 else f"**{initial_mc_val:.1f}K**"
-            current_mc_str = f"**{current_mc_val / 1000:.1f}M**" if current_mc_val >= 1000 else f"**{current_mc_val:.1f}K**"
-            growth_ratio_str = f"**{growth_ratio:.1f}**"
-            time_str = f"**{time_since_added}**"
+            initial_mc_str = f"{initial_mc_val / 1000:.1f}K" if initial_mc_val < 1_000_000 else f"{initial_mc_val / 1_000_000:.1f}M"
+            current_mc_str = f"{current_mc_val / 1000:.1f}K" if current_mc_val < 1_000_000 else f"{current_mc_val / 1_000_000:.1f}M"
+            growth_ratio_str = f"{growth_ratio:.1f}"
 
             vip_growth_str = ""
             if is_public_channel and f"{ca}:{list(VIP_CHANNEL_IDS)[0]}" in monitored_tokens:
                 vip_data = monitored_tokens[f"{ca}:{list(VIP_CHANNEL_IDS)[0]}"]
                 vip_initial_mc = vip_data["initial_mc"]
                 vip_growth_ratio = current_mc / vip_initial_mc if vip_initial_mc != 0 else 0
-                vip_growth_str = f"(**{vip_growth_ratio:.1f}**x from VIP)"
+                vip_growth_str = f"({vip_growth_ratio:.1f}x from VIP)"
                 logger.debug(f"CA {ca} found in VIP, vip_growth_ratio: {vip_growth_ratio:.2f}")
 
             emoji = "🚀" if 2 <= growth_ratio < 5 else "🔥" if 5 <= growth_ratio < 10 else "🌙"
-            growth_message = f"{emoji} {growth_ratio_str}x{vip_growth_str} | 💹From {initial_mc_str} ↗️ {current_mc_str} within {time_str}"
+            growth_message = (
+                f"{emoji} {growth_ratio_str}x{vip_growth_str} | "
+                f"💹From {initial_mc_str} ↗️ {current_mc_str} within {time_since_added}\n"
+                f"🔗 CA: `{ca}`"
+            )
 
-            log_to_growthcheck_csv(chat_id=chat_id, channel_id=chat_id, message_id=message_id, token_name=token_name, ca=ca, original_mc=initial_mc, current_mc=current_mc, growth_ratio=growth_ratio, profit_percent=profit_percent, time_since_added=time_since_added, is_vip_channel=is_vip_channel)
-            log_to_csv(ca=ca, token_name=token_name, bs_ratio=None, bs_ratio_pass=None, check_low_pass=None, dev_sold=None, dev_sold_left_value=None, dev_sold_pass=None, top_10=None, top_10_pass=None, snipers=None, snipers_pass=None, bundles=None, bundles_pass=None, insiders=None, insiders_pass=None, kols=None, kols_pass=None, bonding_curve=None, bc_pass=None, overall_pass=None, original_mc=initial_mc, current_mc=current_mc, growth_ratio=growth_ratio, is_vip_channel=is_vip_channel)
+            log_to_growthcheck_csv(chat_id=chat_id, channel_id=chat_id, message_id=message_id, 
+                                 token_name=token_name, ca=ca, original_mc=initial_mc, 
+                                 current_mc=current_mc, growth_ratio=growth_ratio, 
+                                 profit_percent=profit_percent, time_since_added=time_since_added, 
+                                 is_vip_channel=is_vip_channel)
+            log_to_csv(ca=ca, token_name=token_name, bs_ratio=None, bs_ratio_pass=None, 
+                      check_low_pass=None, dev_sold=None, dev_sold_left_value=None, 
+                      dev_sold_pass=None, top_10=None, top_10_pass=None, snipers=None, 
+                      snipers_pass=None, bundles=None, bundles_pass=None, insiders=None, 
+                      insiders_pass=None, kols=None, kols_pass=None, bonding_curve=None, 
+                      bc_pass=None, overall_pass=None, original_mc=initial_mc, 
+                      current_mc=current_mc, growth_ratio=growth_ratio, 
+                      is_vip_channel=is_vip_channel)
 
             if growth_notifications_enabled:
                 try:
-                    await bot.send_message(chat_id=chat_id, text=growth_message, parse_mode="Markdown", reply_to_message_id=message_id)
+                    await bot.send_message(chat_id=chat_id, text=growth_message, 
+                                        parse_mode="Markdown", reply_to_message_id=message_id)
                     logger.info(f"Sent growth notification for CA {ca} in chat {chat_id}: {growth_message}")
                 except Exception as e:
                     logger.error(f"Failed to send growth notification for CA {ca}: {e}")
@@ -1752,6 +1803,35 @@ async def download_growth_csv_command(message: types.Message):
     
     await message.answer(response, parse_mode="Markdown")
     logger.info(f"Provided growth check CSV download links to @{username}")
+    
+    
+    # Add new command in Chunk 6a (after /downloadgrowthcsv, around line ~1300)
+@dp.message(Command(commands=["downloadmonitoredtokens"]))
+async def download_monitored_tokens(message: types.Message) -> None:
+    username = message.from_user.username
+    logger.info(f"Received /downloadmonitoredtokens command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ You are not authorized to use this command.")
+        logger.info(f"Unauthorized /downloadmonitoredtokens attempt by @{username}")
+        return
+    
+    base_url = os.getenv("RAILWAY_PUBLIC_DOMAIN", "http://localhost:5000")
+    if base_url == "http://localhost:5000" and "RAILWAY_PUBLIC_DOMAIN" not in os.environ:
+        logger.warning("RAILWAY_PUBLIC_DOMAIN not set, using localhost:5000 (this won't work on Railway)")
+    download_url = f"{base_url}/download/monitored_tokens.csv?token={DOWNLOAD_TOKEN}"
+    
+    file_path = MONITORED_TOKENS_CSV_FILE  # "/app/data/monitored_tokens.csv"
+    logger.debug(f"Checking file before generating URL: {file_path}, exists={os.path.exists(file_path)}")
+    if not os.path.exists(file_path):
+        await message.reply("⚠️ No monitored_tokens.csv file exists yet. Process some 'Fasol' messages to generate data.")
+        logger.info(f"monitored_tokens.csv not found at {file_path} for /downloadmonitoredtokens")
+        return
+    
+    await message.reply(
+        f"Click the link to download or view the monitored tokens CSV file:\n{download_url}\n"
+        "Note: This link is private and should not be shared."
+    )
+    logger.info(f"Provided monitored_tokens.csv download link to @{username}: {download_url}")
 
 # Chunk 6a ends
 
@@ -1967,6 +2047,7 @@ async def on_startup():
         BotCommand(command="growthnotify", description="Enable/disable growth notifications (Yes/No)"),
         BotCommand(command="mastersetup", description="Display all current filter settings"),
         BotCommand(command="resetdefaults", description="Reset all settings to default values")
+        BotCommand(command="downloadmonitoredtokens", description="Get link to download monitored tokens CSV"),
     ]
     try:
         await bot.set_my_commands(commands)
