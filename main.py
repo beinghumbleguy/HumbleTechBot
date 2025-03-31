@@ -2045,8 +2045,8 @@ async def on_startup():
         BotCommand(command="downloadgrowthcsv", description="Get link to download growth check CSV log"),
         BotCommand(command="growthnotify", description="Enable/disable growth notifications (Yes/No)"),
         BotCommand(command="mastersetup", description="Display all current filter settings"),
-        BotCommand(command="resetdefaults", description="Reset all settings to default values")
-        BotCommand(command="downloadmonitoredtokens", description="Get link to download monitored tokens CSV"),
+        BotCommand(command="resetdefaults", description="Reset all settings to default values"),
+        BotCommand(command="downloadmonitoredtokens", description="Get link to download monitored tokens CSV")
     ]
     try:
         await bot.set_my_commands(commands)
