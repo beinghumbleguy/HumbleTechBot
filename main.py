@@ -131,7 +131,7 @@ BondingCurveFilterEnabled = True
 
 # Growth check variables
 growth_notifications_enabled = True
-GROWTH_THRESHOLD = 2.0
+GROWTH_THRESHOLD = 1.5
 INCREMENT_THRESHOLD = 1.0
 CHECK_INTERVAL = 30  # Changed to 15 seconds from 300
 MONITORING_DURATION = 21600  # 6 hours in seconds
