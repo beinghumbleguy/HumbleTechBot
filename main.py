@@ -721,6 +721,7 @@ from aiogram import types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, MessageEntity
 from aiogram import F
+import re
 
 VIP_CHANNEL_IDS = {-1002365061913}
 PUBLIC_CHANNEL_IDS = {-1002272066154}
@@ -769,43 +770,43 @@ async def process_message(message: types.Message) -> None:
             logger.error(f"Failed to parse market cap '{mc_str}': {str(e)}")
 
     if has_fasol:
-    logger.info(f"Processing 'Fasol' message in chat {chat_id} (type: {message.chat.type})")
-    ca_index = text.find(ca)
-    if ca_index != -1:
-        details = text[:ca_index].strip()
-    else:
-        details = text.split('\n')[:5]
-        details = '\n'.join(details).strip()
+        logger.info(f"Processing 'Fasol' message in chat {chat_id} (type: {message.chat.type})")
+        ca_index = text.find(ca)
+        if ca_index != -1:
+            details = text[:ca_index].strip()
+        else:
+            details = text.split('\n')[:5]
+            details = '\n'.join(details).strip()
 
-    # Extract token symbol (assumes format like "$SYMBOL" at the start of details)
-    token_symbol_match = re.search(r'\$[A-Za-z0-9]+', details)
-    token_symbol = token_symbol_match.group(0) if token_symbol_match else "$Unknown"
-    
-    # Create hyperlink for token symbol to pump.fun
-    pump_fun_url = f"https://pump.fun/coin/{ca}"
-    hyperlinked_symbol = f"[{token_symbol}]({pump_fun_url})"
-    
-    # Replace the plain token symbol in details with the hyperlinked version
-    if token_symbol_match:
-        details = details.replace(token_symbol, hyperlinked_symbol)
-    
-    output_text = f"{details}\n🔗 CA: `{ca}`"  # New text without "Fasol"
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🌟🚀 Join VIP 🚀🌟", url="https://t.me/HumbleMoonshotsPay_bot?start=start")]
-        if not is_vip_channel else [],
-        [
-            InlineKeyboardButton(text="Fasol", url=f"https://t.me/fasol_robot?start=ref_humbleguy_ca_{ca}"),
-            InlineKeyboardButton(text="Bloom", url=f"https://t.me/BloomSolana_bot?start=ref_humbleguy_ca_{ca}")
-        ],
-        #[
-        #    InlineKeyboardButton(text="Maestro", url=f"http://t.me/maestro?start={ca}-beinghumbleguy"),
-        #    InlineKeyboardButton(text="Trojan", url=f"https://t.me/solana_trojanbot?start=r-beinghumbleguy-{ca}")
-        #],
-        [
-            InlineKeyboardButton(text="Photon", url=f"https://photon-sol.tinyastro.io/en/r/@humbleguy/{ca}"),
-            InlineKeyboardButton(text="Axiom", url=f"https://axiom.trade/t/{ca}/@humbleguy")
-        ]
-    ])
+        # Extract token symbol (assumes format like "$SYMBOL" at the start of details)
+        token_symbol_match = re.search(r'\$[A-Za-z0-9]+', details)
+        token_symbol = token_symbol_match.group(0) if token_symbol_match else "$Unknown"
+        
+        # Create hyperlink for token symbol to pump.fun
+        pump_fun_url = f"https://pump.fun/coin/{ca}"
+        hyperlinked_symbol = f"[{token_symbol}]({pump_fun_url})"
+        
+        # Replace the plain token symbol in details with the hyperlinked version
+        if token_symbol_match:
+            details = details.replace(token_symbol, hyperlinked_symbol)
+        
+        output_text = f"{details}\n🔗 CA: `{ca}`"  # New text without "Fasol"
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🌟🚀 Join VIP 🚀🌟", url="https://t.me/HumbleMoonshotsPay_bot?start=start")]
+            if not is_vip_channel else [],
+            [
+                InlineKeyboardButton(text="Fasol", url=f"https://t.me/fasol_robot?start=ref_humbleguy_ca_{ca}"),
+                InlineKeyboardButton(text="Bloom", url=f"https://t.me/BloomSolana_bot?start=ref_humbleguy_ca_{ca}")
+            ],
+            #[
+            #    InlineKeyboardButton(text="Maestro", url=f"http://t.me/maestro?start={ca}-beinghumbleguy"),
+            #    InlineKeyboardButton(text="Trojan", url=f"https://t.me/solana_trojanbot?start=r-beinghumbleguy-{ca}")
+            #],
+            [
+                InlineKeyboardButton(text="Photon", url=f"https://photon-sol.tinyastro.io/en/r/@humbleguy/{ca}"),
+                InlineKeyboardButton(text="Axiom", url=f"https://axiom.trade/t/{ca}/@humbleguy")
+            ]
+        ])
 
         # Growth monitoring happens BEFORE editing
         if is_vip_channel or is_public_channel:
