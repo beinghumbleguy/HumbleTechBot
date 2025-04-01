@@ -863,16 +863,28 @@ async def process_message(message: types.Message) -> None:
                 text=output_text,
                 reply_markup=keyboard,
                 parse_mode="Markdown",
-                disable_web_page_preview=True
+                disable_web_page_preview=False  # Enable link previews
             )
             logger.info(f"Edited original message with trading buttons for CA {ca} in chat {chat_id}")
         except Exception as e:
             logger.warning(f"Failed to edit message {message_id} in chat {chat_id}: {e}")
             try:
                 if message.chat.type == "channel":
-                    final_msg = await bot.send_message(chat_id=chat_id, text=output_text, reply_markup=keyboard, parse_mode="Markdown", disable_web_page_preview=True)
+                    final_msg = await bot.send_message(
+                        chat_id=chat_id,
+                        text=output_text,
+                        reply_markup=keyboard,
+                        parse_mode="Markdown",
+                        disable_web_page_preview=False  # Enable link previews
+                    )
                 else:
-                    final_msg = await message.reply(text=output_text, reply_markup=keyboard, parse_mode="Markdown", reply_to_message_id=message_id, disable_web_page_preview=True)
+                    final_msg = await message.reply(
+                        text=output_text,
+                        reply_markup=keyboard,
+                        parse_mode="Markdown",
+                        reply_to_message_id=message_id,
+                        disable_web_page_preview=False  # Enable link previews
+                    )
                 logger.info(f"Posted new message with trading buttons for CA {ca} in chat {chat_id} (edit failed)")
                 try:
                     await bot.delete_message(chat_id=chat_id, message_id=message_id)
@@ -885,7 +897,6 @@ async def process_message(message: types.Message) -> None:
         return
 
 # Chunk 3a ends
-
 # Chunk 3b starts
     if not has_early:
         logger.debug("No 'Early' keyword found, skipping filter logic")
