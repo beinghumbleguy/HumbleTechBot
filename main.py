@@ -50,7 +50,6 @@ logger.addFilter(SuppressRawUpdateFilter())
 logger.info(f"Using Aiogram version: {aiogram.__version__}")
 
 # Chunk 1 starts
-# Chunk 1 starts
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, BotCommand
 from aiogram.filters import Command, BaseFilter
@@ -159,9 +158,12 @@ token_data_cache = TTLCache(maxsize=1000, ttl=3600)
 # Initialize CSV files with headers
 def init_csv():
     data_dir = "/app/data"
-    if not os.path.exists(data_dir):
+    try:
         os.makedirs(data_dir, exist_ok=True)
-        logger.info(f"Created directory: {data_dir}")
+        logger.info(f"Ensured directory exists: {data_dir}")
+    except Exception as e:
+        logger.error(f"Failed to create directory {data_dir}: {str(e)}")
+        raise
 
     for csv_file in [PUBLIC_CSV_FILE, VIP_CSV_FILE]:
         if not os.path.exists(csv_file):
@@ -174,8 +176,8 @@ def init_csv():
                     "KOLs", "Kols_Pass", "BondingCurve", "BCPass", "Overall_Pass", 
                     "OriginalMC", "CurrentMC", "GrowthRatio"
                 ])
-            logger.info(f"Created filter CSV file: {csv_file}")
-            
+            logger.info(f"Initialized filter CSV file: {csv_file}")
+
     for csv_file in [PUBLIC_GROWTH_CSV_FILE, VIP_GROWTH_CSV_FILE]:
         if not os.path.exists(csv_file):
             with open(csv_file, mode='w', newline='', encoding='utf-8') as f:
@@ -184,13 +186,33 @@ def init_csv():
                     "Timestamp", "ChatID", "ChannelID", "MessageID", "TokenName", "CA",
                     "OriginalMC", "CurrentMC", "GrowthRatio", "ProfitPercent", "TimeSinceAdded"
                 ])
-            logger.info(f"Created growth check CSV file: {csv_file}")
+            logger.info(f"Initialized growth check CSV file: {csv_file}")
 
+    # Enhanced initialization for monitored_tokens.csv
     if not os.path.exists(MONITORED_TOKENS_CSV_FILE):
-        with open(MONITORED_TOKENS_CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow(["CA:ChatID", "TokenName", "InitialMC", "PeakMC", "Timestamp", "MessageID", "ChatID"])
-        logger.info(f"Created monitored tokens CSV file: {MONITORED_TOKENS_CSV_FILE}")
+        try:
+            with open(MONITORED_TOKENS_CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(["CA:ChatID", "TokenName", "InitialMC", "PeakMC", "Timestamp", "MessageID", "ChatID"])
+            logger.info(f"Initialized monitored tokens CSV file: {MONITORED_TOKENS_CSV_FILE}")
+        except Exception as e:
+            logger.error(f"Failed to initialize {MONITORED_TOKENS_CSV_FILE}: {str(e)}")
+            raise
+    else:
+        # Ensure file is readable and has headers
+        try:
+            with open(MONITORED_TOKENS_CSV_FILE, mode='r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                headers = next(reader, None)
+                if not headers or headers != ["CA:ChatID", "TokenName", "InitialMC", "PeakMC", "Timestamp", "MessageID", "ChatID"]:
+                    logger.warning(f"Invalid headers in {MONITORED_TOKENS_CSV_FILE}, reinitializing")
+                    with open(MONITORED_TOKENS_CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
+                        writer = csv.writer(f)
+                        writer.writerow(["CA:ChatID", "TokenName", "InitialMC", "PeakMC", "Timestamp", "MessageID", "ChatID"])
+                    logger.info(f"Reinitialized {MONITORED_TOKENS_CSV_FILE} with correct headers")
+        except Exception as e:
+            logger.error(f"Error checking {MONITORED_TOKENS_CSV_FILE}: {str(e)}")
+            raise
 
 # Load monitored tokens from CSV
 def load_monitored_tokens():
@@ -1063,6 +1085,7 @@ async def handle_channel_post(message: types.Message) -> None:
 # Chunk 3 ends
 
 # Chunk 4 starts
+
 # Helper function to calculate time since a timestamp
 def calculate_time_since(timestamp):
     current_time = datetime.now(pytz.timezone('America/New_York'))
@@ -1077,37 +1100,21 @@ def calculate_time_since(timestamp):
     remaining_minutes = minutes % 60
     return f"{hours}h:{remaining_minutes:02d}m"
 
-# In Chunk 4, update growthcheck (around line ~800)
 async def growthcheck() -> None:
     current_time = datetime.now(pytz.timezone('America/New_York'))
     to_remove = []
-    logger.debug(f"Starting growthcheck with monitored_tokens: {monitored_tokens}")
+    logger.debug(f"Starting growthcheck with monitored_tokens: {len(monitored_tokens)} tokens")
 
-    for key, data in monitored_tokens.items():
+    # Group tokens by CA for cross-channel comparison
+    tokens_by_ca = {}
+    for key in monitored_tokens:
         ca, chat_id = key.split(':')
         chat_id = int(chat_id)
-        token_name = data["token_name"]
-        initial_mc = data["initial_mc"]
-        peak_mc = data.get("peak_mc", initial_mc)
-        timestamp = data["timestamp"]
-        message_id = data["message_id"]
-        is_vip_channel = chat_id in VIP_CHANNEL_IDS
-        is_public_channel = chat_id in PUBLIC_CHANNEL_IDS
+        if ca not in tokens_by_ca:
+            tokens_by_ca[ca] = {}
+        tokens_by_ca[ca][chat_id] = monitored_tokens[key]
 
-        if not (is_vip_channel or is_public_channel):
-            logger.debug(f"Skipping CA {ca} in chat {chat_id} (not VIP or Public)")
-            continue
-
-        logger.debug(f"Processing CA {ca} in chat {chat_id} (VIP: {is_vip_channel}, Public: {is_public_channel})")
-
-        token_time = datetime.fromtimestamp(timestamp, pytz.timezone('America/New_York'))
-        time_diff = (current_time - token_time).total_seconds() / 3600
-
-        if time_diff > 6:
-            to_remove.append(key)
-            logger.debug(f"CA {ca} expired (time_diff: {time_diff:.2f}h)")
-            continue
-
+    for ca, channel_data in tokens_by_ca.items():
         token_data = await get_token_market_cap(ca)
         if "error" in token_data:
             logger.debug(f"Skipping CA {ca} due to API error: {token_data['error']}")
@@ -1117,71 +1124,117 @@ async def growthcheck() -> None:
             logger.debug(f"Skipping CA {ca} due to invalid current_mc: {current_mc}")
             continue
 
-        if current_mc > peak_mc:
-            monitored_tokens[key]["peak_mc"] = current_mc
-            save_monitored_tokens()
-            logger.debug(f"Updated peak_mc for CA {ca} to {current_mc}")
+        # Process each channel (VIP and Public) independently
+        vip_chat_id = list(VIP_CHANNEL_IDS)[0] if VIP_CHANNEL_IDS else None
+        public_chat_id = list(PUBLIC_CHANNEL_IDS)[0] if PUBLIC_CHANNEL_IDS else None
 
-        growth_ratio = current_mc / initial_mc if initial_mc != 0 else 0
-        profit_percent = ((current_mc - initial_mc) / initial_mc) * 100 if initial_mc != 0 else 0
-        logger.debug(f"CA {ca} growth_ratio: {growth_ratio:.2f}, initial_mc: {initial_mc}, current_mc: {current_mc}")
+        vip_data = channel_data.get(vip_chat_id) if vip_chat_id else None
+        public_data = channel_data.get(public_chat_id) if public_chat_id else None
 
-        last_growth_ratio = last_growth_ratios.get(ca, 1.0)
-        next_threshold = int(last_growth_ratio) + INCREMENT_THRESHOLD
-        if growth_ratio >= GROWTH_THRESHOLD and growth_ratio >= next_threshold:
-            last_growth_ratios[ca] = growth_ratio
+        # Calculate growth ratios
+        vip_growth_ratio = None
+        public_growth_ratio = None
 
-            time_since_added = calculate_time_since(timestamp)
-            initial_mc_val = initial_mc  # Keep in raw form for consistency
-            current_mc_val = current_mc
+        if vip_data:
+            vip_initial_mc = vip_data["initial_mc"]
+            vip_growth_ratio = current_mc / vip_initial_mc if vip_initial_mc != 0 else 0
+            if current_mc > vip_data.get("peak_mc", vip_initial_mc):
+                monitored_tokens[f"{ca}:{vip_chat_id}"]["peak_mc"] = current_mc
+                save_monitored_tokens()
+                logger.debug(f"Updated peak_mc for CA {ca} in VIP to {current_mc}")
 
-            initial_mc_str = f"{initial_mc_val / 1000:.1f}K" if initial_mc_val < 1_000_000 else f"{initial_mc_val / 1_000_000:.1f}M"
-            current_mc_str = f"{current_mc_val / 1000:.1f}K" if current_mc_val < 1_000_000 else f"{current_mc_val / 1_000_000:.1f}M"
-            growth_ratio_str = f"{growth_ratio:.1f}"
+        if public_data:
+            public_initial_mc = public_data["initial_mc"]
+            public_growth_ratio = current_mc / public_initial_mc if public_initial_mc != 0 else 0
+            if current_mc > public_data.get("peak_mc", public_initial_mc):
+                monitored_tokens[f"{ca}:{public_chat_id}"]["peak_mc"] = current_mc
+                save_monitored_tokens()
+                logger.debug(f"Updated peak_mc for CA {ca} in Public to {current_mc}")
 
-            vip_growth_str = ""
-            if is_public_channel and f"{ca}:{list(VIP_CHANNEL_IDS)[0]}" in monitored_tokens:
-                vip_data = monitored_tokens[f"{ca}:{list(VIP_CHANNEL_IDS)[0]}"]
-                vip_initial_mc = vip_data["initial_mc"]
-                vip_growth_ratio = current_mc / vip_initial_mc if vip_initial_mc != 0 else 0
-                vip_growth_str = f"({vip_growth_ratio:.1f}x from VIP)"
-                logger.debug(f"CA {ca} found in VIP, vip_growth_ratio: {vip_growth_ratio:.2f}")
+        # Check expiration and process notifications
+        for chat_id, data in channel_data.items():
+            token_time = datetime.fromtimestamp(data["timestamp"], pytz.timezone('America/New_York'))
+            time_diff = (current_time - token_time).total_seconds() / 3600
+            if time_diff > 6:  # 6 hours
+                to_remove.append(f"{ca}:{chat_id}")
+                logger.debug(f"CA {ca} in chat {chat_id} expired (time_diff: {time_diff:.2f}h)")
+                continue
 
-            emoji = "🚀" if 2 <= growth_ratio < 5 else "🔥" if 5 <= growth_ratio < 10 else "🌙"
-            growth_message = (
-                f"{emoji} {growth_ratio_str}x{vip_growth_str} | "
-                f"💹From {initial_mc_str} ↗️ {current_mc_str} within {time_since_added}\n"
-                f"🔗 CA: `{ca}`"
-            )
+            # Skip if not VIP or Public
+            if chat_id not in VIP_CHANNEL_IDS and chat_id not in PUBLIC_CHANNEL_IDS:
+                logger.debug(f"Skipping CA {ca} in chat {chat_id} (not VIP or Public)")
+                continue
 
-            log_to_growthcheck_csv(chat_id=chat_id, channel_id=chat_id, message_id=message_id, 
-                                 token_name=token_name, ca=ca, original_mc=initial_mc, 
-                                 current_mc=current_mc, growth_ratio=growth_ratio, 
-                                 profit_percent=profit_percent, time_since_added=time_since_added, 
-                                 is_vip_channel=is_vip_channel)
-            log_to_csv(ca=ca, token_name=token_name, bs_ratio=None, bs_ratio_pass=None, 
-                      check_low_pass=None, dev_sold=None, dev_sold_left_value=None, 
-                      dev_sold_pass=None, top_10=None, top_10_pass=None, snipers=None, 
-                      snipers_pass=None, bundles=None, bundles_pass=None, insiders=None, 
-                      insiders_pass=None, kols=None, kols_pass=None, bonding_curve=None, 
-                      bc_pass=None, overall_pass=None, original_mc=initial_mc, 
-                      current_mc=current_mc, growth_ratio=growth_ratio, 
-                      is_vip_channel=is_vip_channel)
+            initial_mc = data["initial_mc"]
+            token_name = data["token_name"]
+            message_id = data["message_id"]
+            timestamp = data["timestamp"]
+            growth_ratio = current_mc / initial_mc if initial_mc != 0 else 0
+            profit_percent = ((current_mc - initial_mc) / initial_mc) * 100 if initial_mc != 0 else 0
 
-            if growth_notifications_enabled:
-                try:
-                    await bot.send_message(chat_id=chat_id, text=growth_message, 
-                                        parse_mode="Markdown", reply_to_message_id=message_id)
-                    logger.info(f"Sent growth notification for CA {ca} in chat {chat_id}: {growth_message}")
-                except Exception as e:
-                    logger.error(f"Failed to send growth notification for CA {ca}: {e}")
-            else:
-                logger.debug(f"Growth notification for CA {ca} not sent (notifications disabled)")
+            # Check notification threshold
+            key = f"{ca}:{chat_id}"
+            last_ratio = last_growth_ratios.get(key, 1.0)
+            next_threshold = int(last_ratio) + INCREMENT_THRESHOLD
 
+            if growth_ratio >= GROWTH_THRESHOLD and growth_ratio >= next_threshold:
+                last_growth_ratios[key] = growth_ratio
+                time_since_added = calculate_time_since(timestamp)
+                initial_mc_str = f"{initial_mc / 1000:.1f}K" if initial_mc < 1_000_000 else f"{initial_mc / 1_000_000:.1f}M"
+                current_mc_str = f"{current_mc / 1000:.1f}K" if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M"
+
+                # Determine emoji based on growth
+                emoji = "🚀" if 2 <= growth_ratio < 5 else "🔥" if 5 <= growth_ratio < 10 else "🌙"
+
+                # Base growth string
+                growth_str = f"{growth_ratio:.1f}x"
+
+                # Add VIP growth in parentheses for Public if VIP > Public
+                if chat_id in PUBLIC_CHANNEL_IDS and vip_data and vip_growth_ratio and public_growth_ratio and vip_growth_ratio > public_growth_ratio:
+                    growth_str += f"({vip_growth_ratio:.1f}x from VIP)"
+
+                # Compact notification template
+                growth_message = (
+                    f"{emoji} {growth_str} | "
+                    f"💹From {initial_mc_str} ↗️ {current_mc_str} within {time_since_added}"
+                )
+
+                # Log growth data
+                log_to_growthcheck_csv(
+                    chat_id=chat_id, channel_id=chat_id, message_id=message_id,
+                    token_name=token_name, ca=ca, original_mc=initial_mc,
+                    current_mc=current_mc, growth_ratio=growth_ratio,
+                    profit_percent=profit_percent, time_since_added=time_since_added,
+                    is_vip_channel=(chat_id in VIP_CHANNEL_IDS)
+                )
+                log_to_csv(
+                    ca=ca, token_name=token_name, bs_ratio=None, bs_ratio_pass=None,
+                    check_low_pass=None, dev_sold=None, dev_sold_left_value=None,
+                    dev_sold_pass=None, top_10=None, top_10_pass=None, snipers=None,
+                    snipers_pass=None, bundles=None, bundles_pass=None, insiders=None,
+                    insiders_pass=None, kols=None, kols_pass=None, bonding_curve=None,
+                    bc_pass=None, overall_pass=None, original_mc=initial_mc,
+                    current_mc=current_mc, growth_ratio=growth_ratio,
+                    is_vip_channel=(chat_id in VIP_CHANNEL_IDS)
+                )
+
+                # Send notification if enabled
+                if growth_notifications_enabled:
+                    try:
+                        await bot.send_message(
+                            chat_id=chat_id, text=growth_message,
+                            parse_mode="Markdown", reply_to_message_id=message_id
+                        )
+                        logger.info(f"Sent growth notification for CA {ca} in chat {chat_id}: {growth_message}")
+                    except Exception as e:
+                        logger.error(f"Failed to send growth notification for CA {ca} in chat {chat_id}: {e}")
+                else:
+                    logger.debug(f"Growth notification for CA {ca} in chat {chat_id} not sent (notifications disabled)")
+
+    # Remove expired tokens
     for key in to_remove:
         monitored_tokens.pop(key, None)
-        ca = key.split(':')[0]
-        last_growth_ratios.pop(ca, None)
+        last_growth_ratios.pop(key, None)
     if to_remove:
         save_monitored_tokens()
         logger.info(f"Removed {len(to_remove)} expired tokens from monitoring")
@@ -1790,18 +1843,30 @@ async def download_monitored_tokens(message: types.Message) -> None:
         logger.warning("RAILWAY_PUBLIC_DOMAIN not set, using localhost:5000 (this won't work on Railway)")
     download_url = f"{base_url}/download/monitored_tokens.csv?token={DOWNLOAD_TOKEN}"
     
-    file_path = MONITORED_TOKENS_CSV_FILE  # "/app/data/monitored_tokens.csv"
-    logger.debug(f"Checking file before generating URL: {file_path}, exists={os.path.exists(file_path)}")
-    if not os.path.exists(file_path):
-        await message.reply("⚠️ No monitored_tokens.csv file exists yet. Process some 'Fasol' messages to generate data.")
-        logger.info(f"monitored_tokens.csv not found at {file_path} for /downloadmonitoredtokens")
-        return
+    file_path = MONITORED_TOKENS_CSV_FILE
+    file_exists = os.path.exists(file_path)
+    file_size = os.path.getsize(file_path) if file_exists else 0
+    logger.debug(f"Checking file: {file_path}, exists={file_exists}, size={file_size} bytes")
     
-    await message.reply(
-        f"Click the link to download or view the monitored tokens CSV file:\n{download_url}\n"
-        "Note: This link is private and should not be shared."
-    )
-    logger.info(f"Provided monitored_tokens.csv download link to @{username}: {download_url}")
+    if not file_exists:
+        response = (
+            "⚠️ No `monitored_tokens.csv` file exists yet.\n"
+            "This file is generated when 'Fasol' messages are processed in VIP or Public channels.\n"
+            "Please post a 'Fasol' message (e.g., 'Fasol CA123 MC: $10K') in a monitored channel."
+        )
+    elif file_size <= len(','.join(["CA:ChatID", "TokenName", "InitialMC", "PeakMC", "Timestamp", "MessageID", "ChatID"]) + '\n'):
+        response = (
+            "⚠️ `monitored_tokens.csv` exists but is empty (only headers).\n"
+            "No tokens are being monitored yet. Post a 'Fasol' message in VIP/Public channels to populate it."
+        )
+    else:
+        response = (
+            f"Click the link to download or view the monitored tokens CSV file:\n{download_url}\n"
+            "Note: This link is private and should not be shared."
+        )
+    
+    await message.reply(response, parse_mode="Markdown")
+    logger.info(f"Responded to @{username} for /downloadmonitoredtokens: {response[:100]}...")
 
 # Chunk 6a ends
 
