@@ -460,7 +460,6 @@ async def add_user(message: types.Message):
     
     
 # Chunk 1 ends
-
 # Chunk 2 starts
 import cloudscraper
 import json
@@ -468,7 +467,7 @@ import time
 import asyncio
 import logging
 from fake_useragent import UserAgent
-from concurrent.futures import ThreadPoolExecutor  # Added for executor
+from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -477,13 +476,13 @@ class APISessionManager:
         self.session = None
         self._session_created_at = 0
         self._session_requests = 0
-        self._session_max_age = 3600
+        self._session_max_age = 3600  # 1 hour
         self._session_max_requests = 100
-        self.max_retries = 3
-        self.retry_delay = 5
-        self.base_url = "https://gmgn.ai/defi/quotation/v1/tokens/sol/search"  # New endpoint
+        self.max_retries = 5  # Increased from 3
+        self.retry_delay = 1  # Base delay for exponential backoff
+        self.base_url = "https://gmgn.ai/defi/quotation/v1/tokens/sol/search"
         
-        self._executor = ThreadPoolExecutor(max_workers=4)  # Initialized executor
+        self._executor = ThreadPoolExecutor(max_workers=4)
         self.ua = UserAgent()
 
         self.headers_dict = {
@@ -620,8 +619,11 @@ class APISessionManager:
                 logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
             
             if attempt < self.max_retries - 1:
-                await asyncio.sleep(self.retry_delay * (2 ** attempt))  # Exponential backoff
+                delay = self.retry_delay * (2 ** attempt)  # Exponential backoff: 1s, 2s, 4s, 8s, 16s
+                logger.debug(f"Backing off for {delay}s before retry {attempt + 2}")
+                await asyncio.sleep(delay)
         
+        # Fallback without proxy
         logger.info("All proxy attempts failed, trying without proxy")
         await self.randomize_session(force=True, use_proxy=False)
         try:
@@ -635,7 +637,7 @@ class APISessionManager:
                 return response.json()
             logger.warning(f"Fallback failed with status {response.status_code}")
         except Exception as e:
-            logger.error(f"Final attempt failed: {str(e)}")
+            logger.error(f"Final attempt without proxy failed: {str(e)}")
         
         logger.error(f"Failed to fetch data for {mint_address} after {self.max_retries} attempts")
         return {"error": "Failed to fetch data after retries"}
@@ -669,18 +671,13 @@ async def get_gmgn_token_data(mint_address):
             logger.warning(f"No valid token data in response: {token_data_raw}")
             return {"error": "No token data returned from API."}
         
-        token_info = token_data_raw["data"]["tokens"][0]  # Access "tokens" array
+        token_info = token_data_raw["data"]["tokens"][0]
         logger.debug(f"Token info for CA {mint_address}: {token_info}")
         
-        # Price extraction
         price = float(token_info.get("price", 0))
         token_data["price"] = str(price) if price != 0 else "N/A"
-        
-        # Total supply (used as circulating supply approximation)
         total_supply = float(token_info.get("total_supply", 0))
-        token_data["circulating_supply"] = total_supply  # Using total_supply since circulating_supply isn’t provided
-        
-        # Market cap calculation
+        token_data["circulating_supply"] = total_supply
         token_data["market_cap"] = price * total_supply
         token_data["market_cap_str"] = format_market_cap(token_data["market_cap"])
         token_data["liquidity"] = token_info.get("liquidity", "0")
@@ -706,7 +703,7 @@ async def get_token_market_cap(mint_address):
     try:
         if not token_data_raw or "data" not in token_data_raw or "tokens" not in token_data_raw["data"] or len(token_data_raw["data"]["tokens"]) == 0:
             logger.warning(f"No valid token data in response: {token_data_raw}")
-            return {"error": "No token data returned from API."}
+            return {"market_cap": 0}  # Return 0 instead of error to avoid skipping in growthcheck
         
         token_info = token_data_raw["data"]["tokens"][0]
         price = float(token_info.get("price", 0))
@@ -715,7 +712,7 @@ async def get_token_market_cap(mint_address):
         return {"market_cap": market_cap}
     except Exception as e:
         logger.error(f"Error fetching market cap for CA {mint_address}: {str(e)}")
-        return {"error": f"Network error: {str(e)}"}
+        return {"market_cap": 0}  # Fallback to 0 on parsing error
 
 # Chunk 2 ends
 # Chunk 3 starts
