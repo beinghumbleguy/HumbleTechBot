@@ -1082,8 +1082,6 @@ async def handle_channel_post(message: types.Message) -> None:
 # Chunk 3 ends
 
 # Chunk 4 starts
-
-# Helper function to calculate time since a timestamp
 def calculate_time_since(timestamp):
     current_time = datetime.now(pytz.timezone('America/New_York'))
     token_time = datetime.fromtimestamp(timestamp, pytz.timezone('America/New_York'))
@@ -1100,11 +1098,12 @@ def calculate_time_since(timestamp):
 async def growthcheck() -> None:
     current_time = datetime.now(pytz.timezone('America/New_York'))
     to_remove = []
+    peak_updates = {}
     logger.debug(f"Starting growthcheck with monitored_tokens: {len(monitored_tokens)} tokens")
 
     # Group tokens by CA for cross-channel comparison
     tokens_by_ca = {}
-    for key in monitored_tokens:
+    for key in list(monitored_tokens.keys()):
         ca, chat_id = key.split(':')
         chat_id = int(chat_id)
         if ca not in tokens_by_ca:
@@ -1136,17 +1135,15 @@ async def growthcheck() -> None:
             vip_initial_mc = vip_data["initial_mc"]
             vip_growth_ratio = current_mc / vip_initial_mc if vip_initial_mc != 0 else 0
             if current_mc > vip_data.get("peak_mc", vip_initial_mc):
-                monitored_tokens[f"{ca}:{vip_chat_id}"]["peak_mc"] = current_mc
-                save_monitored_tokens()
-                logger.debug(f"Updated peak_mc for CA {ca} in VIP to {current_mc}")
+                peak_updates[f"{ca}:{vip_chat_id}"] = current_mc
+                logger.debug(f"Queued peak_mc update for CA {ca} in VIP to {current_mc}")
 
         if public_data:
             public_initial_mc = public_data["initial_mc"]
             public_growth_ratio = current_mc / public_initial_mc if public_initial_mc != 0 else 0
             if current_mc > public_data.get("peak_mc", public_initial_mc):
-                monitored_tokens[f"{ca}:{public_chat_id}"]["peak_mc"] = current_mc
-                save_monitored_tokens()
-                logger.debug(f"Updated peak_mc for CA {ca} in Public to {current_mc}")
+                peak_updates[f"{ca}:{public_chat_id}"] = current_mc
+                logger.debug(f"Queued peak_mc update for CA {ca} in Public to {current_mc}")
 
         # Check expiration and process notifications
         for chat_id, data in channel_data.items():
@@ -1157,7 +1154,6 @@ async def growthcheck() -> None:
                 logger.debug(f"CA {ca} in chat {chat_id} expired (time_diff: {time_diff:.2f}h)")
                 continue
 
-            # Skip if not VIP or Public
             if chat_id not in VIP_CHANNEL_IDS and chat_id not in PUBLIC_CHANNEL_IDS:
                 logger.debug(f"Skipping CA {ca} in chat {chat_id} (not VIP or Public)")
                 continue
@@ -1177,26 +1173,19 @@ async def growthcheck() -> None:
             if growth_ratio >= GROWTH_THRESHOLD and growth_ratio >= next_threshold:
                 last_growth_ratios[key] = growth_ratio
                 time_since_added = calculate_time_since(timestamp)
-                initial_mc_str = f"{initial_mc / 1000:.1f}K" if initial_mc < 1_000_000 else f"{initial_mc / 1_000_000:.1f}M"
-                current_mc_str = f"{current_mc / 1000:.1f}K" if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M"
+                initial_mc_str = f"**{initial_mc / 1000:.1f}K**" if initial_mc < 1_000_000 else f"**{initial_mc / 1_000_000:.1f}M**"
+                current_mc_str = f"**{current_mc / 1000:.1f}K**" if current_mc < 1_000_000 else f"**{current_mc / 1_000_000:.1f}M**"
 
-                # Determine emoji based on growth
                 emoji = "🚀" if 2 <= growth_ratio < 5 else "🔥" if 5 <= growth_ratio < 10 else "🌙"
-
-                # Base growth string
-                growth_str = f"{growth_ratio:.1f}x"
-
-                # Add VIP growth in parentheses for Public if VIP > Public
+                growth_str = f"**{growth_ratio:.1f}x**"  # Bold growth ratio
                 if chat_id in PUBLIC_CHANNEL_IDS and vip_data and vip_growth_ratio and public_growth_ratio and vip_growth_ratio > public_growth_ratio:
-                    growth_str += f"({vip_growth_ratio:.1f}x from VIP)"
+                    growth_str += f"(**{vip_growth_ratio:.1f}x** from VIP)"  # Bold VIP growth ratio
 
-                # Compact notification template
                 growth_message = (
                     f"{emoji} {growth_str} | "
-                    f"💹From {initial_mc_str} ↗️ {current_mc_str} within {time_since_added}"
+                    f"💹From {initial_mc_str} ↗️ {current_mc_str} within **{time_since_added}**"
                 )
 
-                # Log growth data
                 log_to_growthcheck_csv(
                     chat_id=chat_id, channel_id=chat_id, message_id=message_id,
                     token_name=token_name, ca=ca, original_mc=initial_mc,
@@ -1215,7 +1204,6 @@ async def growthcheck() -> None:
                     is_vip_channel=(chat_id in VIP_CHANNEL_IDS)
                 )
 
-                # Send notification if enabled
                 if growth_notifications_enabled:
                     try:
                         await bot.send_message(
@@ -1225,16 +1213,16 @@ async def growthcheck() -> None:
                         logger.info(f"Sent growth notification for CA {ca} in chat {chat_id}: {growth_message}")
                     except Exception as e:
                         logger.error(f"Failed to send growth notification for CA {ca} in chat {chat_id}: {e}")
-                else:
-                    logger.debug(f"Growth notification for CA {ca} in chat {chat_id} not sent (notifications disabled)")
 
-    # Remove expired tokens
+    # Apply updates after iteration
+    for key, peak_mc in peak_updates.items():
+        monitored_tokens[key]["peak_mc"] = peak_mc
     for key in to_remove:
         monitored_tokens.pop(key, None)
         last_growth_ratios.pop(key, None)
-    if to_remove:
+    if peak_updates or to_remove:
         save_monitored_tokens()
-        logger.info(f"Removed {len(to_remove)} expired tokens from monitoring")
+        logger.info(f"Updated {len(peak_updates)} peak_mcs and removed {len(to_remove)} expired tokens")
 
 # Chunk 4 ends
 """
