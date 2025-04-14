@@ -1123,6 +1123,7 @@ async def growthcheck() -> None:
     current_time = datetime.now(pytz.timezone('America/New_York'))
     to_remove = []
     peak_updates = {}
+    notified_cas = set()  # Track CAs notified to avoid duplicates
     logger.debug(f"Starting growthcheck with monitored_tokens: {len(monitored_tokens)} tokens")
 
     # Group tokens by CA for cross-channel comparison
@@ -1189,7 +1190,30 @@ async def growthcheck() -> None:
             growth_ratio = current_mc / initial_mc if initial_mc != 0 else 0
             profit_percent = ((current_mc - initial_mc) / initial_mc) * 100 if initial_mc != 0 else 0
 
-            # Check notification threshold
+            # New logic: Notify group 2280798125 if growth ratio > 3x within 8 minutes
+            time_diff_seconds = (current_time - token_time).total_seconds()
+            if growth_ratio >= 3.0 and time_diff_seconds <= 480 and ca not in notified_cas:
+                group_chat_id = 2280798125
+                initial_mc_str = f"{initial_mc / 1000:.1f}K" if initial_mc < 1_000_000 else f"{initial_mc / 1_000_000:.1f}M"
+                current_mc_str = f"{current_mc / 1000:.1f}K" if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M"
+                time_since = calculate_time_since(timestamp)
+                notify_message = (
+                    f"🚀 **{token_name}** achieved {growth_ratio:.1f}x growth!\n"
+                    f"🔗 CA: `{ca}`\n"
+                    f"📈 From {initial_mc_str} to {current_mc_str} in {time_since}"
+                )
+                try:
+                    await bot.send_message(
+                        chat_id=group_chat_id,
+                        text=notify_message,
+                        parse_mode="Markdown"
+                    )
+                    logger.info(f"Notified group {group_chat_id} for CA {ca}: {growth_ratio:.1f}x in {time_since}")
+                    notified_cas.add(ca)  # Prevent duplicate notifications
+                except Exception as e:
+                    logger.error(f"Failed to notify group {group_chat_id} for CA {ca}: {e}")
+
+            # Existing notification logic
             key = f"{ca}:{chat_id}"
             last_ratio = last_growth_ratios.get(key, 1.0)
             next_threshold = int(last_ratio) + INCREMENT_THRESHOLD
