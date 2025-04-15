@@ -1195,15 +1195,16 @@ async def growthcheck() -> None:
             logger.debug(f"Checking 3x condition for CA {ca}: growth_ratio={growth_ratio:.2f}, time_diff={time_diff_seconds:.0f}s, notified={ca in notified_cas}")
             if growth_ratio >= 3.0 and time_diff_seconds <= 480 and ca not in notified_cas:
                 group_chat_id = -1002280798125
-                initial_mc_str = f"{initial_mc / 1000:.1f}K" if initial_mc < 1_000_000 else f"{initial_mc / 1_000_000:.1f}M"
-                current_mc_str = f"{current_mc / 1000:.1f}K" if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M"
+                initial_mc_str = f"{initial_mc / 1000:.1f}K".replace('.', '\\.') if initial_mc < 1_000_000 else f"{initial_mc / 1_000_000:.1f}M".replace('.', '\\.')
+                current_mc_str = f"{current_mc / 1000:.1f}K".replace('.', '\\.') if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M".replace('.', '\\.')
+                growth_ratio_str = f"{growth_ratio:.1f}x".replace('.', '\\.')
                 time_since = calculate_time_since(timestamp)
                 # Escape special characters for MarkdownV2
-                token_name_escaped = token_name.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('(', '\\(').replace(')', '\\)')
-                ca_escaped = ca.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('(', '\\(').replace(')', '\\)')
-                time_since_escaped = time_since.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]')
+                token_name_escaped = token_name.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('(', '\\(').replace(')', '\\)').replace('.', '\\.')
+                ca_escaped = ca.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('(', '\\(').replace(')', '\\)').replace('.', '\\.')
+                time_since_escaped = time_since.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('.', '\\.')
                 notify_message = (
-                    f"🚀 **{token_name_escaped}** achieved **{growth_ratio:.1f}x** growth!\n"
+                    f"🚀 **{token_name_escaped}** achieved **{growth_ratio_str}** growth!\n"
                     f"🔗 CA: `{ca_escaped}`\n"
                     f"📈 From **{initial_mc_str}** to **{current_mc_str}** in **{time_since_escaped}**"
                 )
@@ -1226,16 +1227,16 @@ async def growthcheck() -> None:
             if growth_ratio >= GROWTH_THRESHOLD and growth_ratio >= next_threshold:
                 last_growth_ratios[key] = growth_ratio
                 time_since_added = calculate_time_since(timestamp)
-                initial_mc_str = f"{initial_mc / 1000:.1f}K" if initial_mc < 1_000_000 else f"{initial_mc / 1_000_000:.1f}M"
-                current_mc_str = f"{current_mc / 1000:.1f}K" if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M"
+                initial_mc_str = f"{initial_mc / 1000:.1f}K".replace('.', '\\.') if initial_mc < 1_000_000 else f"{initial_mc / 1_000_000:.1f}M".replace('.', '\\.')
+                current_mc_str = f"{current_mc / 1000:.1f}K".replace('.', '\\.') if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M".replace('.', '\\.')
 
                 emoji = "🚀" if 2 <= growth_ratio < 5 else "🔥" if 5 <= growth_ratio < 10 else "🌙"
-                growth_str = f"**{growth_ratio:.1f}x**"
+                growth_str = f"**{growth_ratio:.1f}x**".replace('.', '\\.')
                 if chat_id in PUBLIC_CHANNEL_IDS and vip_data and vip_growth_ratio and public_growth_ratio and vip_growth_ratio > public_growth_ratio:
-                    growth_str += f"\\(**{vip_growth_ratio:.1f}x** from VIP\\)"  # Escape parentheses
+                    growth_str += f"\\(**{vip_growth_ratio:.1f}x** from VIP\\)".replace('.', '\\.')  # Escape parentheses and period
 
                 # Escape special characters in time_since_added
-                time_since_added_escaped = time_since_added.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]')
+                time_since_added_escaped = time_since_added.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('.', '\\.')
 
                 growth_message = (
                     f"{emoji} {growth_str} | "
