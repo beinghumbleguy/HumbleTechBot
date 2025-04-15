@@ -1190,10 +1190,10 @@ async def growthcheck() -> None:
             growth_ratio = current_mc / initial_mc if initial_mc != 0 else 0
             profit_percent = ((current_mc - initial_mc) / initial_mc) * 100 if initial_mc != 0 else 0
 
-            # New logic: Notify group 2280798125 if growth ratio > 3x within 8 minutes
+            # New logic: Notify group -1002280798125 if growth ratio > 3x within 8 minutes
             time_diff_seconds = (current_time - token_time).total_seconds()
             if growth_ratio >= 3.0 and time_diff_seconds <= 480 and ca not in notified_cas:
-                group_chat_id = 2280798125
+                group_chat_id = -1002280798125
                 initial_mc_str = f"{initial_mc / 1000:.1f}K" if initial_mc < 1_000_000 else f"{initial_mc / 1_000_000:.1f}M"
                 current_mc_str = f"{current_mc / 1000:.1f}K" if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M"
                 time_since = calculate_time_since(timestamp)
