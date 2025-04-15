@@ -1108,7 +1108,7 @@ async def handle_channel_post(message: types.Message) -> None:
 # Chunk 4 starts
 def calculate_time_since(timestamp):
     current_time = datetime.now(pytz.timezone('America/New_York'))
-    token_time = datetime.fromtimestamp(timestamp, pytz.timezone('America/New_York'))
+    token_time = datetime.fromtimestamp(timestamp, pytz.timezone('America_New_York'))
     diff_seconds = int((current_time - token_time).total_seconds())
     if diff_seconds < 60:
         return f"{diff_seconds}s"
@@ -1120,7 +1120,7 @@ def calculate_time_since(timestamp):
     return f"{hours}h:{remaining_minutes:02d}m"
 
 async def growthcheck() -> None:
-    current_time = datetime.now(pytz.timezone('America/New_York'))
+    current_time = datetime.now(pytz.timezone('America_New_York'))
     to_remove = []
     peak_updates = {}
     notified_cas = set()  # Track CAs notified to avoid duplicates
@@ -1174,7 +1174,7 @@ async def growthcheck() -> None:
 
         # Check expiration and process notifications
         for chat_id, data in channel_data.items():
-            token_time = datetime.fromtimestamp(data["timestamp"], pytz.timezone('America/New_York'))
+            token_time = datetime.fromtimestamp(data["timestamp"], pytz.timezone('America_New_York'))
             time_diff = (current_time - token_time).total_seconds() / 3600
             if time_diff > 6:  # 6 hours
                 to_remove.append(f"{ca}:{chat_id}")
@@ -1230,15 +1230,20 @@ async def growthcheck() -> None:
 
             # Regular growth notification to VIP/Public channels
             key = f"{ca}:{chat_id}"
-            last_ratio = last_growth_ratios.get(key, 1.0)
-            next_threshold = int(last_ratio) + INCREMENT_THRESHOLD
-            logger.debug(f"Checking growth notification for CA {ca} in chat {chat_id}: growth_ratio={growth_ratio:.2f}, GROWTH_THRESHOLD={GROWTH_THRESHOLD}, next_threshold={next_threshold}")
+            last_ratio = last_growth_ratios.get(key, 0.0)
+            if last_ratio > 10.0:  # Reset if unreasonably high
+                logger.warning(f"Resetting last_ratio for {key}: {last_ratio} too high")
+                last_ratio = 0.0
+            next_threshold = round(last_ratio + INCREMENT_THRESHOLD, 1)
+            if next_threshold < GROWTH_THRESHOLD:
+                next_threshold = GROWTH_THRESHOLD
+            logger.debug(f"Checking growth notification for CA {ca} in chat {chat_id}: growth_ratio={growth_ratio:.2f}, GROWTH_THRESHOLD={GROWTH_THRESHOLD}, last_ratio={last_ratio:.2f}, next_threshold={next_threshold:.2f}")
 
-            if growth_ratio >= GROWTH_THRESHOLD and growth_ratio >= next_threshold:
+            if growth_ratio >= next_threshold:
                 last_growth_ratios[key] = growth_ratio
                 time_since_added = calculate_time_since(timestamp)
                 initial_mc_str = f"{initial_mc / 1000:.1f}K".replace('.', '\\.') if initial_mc < 1_000_000 else f"{initial_mc / 1_000_000:.1f}M".replace('.', '\\.')
-                current_mc_str = f"{current_mc / 1000:.1f}K".replace('.', '\\.') if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M".replace('.', '\\.')
+                current_mc_str = f"{current_mc / 1000:.1f}K".replace('.', '\\.') if initial_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M".replace('.', '\\.')
 
                 emoji = "🚀" if 2 <= growth_ratio < 5 else "🔥" if 5 <= growth_ratio < 10 else "🌙"
                 growth_str = f"**{growth_ratio:.1f}x**".replace('.', '\\.')
