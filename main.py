@@ -1126,6 +1126,7 @@ async def growthcheck() -> None:
     notified_cas = set()  # Track CAs notified to avoid duplicates
     logger.debug(f"Starting growthcheck with monitored_tokens: {len(monitored_tokens)} tokens")
     logger.debug(f"Monitored tokens content: {monitored_tokens}")
+    logger.debug(f"last_growth_ratios: {last_growth_ratios}")
 
     # Group tokens by CA for cross-channel comparison
     tokens_by_ca = {}
@@ -1230,20 +1231,18 @@ async def growthcheck() -> None:
 
             # Regular growth notification to VIP/Public channels
             key = f"{ca}:{chat_id}"
-            last_ratio = last_growth_ratios.get(key, 0.0)
-            if last_ratio > 10.0:  # Reset if unreasonably high
-                logger.warning(f"Resetting last_ratio for {key}: {last_ratio} too high")
-                last_ratio = 0.0
+            last_ratio = last_growth_ratios.get(key, GROWTH_THRESHOLD)
+            if last_ratio > 5.0:  # Cap to prevent stale high thresholds
+                logger.warning(f"Capping last_ratio for {key}: {last_ratio} too high, setting to {GROWTH_THRESHOLD}")
+                last_ratio = GROWTH_THRESHOLD
             next_threshold = round(last_ratio + INCREMENT_THRESHOLD, 1)
-            if next_threshold < GROWTH_THRESHOLD:
-                next_threshold = GROWTH_THRESHOLD
             logger.debug(f"Checking growth notification for CA {ca} in chat {chat_id}: growth_ratio={growth_ratio:.2f}, GROWTH_THRESHOLD={GROWTH_THRESHOLD}, last_ratio={last_ratio:.2f}, next_threshold={next_threshold:.2f}")
 
             if growth_ratio >= next_threshold:
-                last_growth_ratios[key] = growth_ratio
+                last_growth_ratios[key] = next_threshold  # Update to threshold, not growth_ratio
                 time_since_added = calculate_time_since(timestamp)
                 initial_mc_str = f"{initial_mc / 1000:.1f}K".replace('.', '\\.') if initial_mc < 1_000_000 else f"{initial_mc / 1_000_000:.1f}M".replace('.', '\\.')
-                current_mc_str = f"{current_mc / 1000:.1f}K".replace('.', '\\.') if initial_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M".replace('.', '\\.')
+                current_mc_str = f"{current_mc / 1000:.1f}K".replace('.', '\\.') if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M".replace('.', '\\.')
 
                 emoji = "🚀" if 2 <= growth_ratio < 5 else "🔥" if 5 <= growth_ratio < 10 else "🌙"
                 growth_str = f"**{growth_ratio:.1f}x**".replace('.', '\\.')
