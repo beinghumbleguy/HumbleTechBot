@@ -1199,15 +1199,21 @@ async def growthcheck() -> None:
                 current_mc_str = f"{current_mc / 1000:.1f}K".replace('.', '\\.') if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M".replace('.', '\\.')
                 growth_ratio_str = f"{growth_ratio:.1f}x".replace('.', '\\.')
                 time_since = calculate_time_since(timestamp)
-                # Escape special characters for MarkdownV2
-                token_name_escaped = token_name.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('(', '\\(').replace(')', '\\)').replace('.', '\\.')
-                ca_escaped = ca.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('(', '\\(').replace(')', '\\)').replace('.', '\\.')
-                time_since_escaped = time_since.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('.', '\\.')
+                # Escape all MarkdownV2 reserved characters
+                reserved_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+                token_name_escaped = token_name
+                ca_escaped = ca
+                time_since_escaped = time_since
+                for char in reserved_chars:
+                    token_name_escaped = token_name_escaped.replace(char, f'\\{char}')
+                    ca_escaped = ca_escaped.replace(char, f'\\{char}')
+                    time_since_escaped = time_since_escaped.replace(char, f'\\{char}')
                 notify_message = (
                     f"🚀 **{token_name_escaped}** achieved **{growth_ratio_str}** growth!\n"
                     f"🔗 CA: `{ca_escaped}`\n"
                     f"📈 From **{initial_mc_str}** to **{current_mc_str}** in **{time_since_escaped}**"
                 )
+                logger.debug(f"Preparing 3x notification for CA {ca}: {notify_message}")
                 try:
                     await bot.send_message(
                         chat_id=group_chat_id,
@@ -1236,12 +1242,15 @@ async def growthcheck() -> None:
                     growth_str += f"\\(**{vip_growth_ratio:.1f}x** from VIP\\)".replace('.', '\\.')  # Escape parentheses and period
 
                 # Escape special characters in time_since_added
-                time_since_added_escaped = time_since_added.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('.', '\\.')
+                time_since_added_escaped = time_since_added
+                for char in reserved_chars:
+                    time_since_added_escaped = time_since_added_escaped.replace(char, f'\\{char}')
 
                 growth_message = (
-                    f"{emoji} {growth_str} | "
+                    f"{emoji} {growth_str} \| "  # Escape the pipe character
                     f"💹From **{initial_mc_str}** ↗️ **{current_mc_str}** within **{time_since_added_escaped}**"
                 )
+                logger.debug(f"Preparing growth notification for CA {ca}: {growth_message}")
 
                 log_to_growthcheck_csv(
                     chat_id=chat_id, channel_id=chat_id, message_id=message_id,
