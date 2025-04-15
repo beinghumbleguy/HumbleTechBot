@@ -1214,54 +1214,58 @@ async def growthcheck() -> None:
                     logger.error(f"Failed to notify group {group_chat_id} for CA {ca}: {e}")
 
             # Existing notification logic
-            key = f"{ca}:{chat_id}"
-            last_ratio = last_growth_ratios.get(key, 1.0)
-            next_threshold = int(last_ratio) + INCREMENT_THRESHOLD
+key = f"{ca}:{chat_id}"
+last_ratio = last_growth_ratios.get(key, 1.0)
+next_threshold = int(last_ratio) + INCREMENT_THRESHOLD
 
-            if growth_ratio >= GROWTH_THRESHOLD and growth_ratio >= next_threshold:
-                last_growth_ratios[key] = growth_ratio
-                time_since_added = calculate_time_since(timestamp)
-                initial_mc_str = f"**{initial_mc / 1000:.1f}K**" if initial_mc < 1_000_000 else f"**{initial_mc / 1_000_000:.1f}M**"
-                current_mc_str = f"**{current_mc / 1000:.1f}K**" if current_mc < 1_000_000 else f"**{current_mc / 1_000_000:.1f}M**"
+if growth_ratio >= GROWTH_THRESHOLD and growth_ratio >= next_threshold:
+    last_growth_ratios[key] = growth_ratio
+    time_since_added = calculate_time_since(timestamp)
+    initial_mc_str = f"**{initial_mc / 1000:.1f}K**" if initial_mc < 1_000_000 else f"**{initial_mc / 1_000_000:.1f}M**"
+    current_mc_str = f"**{current_mc / 1000:.1f}K**" if current_mc < 1_000_000 else f"**{current_mc / 1_000_000:.1f}M**"
 
-                emoji = "🚀" if 2 <= growth_ratio < 5 else "🔥" if 5 <= growth_ratio < 10 else "🌙"
-                growth_str = f"**{growth_ratio:.1f}x**"  # Bold growth ratio
-                if chat_id in PUBLIC_CHANNEL_IDS and vip_data and vip_growth_ratio and public_growth_ratio and vip_growth_ratio > public_growth_ratio:
-                    growth_str += f"(**{vip_growth_ratio:.1f}x** from VIP)"  # Bold VIP growth ratio
+    emoji = "🚀" if 2 <= growth_ratio < 5 else "🔥" if 5 <= growth_ratio < 10 else "🌙"
+    growth_str = f"**{growth_ratio:.1f}x**"
+    if chat_id in PUBLIC_CHANNEL_IDS and vip_data and vip_growth_ratio and public_growth_ratio and vip_growth_ratio > public_growth_ratio:
+        growth_str += f"\\(**{vip_growth_ratio:.1f}x** from VIP\\)"  # Escape parentheses
 
-                growth_message = (
-                    f"{emoji} {growth_str} | "
-                    f"💹From {initial_mc_str} ↗️ {current_mc_str} within **{time_since_added}**"
-                )
+    # Escape special characters in time_since_added
+    time_since_added_escaped = time_since_added.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]')
 
-                log_to_growthcheck_csv(
-                    chat_id=chat_id, channel_id=chat_id, message_id=message_id,
-                    token_name=token_name, ca=ca, original_mc=initial_mc,
-                    current_mc=current_mc, growth_ratio=growth_ratio,
-                    profit_percent=profit_percent, time_since_added=time_since_added,
-                    is_vip_channel=(chat_id in VIP_CHANNEL_IDS)
-                )
-                log_to_csv(
-                    ca=ca, token_name=token_name, bs_ratio=None, bs_ratio_pass=None,
-                    check_low_pass=None, dev_sold=None, dev_sold_left_value=None,
-                    dev_sold_pass=None, top_10=None, top_10_pass=None, snipers=None,
-                    snipers_pass=None, bundles=None, bundles_pass=None, insiders=None,
-                    insiders_pass=None, kols=None, kols_pass=None, bonding_curve=None,
-                    bc_pass=None, overall_pass=None, original_mc=initial_mc,
-                    current_mc=current_mc, growth_ratio=growth_ratio,
-                    is_vip_channel=(chat_id in VIP_CHANNEL_IDS)
-                )
+    growth_message = (
+        f"{emoji} {growth_str} | "
+        f"💹From {initial_mc_str} ↗️ {current_mc_str} within **{time_since_added_escaped}**"
+    )
 
-                if growth_notifications_enabled:
-                    try:
-                        await bot.send_message(
-                            chat_id=chat_id, text=growth_message,
-                            parse_mode="Markdown", reply_to_message_id=message_id
-                        )
-                        logger.info(f"Sent growth notification for CA {ca} in chat {chat_id}: {growth_message}")
-                    except Exception as e:
-                        logger.error(f"Failed to send growth notification for CA {ca} in chat {chat_id}: {e}")
+    log_to_growthcheck_csv(
+        chat_id=chat_id, channel_id=chat_id, message_id=message_id,
+        token_name=token_name, ca=ca, original_mc=initial_mc,
+        current_mc=current_mc, growth_ratio=growth_ratio,
+        profit_percent=profit_percent, time_since_added=time_since_added,
+        is_vip_channel=(chat_id in VIP_CHANNEL_IDS)
+    )
+    log_to_csv(
+        ca=ca, token_name=token_name, bs_ratio=None, bs_ratio_pass=None,
+        check_low_pass=None, dev_sold=None, dev_sold_left_value=None,
+        dev_sold_pass=None, top_10=None, top_10_pass=None, snipers=None,
+        snipers_pass=None, bundles=None, bundles_pass=None, insiders=None,
+        insiders_pass=None, kols=None, kols_pass=None, bonding_curve=None,
+        bc_pass=None, overall_pass=None, original_mc=initial_mc,
+        current_mc=current_mc, growth_ratio=growth_ratio,
+        is_vip_channel=(chat_id in VIP_CHANNEL_IDS)
+    )
 
+    if growth_notifications_enabled:
+        try:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=growth_message,
+                parse_mode="MarkdownV2",  # Updated to MarkdownV2
+                reply_to_message_id=message_id
+            )
+            logger.info(f"Sent growth notification for CA {ca} in chat {chat_id}: {growth_message}")
+        except Exception as e:
+            logger.error(f"Failed to send growth notification for CA {ca} in chat {chat_id}: {e}")
     # Apply updates after iteration
     for key, peak_mc in peak_updates.items():
         monitored_tokens[key]["peak_mc"] = peak_mc
