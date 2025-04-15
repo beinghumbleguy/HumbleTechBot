@@ -1125,6 +1125,7 @@ async def growthcheck() -> None:
     peak_updates = {}
     notified_cas = set()  # Track CAs notified to avoid duplicates
     logger.debug(f"Starting growthcheck with monitored_tokens: {len(monitored_tokens)} tokens")
+    logger.debug(f"Monitored tokens content: {monitored_tokens}")
 
     # Group tokens by CA for cross-channel comparison
     tokens_by_ca = {}
@@ -1144,6 +1145,7 @@ async def growthcheck() -> None:
         if current_mc is None or current_mc == 0:
             logger.debug(f"Skipping CA {ca} due to invalid current_mc: {current_mc}")
             continue
+        logger.debug(f"CA {ca} current_mc: {current_mc}")
 
         # Process each channel (VIP and Public) independently
         vip_chat_id = list(VIP_CHANNEL_IDS)[0] if VIP_CHANNEL_IDS else None
@@ -1189,8 +1191,9 @@ async def growthcheck() -> None:
             timestamp = data["timestamp"]
             growth_ratio = current_mc / initial_mc if initial_mc != 0 else 0
             profit_percent = ((current_mc - initial_mc) / initial_mc) * 100 if initial_mc != 0 else 0
+            logger.debug(f"CA {ca} in chat {chat_id}: initial_mc={initial_mc}, growth_ratio={growth_ratio:.2f}, profit_percent={profit_percent:.2f}%")
 
-            # New logic: Notify group -1002280798125 if growth ratio > 3x within 8 minutes
+            # 3x notification to group -1002280798125 only
             time_diff_seconds = (current_time - token_time).total_seconds()
             logger.debug(f"Checking 3x condition for CA {ca}: growth_ratio={growth_ratio:.2f}, time_diff={time_diff_seconds:.0f}s, notified={ca in notified_cas}")
             if growth_ratio >= 3.0 and time_diff_seconds <= 480 and ca not in notified_cas:
@@ -1213,7 +1216,7 @@ async def growthcheck() -> None:
                     f"🔗 CA: `{ca_escaped}`\n"
                     f"📈 From **{initial_mc_str}** to **{current_mc_str}** in **{time_since_escaped}**"
                 )
-                logger.debug(f"Preparing 3x notification for CA {ca}: {notify_message}")
+                logger.debug(f"Preparing 3x notification for CA {ca} to group {group_chat_id}: {notify_message}")
                 try:
                     await bot.send_message(
                         chat_id=group_chat_id,
@@ -1225,10 +1228,11 @@ async def growthcheck() -> None:
                 except Exception as e:
                     logger.error(f"Failed to notify group {group_chat_id} for CA {ca}: {e}")
 
-            # Existing notification logic
+            # Regular growth notification to VIP/Public channels
             key = f"{ca}:{chat_id}"
             last_ratio = last_growth_ratios.get(key, 1.0)
             next_threshold = int(last_ratio) + INCREMENT_THRESHOLD
+            logger.debug(f"Checking growth notification for CA {ca} in chat {chat_id}: growth_ratio={growth_ratio:.2f}, GROWTH_THRESHOLD={GROWTH_THRESHOLD}, next_threshold={next_threshold}")
 
             if growth_ratio >= GROWTH_THRESHOLD and growth_ratio >= next_threshold:
                 last_growth_ratios[key] = growth_ratio
@@ -1250,7 +1254,7 @@ async def growthcheck() -> None:
                     f"{emoji} {growth_str} \| "  # Escape the pipe character
                     f"💹From **{initial_mc_str}** ↗️ **{current_mc_str}** within **{time_since_added_escaped}**"
                 )
-                logger.debug(f"Preparing growth notification for CA {ca}: {growth_message}")
+                logger.debug(f"Preparing growth notification for CA {ca} to chat {chat_id}: {growth_message}")
 
                 log_to_growthcheck_csv(
                     chat_id=chat_id, channel_id=chat_id, message_id=message_id,
