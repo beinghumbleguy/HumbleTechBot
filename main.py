@@ -1108,7 +1108,7 @@ async def handle_channel_post(message: types.Message) -> None:
 # Chunk 4 starts
 def calculate_time_since(timestamp):
     current_time = datetime.now(pytz.timezone('America/New_York'))
-    token_time = datetime.fromtimestamp(timestamp, pytz.timezone('America_New_York'))
+    token_time = datetime.fromtimestamp(timestamp, pytz.timezone('America/New_York'))
     diff_seconds = int((current_time - token_time).total_seconds())
     if diff_seconds < 60:
         return f"{diff_seconds}s"
@@ -1120,7 +1120,7 @@ def calculate_time_since(timestamp):
     return f"{hours}h:{remaining_minutes:02d}m"
 
 async def growthcheck() -> None:
-    current_time = datetime.now(pytz.timezone('America_New_York'))
+    current_time = datetime.now(pytz.timezone('America/New_York'))
     to_remove = []
     peak_updates = {}
     notified_cas = set()  # Track CAs notified to avoid duplicates
@@ -1175,7 +1175,7 @@ async def growthcheck() -> None:
 
         # Check expiration and process notifications
         for chat_id, data in channel_data.items():
-            token_time = datetime.fromtimestamp(data["timestamp"], pytz.timezone('America_New_York'))
+            token_time = datetime.fromtimestamp(data["timestamp"], pytz.timezone('America/New_York'))
             time_diff = (current_time - token_time).total_seconds() / 3600
             if time_diff > 6:  # 6 hours
                 to_remove.append(f"{ca}:{chat_id}")
