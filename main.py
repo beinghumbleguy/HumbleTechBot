@@ -1192,7 +1192,7 @@ async def growthcheck() -> None:
 
             time_diff_seconds = (current_time - token_time).total_seconds()
             logger.debug(f"Checking 3x condition for CA {ca}: growth_ratio={growth_ratio:.2f}, time_diff={time_diff_seconds:.0f}s, notified={ca in notified_cas}")
-            if growth_ratio >= 3.0 and time_diff_seconds <= 1200 and ca not in notified_cas:  # CHANGED from 480 to 1200
+            if growth_ratio >= 3.0 and time_diff_seconds <= 600 and ca not in notified_cas:  # CHANGED from 480 to 600
                 group_chat_id = -1002280798125
                 initial_mc_str = f"{initial_mc / 1000:.1f}K".replace('.', '\\.') if initial_mc < 1_000_000 else f"{initial_mc / 1_000_000:.1f}M".replace('.', '\\.')
                 current_mc_str = f"{current_mc / 1000:.1f}K".replace('.', '\\.') if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M".replace('.', '\\.')
