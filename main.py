@@ -1123,12 +1123,11 @@ async def growthcheck() -> None:
     current_time = datetime.now(pytz.timezone('America/New_York'))
     to_remove = []
     peak_updates = {}
-    notified_cas = set()  # Track CAs notified to avoid duplicates
+    notified_cas = set()
     logger.debug(f"Starting growthcheck with monitored_tokens: {len(monitored_tokens)} tokens")
     logger.debug(f"Monitored tokens content: {monitored_tokens}")
     logger.debug(f"last_growth_ratios: {last_growth_ratios}")
 
-    # Group tokens by CA for cross-channel comparison
     tokens_by_ca = {}
     for key in list(monitored_tokens.keys()):
         ca, chat_id = key.split(':')
@@ -1148,14 +1147,12 @@ async def growthcheck() -> None:
             continue
         logger.debug(f"CA {ca} current_mc: {current_mc}")
 
-        # Process each channel (VIP and Public) independently
         vip_chat_id = list(VIP_CHANNEL_IDS)[0] if VIP_CHANNEL_IDS else None
         public_chat_id = list(PUBLIC_CHANNEL_IDS)[0] if PUBLIC_CHANNEL_IDS else None
 
         vip_data = channel_data.get(vip_chat_id) if vip_chat_id else None
         public_data = channel_data.get(public_chat_id) if public_chat_id else None
 
-        # Calculate growth ratios
         vip_growth_ratio = None
         public_growth_ratio = None
 
@@ -1173,11 +1170,10 @@ async def growthcheck() -> None:
                 peak_updates[f"{ca}:{public_chat_id}"] = current_mc
                 logger.debug(f"Queued peak_mc update for CA {ca} in Public to {current_mc}")
 
-        # Check expiration and process notifications
         for chat_id, data in channel_data.items():
             token_time = datetime.fromtimestamp(data["timestamp"], pytz.timezone('America/New_York'))
             time_diff = (current_time - token_time).total_seconds() / 3600
-            if time_diff > 6:  # 6 hours
+            if time_diff > 6:
                 to_remove.append(f"{ca}:{chat_id}")
                 logger.debug(f"CA {ca} in chat {chat_id} expired (time_diff: {time_diff:.2f}h)")
                 continue
@@ -1194,16 +1190,14 @@ async def growthcheck() -> None:
             profit_percent = ((current_mc - initial_mc) / initial_mc) * 100 if initial_mc != 0 else 0
             logger.debug(f"CA {ca} in chat {chat_id}: initial_mc={initial_mc}, growth_ratio={growth_ratio:.2f}, profit_percent={profit_percent:.2f}%")
 
-            # 3x notification to group -1002280798125 only
             time_diff_seconds = (current_time - token_time).total_seconds()
             logger.debug(f"Checking 3x condition for CA {ca}: growth_ratio={growth_ratio:.2f}, time_diff={time_diff_seconds:.0f}s, notified={ca in notified_cas}")
-            if growth_ratio >= 3.0 and time_diff_seconds <= 480 and ca not in notified_cas:
+            if growth_ratio >= 3.0 and time_diff_seconds <= 1200 and ca not in notified_cas:  # CHANGED from 480 to 1200
                 group_chat_id = -1002280798125
                 initial_mc_str = f"{initial_mc / 1000:.1f}K".replace('.', '\\.') if initial_mc < 1_000_000 else f"{initial_mc / 1_000_000:.1f}M".replace('.', '\\.')
                 current_mc_str = f"{current_mc / 1000:.1f}K".replace('.', '\\.') if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M".replace('.', '\\.')
                 growth_ratio_str = f"{growth_ratio:.1f}x".replace('.', '\\.')
                 time_since = calculate_time_since(timestamp)
-                # Escape all MarkdownV2 reserved characters
                 reserved_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
                 token_name_escaped = token_name
                 ca_escaped = ca
@@ -1225,21 +1219,20 @@ async def growthcheck() -> None:
                         parse_mode="MarkdownV2"
                     )
                     logger.info(f"Notified group {group_chat_id} for CA {ca}: {growth_ratio:.1f}x in {time_since}")
-                    notified_cas.add(ca)  # Prevent duplicate notifications
+                    notified_cas.add(ca)
                 except Exception as e:
                     logger.error(f"Failed to notify group {group_chat_id} for CA {ca}: {e}")
 
-            # Regular growth notification to VIP/Public channels
             key = f"{ca}:{chat_id}"
             last_ratio = last_growth_ratios.get(key, GROWTH_THRESHOLD)
-            if last_ratio > 5.0:  # Cap to prevent stale high thresholds
+            if last_ratio > 5.0:
                 logger.warning(f"Capping last_ratio for {key}: {last_ratio} too high, setting to {GROWTH_THRESHOLD}")
                 last_ratio = GROWTH_THRESHOLD
             next_threshold = round(last_ratio + INCREMENT_THRESHOLD, 1)
             logger.debug(f"Checking growth notification for CA {ca} in chat {chat_id}: growth_ratio={growth_ratio:.2f}, GROWTH_THRESHOLD={GROWTH_THRESHOLD}, last_ratio={last_ratio:.2f}, next_threshold={next_threshold:.2f}")
 
             if growth_ratio >= next_threshold:
-                last_growth_ratios[key] = next_threshold  # Update to threshold, not growth_ratio
+                last_growth_ratios[key] = next_threshold
                 time_since_added = calculate_time_since(timestamp)
                 initial_mc_str = f"{initial_mc / 1000:.1f}K".replace('.', '\\.') if initial_mc < 1_000_000 else f"{initial_mc / 1_000_000:.1f}M".replace('.', '\\.')
                 current_mc_str = f"{current_mc / 1000:.1f}K".replace('.', '\\.') if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M".replace('.', '\\.')
@@ -1247,19 +1240,19 @@ async def growthcheck() -> None:
                 emoji = "🚀" if 2 <= growth_ratio < 5 else "🔥" if 5 <= growth_ratio < 10 else "🌙"
                 growth_str = f"**{growth_ratio:.1f}x**".replace('.', '\\.')
                 if chat_id in PUBLIC_CHANNEL_IDS and vip_data and vip_growth_ratio and public_growth_ratio and vip_growth_ratio > public_growth_ratio:
-                    growth_str += f"\\(**{vip_growth_ratio:.1f}x** from VIP\\)".replace('.', '\\.')  # Escape parentheses and period
+                    growth_str += f"\\(**{vip_growth_ratio:.1f}x** from VIP\\)".replace('.', '\\.')
 
-                # Escape special characters in time_since_added
                 time_since_added_escaped = time_since_added
                 for char in reserved_chars:
                     time_since_added_escaped = time_since_added_escaped.replace(char, f'\\{char}')
 
                 growth_message = (
-                    f"{emoji} {growth_str} \| "  # Escape the pipe character
+                    f"{emoji} {growth_str} \| "
                     f"💹From **{initial_mc_str}** ↗️ **{current_mc_str}** within **{time_since_added_escaped}**"
                 )
                 logger.debug(f"Preparing growth notification for CA {ca} to chat {chat_id}: {growth_message}")
 
+                logger.info(f"Logging to growth CSV for CA {ca} in chat {chat_id}: is_vip={chat_id in VIP_CHANNEL_IDS}")
                 log_to_growthcheck_csv(
                     chat_id=chat_id, channel_id=chat_id, message_id=message_id,
                     token_name=token_name, ca=ca, original_mc=initial_mc,
@@ -1290,7 +1283,6 @@ async def growthcheck() -> None:
                     except Exception as e:
                         logger.error(f"Failed to send growth notification for CA {ca} in chat {chat_id}: {e}")
 
-    # Apply updates after iteration
     for key, peak_mc in peak_updates.items():
         monitored_tokens[key]["peak_mc"] = peak_mc
     for key in to_remove:
