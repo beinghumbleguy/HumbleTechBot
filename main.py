@@ -1123,6 +1123,7 @@ async def growthcheck() -> None:
     current_time = datetime.now(pytz.timezone('America/New_York'))
     to_remove = []
     peak_updates = {}
+    notified_cas = set()  # Track CAs notified for 3x to avoid duplicates
     logger.debug(f"Starting growthcheck with monitored_tokens: {len(monitored_tokens)} tokens")
 
     # Group tokens by CA for cross-channel comparison
@@ -1207,7 +1208,7 @@ async def growthcheck() -> None:
 
                 growth_message = (
                     f"{emoji} {growth_str} | "
-                    f"💹From {initial_mc_str} ↗️ {current_mc_str} within **{time_since_added}**"
+                    f"💹From {initial_mc_str} ↗️ **{current_mc_str}** within **{time_since_added}**"
                 )
 
                 log_to_growthcheck_csv(
@@ -1237,6 +1238,29 @@ async def growthcheck() -> None:
                         logger.info(f"Sent growth notification for CA {ca} in chat {chat_id}: {growth_message}")
                     except Exception as e:
                         logger.error(f"Failed to send growth notification for CA {ca} in chat {chat_id}: {e}")
+
+            # New sub-chunk: 3x notification to dedicated channel
+            time_diff_seconds = (current_time - token_time).total_seconds()
+            if growth_ratio >= 3.0 and time_diff_seconds <= 600 and ca not in notified_cas:
+                group_chat_id = -1002280798125
+                current_mc_str = f"{current_mc / 1000:.1f}K" if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M"
+                growth_ratio_str = f"{growth_ratio:.1f}x"
+                time_since = calculate_time_since(timestamp)
+                notify_message = (
+                    f"🚀 **{token_name}** hit **{growth_ratio_str}** in **{time_since}**!\n"
+                    f"🔗 CA: `{ca}`\n"
+                    f"💰 Current MC: **{current_mc_str}**"
+                )
+                try:
+                    await bot.send_message(
+                        chat_id=group_chat_id,
+                        text=notify_message,
+                        parse_mode="Markdown"
+                    )
+                    logger.info(f"Notified group {group_chat_id} for CA {ca}: {growth_ratio:.1f}x in {time_since}")
+                    notified_cas.add(ca)
+                except Exception as e:
+                    logger.error(f"Failed to notify group {group_chat_id} for CA {ca}: {e}")
 
     # Apply updates after iteration
     for key, peak_mc in peak_updates.items():
