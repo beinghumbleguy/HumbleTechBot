@@ -111,7 +111,7 @@ CheckLowEnabled = True
 
 # New filter thresholds
 DevSoldThreshold = "Yes"
-DevSoldLeft = 5.0
+DevSoldLeft = 7.0
 Top10Threshold = 34.0
 SnipersThreshold = 9.0
 BundlesThreshold = 8.0
