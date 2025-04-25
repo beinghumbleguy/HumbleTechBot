@@ -479,7 +479,7 @@ class APISessionManager:
         self._session_max_age = 3600  # 1 hour
         self._session_max_requests = 100
         self.max_retries = 5  # Increased from 3
-        self.retry_delay = 1  # Base delay for exponential backoff
+        self.retry_delay = 2  # Increased from 1 to 2 seconds to mitigate rate-limiting
         self.base_url = "https://gmgn.ai/defi/quotation/v1/tokens/sol/search"
         
         self._executor = ThreadPoolExecutor(max_workers=4)
@@ -605,21 +605,48 @@ class APISessionManager:
                     headers=self.headers_dict,
                     timeout=10
                 )
-                logger.debug(f"Attempt {attempt + 1} - Status: {response.status_code}")
+                logger.debug(f"Attempt {attempt + 1} - Status: {response.status_code}, Content-Type: {response.headers.get('Content-Type', 'N/A')}")
+                
+                # Log raw response for debugging (truncate to avoid flooding logs)
+                raw_text = response.text[:500] + "..." if len(response.text) > 500 else response.text
+                logger.debug(f"Raw response (first 500 chars): {raw_text}")
+
                 if response.status_code == 200:
-                    return response.json()
+                    # Check if response is JSON
+                    content_type = response.headers.get('Content-Type', '').lower()
+                    if 'application/json' not in content_type:
+                        logger.warning(f"Non-JSON response received: Content-Type={content_type}")
+                        return {"error": f"Unexpected Content-Type: {content_type}"}
+                    
+                    # Check if response is empty
+                    if not response.text.strip():
+                        logger.warning("Empty response received from API")
+                        return {"error": "Empty response from API"}
+                    
+                    try:
+                        json_data = response.json()
+                        # Validate JSON structure
+                        if json_data.get("code") != 0:
+                            logger.warning(f"API returned error code: {json_data.get('msg', 'Unknown error')}")
+                            return {"error": f"API error: {json_data.get('msg', 'Unknown error')}"}
+                        return json_data
+                    except ValueError as e:
+                        logger.warning(f"JSON parsing failed: {str(e)}, Response: {raw_text}")
+                        return {"error": f"Invalid JSON response: {str(e)}"}
+                
                 elif response.status_code == 403:
-                    logger.warning(f"Attempt {attempt + 1} failed with 403: {response.text[:100]}...")
+                    logger.warning(f"Attempt {attempt + 1} failed with 403: {raw_text[:100]}...")
                     if "Just a moment" in response.text:
                         logger.warning("Cloudflare challenge detected, rotating proxy")
                         await self.randomize_session(force=True, use_proxy=True)
                 else:
                     logger.warning(f"Attempt {attempt + 1} failed with status {response.status_code}")
+            
             except Exception as e:
                 logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
             
             if attempt < self.max_retries - 1:
-                delay = self.retry_delay * (2 ** attempt)  # Exponential backoff: 1s, 2s, 4s, 8s, 16s
+                delay = self.retry_delay * (2 ** attempt)  # Exponential backoff: 2s, 4s, 8s, 16s, 32s
                 logger.debug(f"Backing off for {delay}s before retry {attempt + 2}")
                 await asyncio.sleep(delay)
         
@@ -633,8 +660,32 @@ class APISessionManager:
                 headers=self.headers_dict,
                 timeout=10
             )
+            logger.debug(f"Fallback - Status: {response.status_code}, Content-Type: {response.headers.get('Content-Type', 'N/A')}")
+            
+            raw_text = response.text[:500] + "..." if len(response.text) > 500 else response.text
+            logger.debug(f"Fallback raw response (first 500 chars): {raw_text}")
+
             if response.status_code == 200:
-                return response.json()
+                content_type = response.headers.get('Content-Type', '').lower()
+                if 'application/json' not in content_type:
+                    logger.warning(f"Non-JSON fallback response: Content-Type={content_type}")
+                    return {"error": f"Unexpected Content-Type: {content_type}"}
+                
+                if not response.text.strip():
+                    logger.warning("Empty fallback response received")
+                    return {"error": "Empty response from API"}
+                
+                try:
+                    json_data = response.json()
+                    # Validate JSON structure
+                    if json_data.get("code") != 0:
+                        logger.warning(f"API returned error code: {json_data.get('msg', 'Unknown error')}")
+                        return {"error": f"API error: {json_data.get('msg', 'Unknown error')}"}
+                    return json_data
+                except ValueError as e:
+                    logger.warning(f"Fallback JSON parsing failed: {str(e)}, Response: {raw_text}")
+                    return {"error": f"Invalid JSON response: {str(e)}"}
+            
             logger.warning(f"Fallback failed with status {response.status_code}")
         except Exception as e:
             logger.error(f"Final attempt without proxy failed: {str(e)}")
@@ -715,6 +766,7 @@ async def get_token_market_cap(mint_address):
         return {"market_cap": 0}  # Fallback to 0 on parsing error
 
 # Chunk 2 ends
+
 # Chunk 3 starts
 # Chunk 3a starts
 from aiogram import types
