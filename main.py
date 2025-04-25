@@ -460,6 +460,7 @@ async def add_user(message: types.Message):
     
     
 # Chunk 1 ends
+
 # Chunk 2 starts
 import cloudscraper
 import json
@@ -478,8 +479,8 @@ class APISessionManager:
         self._session_requests = 0
         self._session_max_age = 3600  # 1 hour
         self._session_max_requests = 100
-        self.max_retries = 5  # Increased from 3
-        self.retry_delay = 2  # Increased from 1 to 2 seconds to mitigate rate-limiting
+        self.max_retries = 5
+        self.retry_delay = 2  # 2 seconds to mitigate rate-limiting
         self.base_url = "https://gmgn.ai/defi/quotation/v1/tokens/sol/search"
         
         self._executor = ThreadPoolExecutor(max_workers=4)
@@ -487,7 +488,7 @@ class APISessionManager:
 
         self.headers_dict = {
             "Accept": "application/json, text/plain, */*",
-            "Accept-Encoding": "gzip, deflate, br",
+            "Accept-Encoding": "gzip, deflate",  # Removed 'br' to avoid Brotli issues
             "Accept-Language": "en-US,en;q=0.9",
             "Connection": "keep-alive",
             "Content-Type": "application/json",
@@ -605,8 +606,10 @@ class APISessionManager:
                     headers=self.headers_dict,
                     timeout=10
                 )
-                logger.debug(f"Attempt {attempt + 1} - Status: {response.status_code}, Content-Type: {response.headers.get('Content-Type', 'N/A')}")
-                
+                logger.debug(f"Attempt {attempt + 1} - Status: {response.status_code}, "
+                             f"Content-Type: {response.headers.get('Content-Type', 'N/A')}, "
+                             f"Content-Encoding: {response.headers.get('Content-Encoding', 'N/A')}")
+
                 # Log raw response for debugging (truncate to avoid flooding logs)
                 raw_text = response.text[:500] + "..." if len(response.text) > 500 else response.text
                 logger.debug(f"Raw response (first 500 chars): {raw_text}")
@@ -632,7 +635,12 @@ class APISessionManager:
                         return json_data
                     except ValueError as e:
                         logger.warning(f"JSON parsing failed: {str(e)}, Response: {raw_text}")
-                        return {"error": f"Invalid JSON response: {str(e)}"}
+                        # Retry on invalid JSON for 200 responses
+                        if attempt < self.max_retries - 1:
+                            logger.debug(f"Retrying due to invalid JSON on attempt {attempt + 1}")
+                            await self.randomize_session(force=True, use_proxy=True)
+                        else:
+                            return {"error": f"Invalid JSON response: {str(e)}"}
                 
                 elif response.status_code == 403:
                     logger.warning(f"Attempt {attempt + 1} failed with 403: {raw_text[:100]}...")
@@ -660,7 +668,9 @@ class APISessionManager:
                 headers=self.headers_dict,
                 timeout=10
             )
-            logger.debug(f"Fallback - Status: {response.status_code}, Content-Type: {response.headers.get('Content-Type', 'N/A')}")
+            logger.debug(f"Fallback - Status: {response.status_code}, "
+                         f"Content-Type: {response.headers.get('Content-Type', 'N/A')}, "
+                         f"Content-Encoding: {response.headers.get('Content-Encoding', 'N/A')}")
             
             raw_text = response.text[:500] + "..." if len(response.text) > 500 else response.text
             logger.debug(f"Fallback raw response (first 500 chars): {raw_text}")
