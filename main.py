@@ -1266,11 +1266,11 @@ async def growthcheck() -> None:
                 emoji = "🚀" if 2 <= growth_ratio < 5 else "🔥" if 5 <= growth_ratio < 10 else "🌙"
                 growth_str = f"**{growth_ratio:.1f}x**"  # Bold growth ratio
                 if chat_id in PUBLIC_CHANNEL_IDS and vip_data and vip_growth_ratio and public_growth_ratio and vip_growth_ratio > public_growth_ratio:
-                    growth_str += f"(**{vip_growth_ratio:.1f}x** from VIP)"  # Bold VIP growth ratio
+                    growth_str += f" (**{vip_growth_ratio:.1f}x** from VIP)"  # Bold VIP growth ratio
 
                 growth_message = (
                     f"{emoji} {growth_str} | "
-                    f"💹From {initial_mc_str} ↗️ **{current_mc_str}** within **{time_since_added}**"
+                    f"💹 From {initial_mc_str} ↗️ **{current_mc_str}** within **{time_since_added}**"
                 )
 
                 log_to_growthcheck_csv(
@@ -1333,6 +1333,85 @@ async def growthcheck() -> None:
     if peak_updates or to_remove:
         save_monitored_tokens()
         logger.info(f"Updated {len(peak_updates)} peak_mcs and removed {len(to_remove)} expired tokens")
+
+async def daily_summary_report() -> None:
+    logger.info("Generating daily summary report")
+    current_time = datetime.now(pytz.timezone('America/New_York'))
+    today_start = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start_ts = today_start.timestamp()
+    
+    # Read monitored_tokens.csv
+    qualifying_tokens = []
+    if os.path.exists(MONITORED_TOKENS_CSV_FILE):
+        with open(MONITORED_TOKENS_CSV_FILE, mode='r', newline='', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                timestamp = float(row["Timestamp"])
+                if timestamp < today_start_ts:
+                    continue  # Skip tokens not from today
+                ca, chat_id = row["CA:ChatID"].split(':')
+                chat_id = int(chat_id)
+                if chat_id not in VIP_CHANNEL_IDS:
+                    continue  # Only include tokens from VIP channels
+                initial_mc = float(row["InitialMC"])
+                peak_mc = float(row.get("PeakMC", initial_mc))
+                growth_ratio = peak_mc / initial_mc if initial_mc != 0 else 0
+                if growth_ratio >= 2.1:
+                    qualifying_tokens.append({
+                        "token_name": row["TokenName"],
+                        "ca": ca,
+                        "growth_ratio": growth_ratio,
+                        "current_mc": peak_mc,
+                        "chat_id": chat_id
+                    })
+
+    # Sort tokens by growth ratio (descending)
+    qualifying_tokens.sort(key=lambda x: x["growth_ratio"], reverse=True)
+
+    # Generate report
+    if not qualifying_tokens:
+        logger.info("No VIP tokens with growth ratio >= 2.1x for today")
+        return
+
+    date_str = current_time.strftime("%d/%m/%Y")
+    report = f"🔥 Top Performing VIP Tokens - {date_str} 🔥\n\n"
+
+    for idx, token in enumerate(qualifying_tokens, 1):
+        token_name = token["token_name"]
+        ca = token["ca"]
+        growth_ratio = token["growth_ratio"]
+        pump_fun_url = f"https://pump.fun/coin/{ca}"
+        emoji = "🥇" if idx == 1 else "🥈" if idx == 2 else "🥉" if idx == 3 else "🏅"
+        report += (
+            f"{emoji} [{token_name}]({pump_fun_url}) | **{growth_ratio:.1f}x**\n"
+        )
+
+    # Create inline keyboard with Join VIP button
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🌟🚀 Join VIP 🚀🌟", url="https://t.me/HumbleMoonshotsPay_bot?start=start")]
+    ])
+
+    # Post to public channel
+    public_chat_id = list(PUBLIC_CHANNEL_IDS)[0]
+    try:
+        message = await bot.send_message(
+            chat_id=public_chat_id,
+            text=report,
+            parse_mode="Markdown",
+            disable_web_page_preview=False,
+            reply_markup=keyboard
+        )
+        logger.info(f"Posted daily VIP summary report to public channel {public_chat_id}, message_id={message.message_id}")
+
+        # Pin the message
+        await bot.pin_chat_message(
+            chat_id=public_chat_id,
+            message_id=message.message_id,
+            disable_notification=True
+        )
+        logger.info(f"Pinned daily VIP summary report message {message.message_id} in public channel {public_chat_id}")
+    except Exception as e:
+        logger.error(f"Failed to post or pin daily VIP summary report: {e}")
 
 # Chunk 4 ends
 """
