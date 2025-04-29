@@ -49,7 +49,7 @@ logger.addFilter(SuppressRawUpdateFilter())
 
 logger.info(f"Using Aiogram version: {aiogram.__version__}")
 
-# Chunk 1 starts
+# --- Start of Chunk 1: Core Setup, Token Loading, and Saving ---
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, BotCommand
 from aiogram.filters import Command, BaseFilter
@@ -217,44 +217,245 @@ def init_csv():
 # Load monitored tokens from CSV
 def load_monitored_tokens():
     global monitored_tokens
-    monitored_tokens = {}
-    if os.path.exists(MONITORED_TOKENS_CSV_FILE):
-        with open(MONITORED_TOKENS_CSV_FILE, mode='r', newline='', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                key = row["CA:ChatID"]  # Updated to composite key
+    logger.info(f"Loading monitored tokens from {MONITORED_TOKENS_CSV_FILE}")
+    file_exists = os.path.exists(MONITORED_TOKENS_CSV_FILE)
+    file_size = os.path.getsize(MONITORED_TOKENS_CSV_FILE) if file_exists else 0
+    logger.debug(f"File {MONITORED_TOKENS_CSV_FILE}: exists={file_exists}, size={file_size} bytes")
+    
+    monitored_tokens.clear()
+    if not file_exists:
+        logger.warning(f"Monitored tokens CSV does not exist: {MONITORED_TOKENS_CSV_FILE}")
+        return
+    
+    token_count = 0
+    with open(MONITORED_TOKENS_CSV_FILE, mode='r', newline='', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            try:
+                key = row['CA:ChatID']
                 monitored_tokens[key] = {
-                    "token_name": row["TokenName"],
-                    "initial_mc": float(row["InitialMC"]),
-                    "peak_mc": float(row.get("PeakMC", row["InitialMC"])),  # Default to InitialMC if missing
-                    "timestamp": float(row["Timestamp"]),
-                    "message_id": int(row["MessageID"]),
-                    "chat_id": int(row["ChatID"])
+                    "token_name": row['TokenName'],
+                    "initial_mc": float(row['InitialMC']),
+                    "peak_mc": float(row.get('PeakMC', row['InitialMC'])),
+                    "timestamp": float(row['Timestamp']),
+                    "message_id": int(row['MessageID']),
+                    "chat_id": int(row['ChatID'])
                 }
-        logger.info(f"Loaded {len(monitored_tokens)} tokens from {MONITORED_TOKENS_CSV_FILE}")
-    else:
-        logger.info(f"No monitored tokens CSV file found at {MONITORED_TOKENS_CSV_FILE}")
+                token_count += 1
+                logger.debug(f"Loaded token: {key}, TokenName={row['TokenName']}, InitialMC={row['InitialMC']}")
+            except (ValueError, KeyError) as e:
+                logger.error(f"Error loading token {key}: {str(e)}")
+                continue
+    logger.info(f"Loaded {token_count} tokens into monitored_tokens")
 
 # Save monitored tokens to CSV
 def save_monitored_tokens():
     with monitored_tokens_lock:
-        with open(MONITORED_TOKENS_CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow(["CA:ChatID", "TokenName", "InitialMC", "PeakMC", "Timestamp", "MessageID", "ChatID"])
-            for key, data in monitored_tokens.items():
-                writer.writerow([
-                    key,  # Composite key
-                    data["token_name"],
-                    data["initial_mc"],
-                    data.get("peak_mc", data["initial_mc"]),
-                    data["timestamp"],
-                    data["message_id"],
-                    data["chat_id"]
-                ])
-        logger.info(f"Saved {len(monitored_tokens)} tokens to {MONITORED_TOKENS_CSV_FILE}")
+        try:
+            with open(MONITORED_TOKENS_CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(["CA:ChatID", "TokenName", "InitialMC", "PeakMC", "Timestamp", "MessageID", "ChatID"])
+                for key, data in monitored_tokens.items():
+                    writer.writerow([
+                        key,  # Composite key
+                        data["token_name"],
+                        data["initial_mc"],
+                        data.get("peak_mc", data["initial_mc"]),
+                        data["timestamp"],
+                        data["message_id"],
+                        data["chat_id"]
+                    ])
+            file_size = os.path.getsize(MONITORED_TOKENS_CSV_FILE)
+            logger.info(f"Saved {len(monitored_tokens)} tokens to {MONITORED_TOKENS_CSV_FILE}, size={file_size} bytes")
+        except Exception as e:
+            logger.error(f"Failed to save monitored_tokens to {MONITORED_TOKENS_CSV_FILE}: {str(e)}")
 
-# [Rest of Chunk 1 remains unchanged: log_to_csv, log_to_growthcheck_csv, get_latest_growth_ratio, parse_market_cap, add_user]
-# Chunk 1 ends
+# Log filter results to CSV
+def log_to_csv(ca, token_name, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold, dev_sold_left_value, dev_sold_pass,
+               top_10, top_10_pass, snipers, snipers_pass, bundles, bundles_pass,
+               insiders, insiders_pass, kols, kols_pass, bonding_curve, bc_pass, overall_pass, 
+               original_mc, current_mc, growth_ratio, is_vip_channel):  # Removed market_cap
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    csv_file = VIP_CSV_FILE if is_vip_channel else PUBLIC_CSV_FILE
+    with csv_lock:
+        rows = []
+        updated = False
+        if os.path.exists(csv_file):
+            with open(csv_file, mode='r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                headers = reader.fieldnames
+                for row in reader:
+                    if row["CA"] == ca:
+                        # Update existing row
+                        rows.append([
+                            timestamp, ca, token_name if token_name else row["TokenName"],
+                            bs_ratio if bs_ratio is not None else row["BSRatio"],
+                            bs_ratio_pass if (CheckHighEnabled or CheckLowEnabled) and bs_ratio_pass is not None else row["BSRatio_Pass"],
+                            check_low_pass if CheckLowEnabled and check_low_pass is not None else row["BSRatio_Low_Pass"],
+                            dev_sold if dev_sold is not None else row["DevSold"],
+                            dev_sold_left_value if dev_sold_left_value is not None else row["DevSoldLeftValue"],
+                            dev_sold_pass if DevSoldFilterEnabled and dev_sold_pass is not None else row["DevSold_Pass"],
+                            top_10 if top_10 is not None else row["Top10"],
+                            top_10_pass if Top10FilterEnabled and top_10_pass is not None else row["Top10_Pass"],
+                            snipers if snipers is not None else row["Snipers"],
+                            snipers_pass if SniphersFilterEnabled and snipers_pass is not None else row["Snipers_Pass"],
+                            bundles if bundles is not None else row["Bundles"],
+                            bundles_pass if BundlesFilterEnabled and bundles_pass is not None else row["Bundles_Pass"],
+                            insiders if insiders is not None else row["Insiders"],
+                            insiders_pass if InsidersFilterEnabled and insiders_pass is not None else row["Insiders_Pass"],
+                            kols if kols is not None else row["KOLs"],
+                            kols_pass if KOLsFilterEnabled and kols_pass is not None else row["Kols_Pass"],
+                            bonding_curve if bonding_curve is not None else row["BondingCurve"],
+                            bc_pass if BondingCurveFilterEnabled and bc_pass is not None else row["BCPass"],
+                            overall_pass if overall_pass is not None else row["Overall_Pass"],
+                            original_mc if original_mc is not None else row.get("OriginalMC", "N/A"),
+                            current_mc if current_mc is not None else row.get("CurrentMC", "N/A"),
+                            growth_ratio if growth_ratio is not None else row["GrowthRatio"]
+                        ])
+
+                    else:
+                        rows.append(list(row.values()))
+        if not updated:
+            # Append new row if CA not found
+            rows.append([
+                timestamp, ca if ca else "N/A", token_name if token_name else "N/A",
+                bs_ratio if bs_ratio is not None else "N/A",
+                bs_ratio_pass if (CheckHighEnabled or CheckLowEnabled) else "N/A",
+                check_low_pass if CheckLowEnabled else "N/A",
+                dev_sold if dev_sold is not None else "N/A",
+                dev_sold_left_value if dev_sold_left_value is not None else "N/A",
+                dev_sold_pass if DevSoldFilterEnabled and dev_sold is not None else "N/A",
+                top_10 if top_10 is not None else "N/A",
+                top_10_pass if Top10FilterEnabled and top_10 is not None else "N/A",
+                snipers if snipers is not None else "N/A",
+                snipers_pass if SniphersFilterEnabled and snipers is not None else "N/A",
+                bundles if bundles is not None else "N/A",
+                bundles_pass if BundlesFilterEnabled and bundles is not None else "N/A",
+                insiders if insiders is not None else "N/A",
+                insiders_pass if InsidersFilterEnabled and insiders is not None else "N/A",
+                kols if kols is not None else "N/A",
+                kols_pass if KOLsFilterEnabled and kols is not None else "N/A",
+                bonding_curve if bonding_curve is not None else "N/A",
+                bc_pass if BondingCurveFilterEnabled and bonding_curve is not None else "N/A",
+                overall_pass,
+                original_mc if original_mc is not None else "N/A",
+                current_mc if current_mc is not None else row.get("CurrentMC", "N/A"),
+                growth_ratio if growth_ratio is not None else "N/A"
+            ])
+        with open(csv_file, mode='w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "Timestamp", "CA", "TokenName", "BSRatio", "BSRatio_Pass", "BSRatio_Low_Pass",
+                "DevSold", "DevSoldLeftValue", "DevSold_Pass", "Top10", "Top10_Pass",
+                "Snipers", "Snipers_Pass", "Bundles", "Bundles_Pass", "Insiders", "Insiders_Pass",
+                "KOLs", "Kols_Pass", "BondingCurve", "BCPass", "Overall_Pass", 
+                "OriginalMC", "CurrentMC", "GrowthRatio"  # Removed MarketCap
+            ])
+            writer.writerows(rows)
+    logger.info(f"{'Updated' if updated else 'Logged'} filter results to {csv_file} for CA: {ca}")
+
+# Log growth check results to CSV
+def log_to_growthcheck_csv(chat_id, channel_id, message_id, token_name, ca, original_mc, current_mc,
+                           growth_ratio, profit_percent, time_since_added, is_vip_channel):
+    if channel_id not in VIP_CHANNEL_IDS and channel_id not in PUBLIC_CHANNEL_IDS:
+        logger.debug(f"Skipping growth log for CA {ca} in channel {channel_id} (not VIP or Public)")
+        return
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    csv_file = VIP_GROWTH_CSV_FILE if is_vip_channel else PUBLIC_GROWTH_CSV_FILE
+    with growth_csv_lock:
+        rows = []
+        updated = False
+        if os.path.exists(csv_file):
+            with open(csv_file, mode='r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                headers = reader.fieldnames
+                for row in reader:
+                    if row["CA"] == ca and row["MessageID"] == str(message_id):
+                        rows.append([
+                            timestamp, chat_id, channel_id, message_id, token_name, ca,
+                            original_mc, current_mc, growth_ratio, profit_percent, time_since_added
+                        ])
+                        updated = True
+                    else:
+                        rows.append(list(row.values()))
+        if not updated:
+            rows.append([
+                timestamp, chat_id, channel_id, message_id, token_name, ca,
+                original_mc, current_mc, growth_ratio, profit_percent, time_since_added
+            ])
+        with open(csv_file, mode='w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "Timestamp", "ChatID", "ChannelID", "MessageID", "TokenName", "CA",
+                "OriginalMC", "CurrentMC", "GrowthRatio", "ProfitPercent", "TimeSinceAdded"
+            ])
+            writer.writerows(rows)
+    logger.info(f"{'Updated' if updated else 'Logged'} growth check to {csv_file} for CA: {ca}")
+
+# Helper to fetch latest growth ratio from VIP growth CSV
+def get_latest_growth_ratio(ca):
+    if not os.path.exists(VIP_GROWTH_CSV_FILE):
+        return None
+    with open(VIP_GROWTH_CSV_FILE, mode='r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        latest_ratio = None
+        latest_timestamp = None
+        for row in reader:
+            if row["CA"] == ca:
+                row_time = datetime.strptime(row["Timestamp"], "%Y-%m-%d %H:%M:%S")
+                if latest_timestamp is None or row_time > latest_timestamp:
+                    latest_timestamp = row_time
+                    latest_ratio = float(row["GrowthRatio"])
+        return latest_ratio
+
+# Helper function to parse market cap
+def parse_market_cap(mc_str):
+    if not mc_str:
+        return None
+    mc_str = mc_str.replace('$', '').replace(',', '').strip()
+    try:
+        if 'k' in mc_str.lower():
+            return float(mc_str.lower().replace('k', '')) * 1000
+        elif 'm' in mc_str.lower():
+            return float(mc_str.lower().replace('m', '')) * 1000000
+        else:
+            return float(mc_str)
+    except ValueError as e:
+        logger.error(f"Failed to parse market cap '{mc_str}': {str(e)}")
+        return None
+
+# Handler for /adduser command
+@dp.message(Command(commands=["adduser"]))
+async def add_user(message: types.Message):
+    global additional_user_added
+    username = message.from_user.username
+    logger.info(f"Received /adduser command from user: @{username}")
+
+    if username != "BeingHumbleGuy":
+        await message.answer("⚠️ Only @BeingHumbleGuy can add authorized users.")
+        logger.info(f"Unauthorized /adduser attempt by @{username}")
+        return
+
+    if additional_user_added:
+        await message.answer("⚠️ An additional user has already been added.")
+        logger.info("Additional user already added, rejecting new addition")
+        return
+
+    text = message.text.lower().replace('/adduser', '').strip()
+    if not text:
+        await message.answer("Please provide a username (e.g., /adduser @NewUser) 🤔")
+        return
+
+    new_user = text if text.startswith('@') else f"@{text}"
+    if new_user == "@BeingHumbleGuy":
+        await message.answer("⚠️ @BeingHumbleGuy is already the super user.")
+        return
+
+    authorized_users.append(new_user)
+    additional_user_added = True
+    await message.answer(f"Authorized user added: {new_user} ✅")
+    logger.info(f"Authorized user added: {new_user}")
+# --- End of Chunk 1 ---
 
 # Log filter results to CSV
 def log_to_csv(ca, token_name, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold, dev_sold_left_value, dev_sold_pass,
@@ -1167,7 +1368,7 @@ async def handle_channel_post(message: types.Message) -> None:
 # Chunk 3b ends
 # Chunk 3 ends
 
-# Chunk 4 starts
+# --- Start of Chunk 4: Growth Check and Daily Summary Report ---
 def calculate_time_since(timestamp):
     current_time = datetime.now(pytz.timezone('America/New_York'))
     token_time = datetime.fromtimestamp(timestamp, pytz.timezone('America/New_York'))
@@ -1182,11 +1383,21 @@ def calculate_time_since(timestamp):
     return f"{hours}h:{remaining_minutes:02d}m"
 
 async def growthcheck() -> None:
+    logger.debug("Starting growthcheck")
+    
+    if not growth_notifications_enabled:
+        logger.debug("Growth notifications are disabled, skipping growthcheck")
+        return
+    
     current_time = datetime.now(pytz.timezone('America/New_York'))
     to_remove = []
     peak_updates = {}
     notified_cas = set()  # Track CAs notified for 3x to avoid duplicates
-    logger.debug(f"Starting growthcheck with monitored_tokens: {len(monitored_tokens)} tokens")
+    logger.debug(f"Processing {len(monitored_tokens)} tokens in monitored_tokens")
+    
+    if not monitored_tokens:
+        logger.warning("No tokens to process in growthcheck")
+        return
 
     # Group tokens by CA for cross-channel comparison
     tokens_by_ca = {}
@@ -1196,16 +1407,19 @@ async def growthcheck() -> None:
         if ca not in tokens_by_ca:
             tokens_by_ca[ca] = {}
         tokens_by_ca[ca][chat_id] = monitored_tokens[key]
+        logger.debug(f"Grouped token: CA={ca}, ChatID={chat_id}")
 
     for ca, channel_data in tokens_by_ca.items():
+        logger.debug(f"Fetching market cap for CA: {ca}")
         token_data = await get_token_market_cap(ca)
         if "error" in token_data:
-            logger.debug(f"Skipping CA {ca} due to API error: {token_data['error']}")
+            logger.error(f"Failed to fetch market cap for CA {ca}: {token_data['error']}")
             continue
         current_mc = token_data["market_cap"]
         if current_mc is None or current_mc == 0:
-            logger.debug(f"Skipping CA {ca} due to invalid current_mc: {current_mc}")
+            logger.warning(f"Invalid current_mc for CA {ca}: {current_mc}, skipping")
             continue
+        logger.debug(f"Fetched market cap for CA {ca}: CurrentMC={current_mc}")
 
         # Process each channel (VIP and Public) independently
         vip_chat_id = list(VIP_CHANNEL_IDS)[0] if VIP_CHANNEL_IDS else None
@@ -1223,14 +1437,14 @@ async def growthcheck() -> None:
             vip_growth_ratio = current_mc / vip_initial_mc if vip_initial_mc != 0 else 0
             if current_mc > vip_data.get("peak_mc", vip_initial_mc):
                 peak_updates[f"{ca}:{vip_chat_id}"] = current_mc
-                logger.debug(f"Queued peak_mc update for CA {ca} in VIP to {current_mc}")
+                logger.debug(f"Updated peak_mc for CA {ca} in VIP to {current_mc}")
 
         if public_data:
             public_initial_mc = public_data["initial_mc"]
             public_growth_ratio = current_mc / public_initial_mc if public_initial_mc != 0 else 0
             if current_mc > public_data.get("peak_mc", public_initial_mc):
                 peak_updates[f"{ca}:{public_chat_id}"] = current_mc
-                logger.debug(f"Queued peak_mc update for CA {ca} in Public to {current_mc}")
+                logger.debug(f"Updated peak_mc for CA {ca} in Public to {current_mc}")
 
         # Check expiration and process notifications
         for chat_id, data in channel_data.items():
@@ -1251,6 +1465,7 @@ async def growthcheck() -> None:
             timestamp = data["timestamp"]
             growth_ratio = current_mc / initial_mc if initial_mc != 0 else 0
             profit_percent = ((current_mc - initial_mc) / initial_mc) * 100 if initial_mc != 0 else 0
+            logger.debug(f"Growth ratio for CA {ca} in chat {chat_id}: {growth_ratio:.2f}x")
 
             # Check notification threshold
             key = f"{ca}:{chat_id}"
@@ -1266,11 +1481,11 @@ async def growthcheck() -> None:
                 emoji = "🚀" if 2 <= growth_ratio < 5 else "🔥" if 5 <= growth_ratio < 10 else "🌙"
                 growth_str = f"**{growth_ratio:.1f}x**"  # Bold growth ratio
                 if chat_id in PUBLIC_CHANNEL_IDS and vip_data and vip_growth_ratio and public_growth_ratio and vip_growth_ratio > public_growth_ratio:
-                    growth_str += f"(**{vip_growth_ratio:.1f}x** from VIP)"  # Bold VIP growth ratio
+                    growth_str += f" (**{vip_growth_ratio:.1f}x** from VIP)"  # Bold VIP growth ratio
 
                 growth_message = (
                     f"{emoji} {growth_str} | "
-                    f"💹From {initial_mc_str} ↗️ **{current_mc_str}** within **{time_since_added}**"
+                    f"💹 From {initial_mc_str} ↗️ **{current_mc_str}** within **{time_since_added}**"
                 )
 
                 log_to_growthcheck_csv(
@@ -1301,7 +1516,7 @@ async def growthcheck() -> None:
                     except Exception as e:
                         logger.error(f"Failed to send growth notification for CA {ca} in chat {chat_id}: {e}")
 
-            # New sub-chunk: 3x notification to dedicated channel
+            # 3x notification to dedicated channel
             time_diff_seconds = (current_time - token_time).total_seconds()
             if growth_ratio >= 3.0 and time_diff_seconds <= 600 and ca not in notified_cas:
                 group_chat_id = -1002280798125
@@ -1334,8 +1549,90 @@ async def growthcheck() -> None:
         save_monitored_tokens()
         logger.info(f"Updated {len(peak_updates)} peak_mcs and removed {len(to_remove)} expired tokens")
 
-# Chunk 4 ends
-"""
+async def daily_summary_report() -> None:
+    logger.info("Generating daily summary report")
+    current_time = datetime.now(pytz.timezone('America/New_York'))
+    today_start = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start_ts = today_start.timestamp()
+    
+    # Read monitored_tokens.csv
+    qualifying_tokens = []
+    if os.path.exists(MONITORED_TOKENS_CSV_FILE):
+        with open(MONITORED_TOKENS_CSV_FILE, mode='r', newline='', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                timestamp = float(row["Timestamp"])
+                if timestamp < today_start_ts:
+                    logger.debug(f"Skipping token {row['CA:ChatID']} (timestamp {timestamp} before today)")
+                    continue
+                ca, chat_id = row["CA:ChatID"].split(':')
+                chat_id = int(chat_id)
+                if chat_id not in VIP_CHANNEL_IDS:
+                    logger.debug(f"Skipping token {row['CA:ChatID']} (not in VIP channel)")
+                    continue
+                initial_mc = float(row["InitialMC"])
+                peak_mc = float(row.get("PeakMC", initial_mc))
+                growth_ratio = peak_mc / initial_mc if initial_mc != 0 else 0
+                if growth_ratio >= 2.1:
+                    qualifying_tokens.append({
+                        "token_name": row["TokenName"],
+                        "ca": ca,
+                        "growth_ratio": growth_ratio,
+                        "current_mc": peak_mc,
+                        "chat_id": chat_id
+                    })
+                    logger.debug(f"Added qualifying token: CA={ca}, growth_ratio={growth_ratio:.2f}x")
+
+    logger.info(f"Found {len(qualifying_tokens)} qualifying tokens with growth >= 2.1x")
+    if not qualifying_tokens:
+        logger.info("No VIP tokens with growth ratio >= 2.1x for today")
+        return
+
+    # Sort tokens by growth ratio (descending)
+    qualifying_tokens.sort(key=lambda x: x["growth_ratio"], reverse=True)
+
+    # Generate report
+    date_str = current_time.strftime("%d/%m/%Y")
+    report = f"🔥 Top Performing VIP Tokens - {date_str} 🔥\n\n"
+
+    for idx, token in enumerate(qualifying_tokens, 1):
+        token_name = token["token_name"]
+        ca = token["ca"]
+        growth_ratio = token["growth_ratio"]
+        pump_fun_url = f"https://pump.fun/coin/{ca}"
+        emoji = "🥇" if idx == 1 else "🥈" if idx == 2 else "🥉" if idx == 3 else "🏅"
+        report += (
+            f"{emoji} [{token_name}]({pump_fun_url}) | **{growth_ratio:.1f}x**\n"
+        )
+
+    # Create inline keyboard with Join VIP button
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🌟🚀 Join VIP 🚀🌟", url="https://t.me/HumbleMoonshotsPay_bot?start=start")]
+    ])
+
+    # Post to public channel
+    public_chat_id = list(PUBLIC_CHANNEL_IDS)[0]
+    try:
+        message = await bot.send_message(
+            chat_id=public_chat_id,
+            text=report,
+            parse_mode="Markdown",
+            disable_web_page_preview=False,
+            reply_markup=keyboard
+        )
+        logger.info(f"Posted daily VIP summary report to public channel {public_chat_id}, message_id={message.message_id}")
+
+        # Pin the message
+        await bot.pin_chat_message(
+            chat_id=public_chat_id,
+            message_id=message.message_id,
+            disable_notification=True
+        )
+        logger.info(f"Pinned daily VIP summary report message {message.message_id} in public channel {public_chat_id}")
+    except Exception as e:
+        logger.error(f"Failed to post or pin daily VIP summary report: {e}")
+# --- End of Chunk 4 ---
+
 # Chunk 5 starts
 # Handler for /ca <token_ca> command
 @dp.message(Command(commands=["ca"]))
@@ -1373,7 +1670,7 @@ async def cmd_ca(message: types.Message):
             f"💰 Price: ${price:.6f}"
         )
         await message.reply(response)
-"""
+
 # Chunk 5 ends
 
 # Chunk 6 starts
