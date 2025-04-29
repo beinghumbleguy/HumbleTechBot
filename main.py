@@ -2094,9 +2094,6 @@ async def toggle_growth_notify(message: types.Message):
         await message.answer("Please specify Yes or No after /growthnotify (e.g., /growthnotify Yes) 🤔")
         logger.info("Invalid /growthnotify input")
 
-# ... (other handlers like mastersetup, resetdefaults unchanged)
-
-
 # Handler for /mastersetup command to display all filter settings
 @dp.message(Command(commands=["mastersetup"]))
 async def master_setup(message: types.Message):
@@ -2203,7 +2200,6 @@ async def reset_defaults(message: types.Message):
     await message.answer("All settings have been reset to default values ✅")
     logger.info(f"All settings reset to defaults by @{username}")
 
-
 @app.route('/download/<filename>')
 def download_file(filename):
     token = request.args.get('token')
@@ -2216,7 +2212,7 @@ def download_file(filename):
         "vip_ca_filter_log.csv",
         "public_growthcheck_log.csv",
         "vip_growthcheck_log.csv",
-        "monitored_tokens.csv"  # Added
+        "monitored_tokens.csv"
     ]
     if filename not in allowed_files:
         logger.error(f"Requested file {filename} not in allowed list")
@@ -2276,11 +2272,18 @@ async def on_startup():
     asyncio.create_task(schedule_growthcheck())
 
 async def schedule_growthcheck():
+    logger.info("Starting schedule_growthcheck")
     while True:
         try:
-            await growthcheck()
+            current_time = int(time.time())
+            logger.debug(f"Checking schedule: current_time={current_time}, mod={current_time % 14400}")
+            if current_time % 14400 < CHECK_INTERVAL:
+                logger.info("Running scheduled growthcheck")
+                logger.info("Calling growthcheck and daily_summary_report")
+                await growthcheck()
+                await daily_summary_report()
         except Exception as e:
-            logger.error(f"Error in growthcheck: {e}")
+            logger.error(f"Error in schedule_growthcheck: {e}")
         await asyncio.sleep(CHECK_INTERVAL)
 
 async def on_shutdown():
