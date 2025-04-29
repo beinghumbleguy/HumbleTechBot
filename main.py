@@ -312,7 +312,7 @@ def log_to_csv(ca, token_name, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold
                             current_mc if current_mc is not None else row.get("CurrentMC", "N/A"),
                             growth_ratio if growth_ratio is not None else row["GrowthRatio"]
                         ])
-'</xaiArtifact>': '                        updated = True
+
                     else:
                         rows.append(list(row.values()))
         if not updated:
