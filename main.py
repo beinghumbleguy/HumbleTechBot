@@ -2269,20 +2269,20 @@ async def on_startup():
         BotCommand(command="downloadmonitoredtokens", description="Get link to download monitored tokens CSV")
     ]
     try:
-    await bot.set_my_commands(commands)
-    logger.info("Successfully set bot commands for suggestions")
-except Exception as e:
-    logger.error(f"Failed to set bot commands: {e}")
+        await bot.set_my_commands(commands)
+        logger.info("Successfully set bot commands for suggestions")
+    except Exception as e:
+        logger.error(f"Failed to set bot commands: {e}")
 
-# Set up the scheduler for growthcheck and daily_summary_report
-logger.debug("Starting scheduler")
-scheduler = AsyncIOScheduler()
-scheduler.add_job(growthcheck, 'interval', seconds=30)
-logger.debug("Scheduled growthcheck job every 30 seconds")
-scheduler.add_job(daily_summary_report, 'interval', seconds=14400)
-logger.debug("Scheduled daily_summary_report job every 4 hours")
-scheduler.start()
-logger.debug("Scheduler started")
+    # Set up the scheduler for growthcheck and daily_summary_report
+    logger.debug("Starting scheduler")
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(growthcheck, 'interval', seconds=30)
+    logger.debug("Scheduled growthcheck job every 30 seconds")
+    scheduler.add_job(daily_summary_report, 'interval', seconds=14400)
+    logger.debug("Scheduled daily_summary_report job every 4 hours")
+    scheduler.start()
+    logger.debug("Scheduler started")
 
 async def on_shutdown():
     logger.info("Shutting down bot...")
