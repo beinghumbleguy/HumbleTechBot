@@ -133,7 +133,8 @@ growth_notifications_enabled = True
 GROWTH_THRESHOLD = 1.5
 INCREMENT_THRESHOLD = 1.0
 CHECK_INTERVAL = 30  # Changed to 15 seconds from 300
-DAILY_REPORT_INTERVAL = 14400  # Interval for daily_summary_report (4 hours) in seconds
+# DAILY_REPORT_INTERVAL = 14400  # Interval for daily_summary_report (4 hours) in seconds
+DAILY_REPORT_INTERVAL = 600  # Interval for daily_summary_report (4 hours) in seconds
 MONITORING_DURATION = 21600  # 6 hours in seconds
 monitored_tokens = {}
 last_growth_ratios = {}
@@ -1340,31 +1341,49 @@ async def daily_summary_report() -> None:
     current_time = datetime.now(pytz.timezone('America/New_York'))
     today_start = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
     today_start_ts = today_start.timestamp()
+    logger.debug(f"Today start timestamp: {today_start_ts}")
     
     # Read monitored_tokens.csv
     qualifying_tokens = []
     if os.path.exists(MONITORED_TOKENS_CSV_FILE):
+        logger.debug(f"Reading monitored tokens from {MONITORED_TOKENS_CSV_FILE}")
         with open(MONITORED_TOKENS_CSV_FILE, mode='r', newline='', encoding='utf-8') as f:
             reader = csv.DictReader(f)
-            for row in reader:
+            rows = list(reader)
+            logger.debug(f"Found {len(rows)} total tokens in monitored_tokens.csv")
+            logger.debug(f"CSV columns: {reader.fieldnames}")
+            for row in rows:
                 timestamp = float(row["Timestamp"])
+                logger.debug(f"Processing token with CA:ChatID={row['CA:ChatID']}, Timestamp={timestamp}")
                 if timestamp < today_start_ts:
+                    logger.debug(f"Skipping token with timestamp {timestamp} (before today)")
                     continue  # Skip tokens not from today
                 ca, chat_id = row["CA:ChatID"].split(':')
                 chat_id = int(chat_id)
+                logger.debug(f"Checking chat_id {chat_id} against VIP_CHANNEL_IDS {VIP_CHANNEL_IDS}")
                 if chat_id not in VIP_CHANNEL_IDS:
+                    logger.debug(f"Skipping token with chat_id {chat_id} (not in VIP channels)")
                     continue  # Only include tokens from VIP channels
                 initial_mc = float(row["InitialMC"])
                 peak_mc = float(row.get("PeakMC", initial_mc))
                 growth_ratio = peak_mc / initial_mc if initial_mc != 0 else 0
+                logger.debug(f"Calculated growth ratio for CA {ca}: {growth_ratio:.1f}x")
                 if growth_ratio >= 2.1:
+                    # Use "TokenName" to match the CSV format
+                    symbol = row.get("TokenName", "$Unknown")
+                    if symbol == "$Unknown":
+                        logger.warning(f"No 'TokenName' column found for CA:ChatID={row['CA:ChatID']}.")
+                    logger.debug(f"Found qualifying token CA={ca}, Growth={growth_ratio:.1f}x, Symbol={symbol}")
                     qualifying_tokens.append({
-                        "symbol": row["Ticker"],  # Use Ticker (symbol with $) instead of TokenName
+                        "symbol": symbol,
                         "ca": ca,
                         "growth_ratio": growth_ratio,
                         "current_mc": peak_mc,
                         "chat_id": chat_id
                     })
+    else:
+        logger.warning(f"Monitored tokens CSV file {MONITORED_TOKENS_CSV_FILE} does not exist")
+        return
 
     # Sort tokens by growth ratio (descending)
     qualifying_tokens.sort(key=lambda x: x["growth_ratio"], reverse=True)
@@ -1417,7 +1436,7 @@ async def daily_summary_report() -> None:
         logger.info(f"Pinned daily VIP summary report message {message.message_id} in public channel {public_chat_id}")
     except Exception as e:
         logger.error(f"Failed to post or pin daily VIP summary report: {e}")
-
+        
 # Chunk 4 ends
 """
 # Chunk 5 starts
