@@ -100,7 +100,7 @@ _executor = ThreadPoolExecutor(max_workers=5)
 
 # Global variables with default values
 filter_enabled = True
-PassValue = 1.25
+PassValue = 1.22
 RangeLow = 1.08
 authorized_users = ["@BeingHumbleGuy"]
 additional_user_added = False
@@ -134,7 +134,7 @@ GROWTH_THRESHOLD = 1.5
 INCREMENT_THRESHOLD = 1.0
 CHECK_INTERVAL = 30  # Changed to 15 seconds from 300
 # DAILY_REPORT_INTERVAL = 14400  # Interval for daily_summary_report (4 hours) in seconds
-DAILY_REPORT_INTERVAL = 600  # Interval for daily_summary_report (4 hours) in seconds
+DAILY_REPORT_INTERVAL = 7200  # Interval for daily_summary_report (4 hours) in seconds
 MONITORING_DURATION = 21600  # 6 hours in seconds
 monitored_tokens = {}
 last_growth_ratios = {}
