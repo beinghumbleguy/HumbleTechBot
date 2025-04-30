@@ -100,8 +100,8 @@ _executor = ThreadPoolExecutor(max_workers=5)
 
 # Global variables with default values
 filter_enabled = True
-PassValue = 0
-RangeLow = 0
+PassValue = 1.25
+RangeLow = 1.08
 authorized_users = ["@BeingHumbleGuy"]
 additional_user_added = False
 
@@ -133,6 +133,7 @@ growth_notifications_enabled = True
 GROWTH_THRESHOLD = 1.5
 INCREMENT_THRESHOLD = 1.0
 CHECK_INTERVAL = 30  # Changed to 15 seconds from 300
+DAILY_REPORT_INTERVAL = 14400  # Interval for daily_summary_report (4 hours) in seconds
 MONITORING_DURATION = 21600  # 6 hours in seconds
 monitored_tokens = {}
 last_growth_ratios = {}
@@ -2277,10 +2278,10 @@ async def on_startup():
     # Set up the scheduler for growthcheck and daily_summary_report
     logger.debug("Starting scheduler")
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(growthcheck, 'interval', seconds=30)
-    logger.debug("Scheduled growthcheck job every 30 seconds")
-    scheduler.add_job(daily_summary_report, 'interval', seconds=14400)
-    logger.debug("Scheduled daily_summary_report job every 4 hours")
+    scheduler.add_job(growthcheck, 'interval', seconds=CHECK_INTERVAL)
+    logger.debug(f"Scheduled growthcheck job every {CHECK_INTERVAL} seconds")
+    scheduler.add_job(daily_summary_report, 'interval', seconds=DAILY_REPORT_INTERVAL)
+    logger.debug(f"Scheduled daily_summary_report job every {DAILY_REPORT_INTERVAL} seconds")
     scheduler.start()
     logger.debug("Scheduler started")
 
