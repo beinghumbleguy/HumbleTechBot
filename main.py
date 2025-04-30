@@ -25,7 +25,7 @@ from typing import Optional, Dict
 from cachetools import TTLCache
 import pytz
 import aiogram
-
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Enable debug logging
 # New comment
