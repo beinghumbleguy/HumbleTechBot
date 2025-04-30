@@ -2269,26 +2269,20 @@ async def on_startup():
         BotCommand(command="downloadmonitoredtokens", description="Get link to download monitored tokens CSV")
     ]
     try:
-        await bot.set_my_commands(commands)
-        logger.info("Successfully set bot commands for suggestions")
-    except Exception as e:
-        logger.error(f"Failed to set bot commands: {e}")
-    asyncio.create_task(schedule_growthcheck())
+    await bot.set_my_commands(commands)
+    logger.info("Successfully set bot commands for suggestions")
+except Exception as e:
+    logger.error(f"Failed to set bot commands: {e}")
 
-async def schedule_growthcheck():
-    logger.info("Starting schedule_growthcheck")
-    while True:
-        try:
-            current_time = int(time.time())
-            logger.debug(f"Checking schedule: current_time={current_time}, mod={current_time % 14400}")
-            if current_time % 14400 < CHECK_INTERVAL:
-                logger.info("Running scheduled growthcheck")
-                logger.info("Calling growthcheck and daily_summary_report")
-                await growthcheck()
-                await daily_summary_report()
-        except Exception as e:
-            logger.error(f"Error in schedule_growthcheck: {e}")
-        await asyncio.sleep(CHECK_INTERVAL)
+# Set up the scheduler for growthcheck and daily_summary_report
+logger.debug("Starting scheduler")
+scheduler = AsyncIOScheduler()
+scheduler.add_job(growthcheck, 'interval', seconds=30)
+logger.debug("Scheduled growthcheck job every 30 seconds")
+scheduler.add_job(daily_summary_report, 'interval', seconds=14400)
+logger.debug("Scheduled daily_summary_report job every 4 hours")
+scheduler.start()
+logger.debug("Scheduler started")
 
 async def on_shutdown():
     logger.info("Shutting down bot...")
