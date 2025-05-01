@@ -1397,20 +1397,25 @@ async def daily_summary_report() -> None:
     report = (
         f"📈 **Top Performing VIP Tokens** 📈\n"
         f"📅 {date_str}\n\n"
-        f"🔥 See the biggest gains from VIP channel! 🔥\n\n"
     )
 
+    # Add each token to the report
     for idx, token in enumerate(qualifying_tokens, 1):
         symbol = token["symbol"]
         ca = token["ca"]
         growth_ratio = token["growth_ratio"]
         pump_fun_url = f"https://pump.fun/coin/{ca}"
-        emoji = "🥇" if idx == 1 else "🥈" if idx == 2 else "🥉" if idx == 3 else "🏅"
+        emoji = "🏆" if idx == 1 else "🥈" if idx == 2 else "🥉" if idx == 3 else "🏅"
+        # Use ├ for all items except the last, which uses └
+        prefix = "├" if idx < len(qualifying_tokens) else "└"
         # Align symbol and growth ratio with fixed-width spacing (10 characters for symbol field)
         symbol_field = f"[{symbol}]({pump_fun_url})".ljust(10)
         report += (
-            f"{emoji} 🟡 {symbol_field} 🚀 **{growth_ratio:.1f}x**\n\n"
+            f"{prefix}{emoji} 👀 | 🔗 | {symbol_field} | {growth_ratio:.1f}x\n"
         )
+
+    # Add footer
+    report += "\nJoin our VIP channel for more gains! 💰\n"
 
     # Create inline keyboard with Join VIP button
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
