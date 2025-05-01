@@ -1369,10 +1369,14 @@ async def daily_summary_report() -> None:
                 growth_ratio = peak_mc / initial_mc if initial_mc != 0 else 0
                 logger.debug(f"Calculated growth ratio for CA {ca}: {growth_ratio:.1f}x")
                 if growth_ratio >= 2.1:
-                    # Use "TokenName" to match the CSV format
-                    symbol = row.get("TokenName", "$Unknown")
-                    if symbol == "$Unknown":
+                    # Extract only the symbol (e.g., $SQUINT) from TokenName
+                    token_name = row.get("TokenName", "$Unknown")
+                    if token_name == "$Unknown":
                         logger.warning(f"No 'TokenName' column found for CA:ChatID={row['CA:ChatID']}.")
+                    # Take the part starting with $ up to the first space
+                    symbol = token_name.split(' ')[0] if ' ' in token_name else token_name
+                    if not symbol.startswith('$'):
+                        symbol = "$Unknown"  # Fallback if no $ sign
                     logger.debug(f"Found qualifying token CA={ca}, Growth={growth_ratio:.1f}x, Symbol={symbol}")
                     qualifying_tokens.append({
                         "symbol": symbol,
@@ -1409,9 +1413,9 @@ async def daily_summary_report() -> None:
         # Use ├ for all items except the last, which uses └
         prefix = "├" if idx < len(qualifying_tokens) else "└"
         # Align symbol and growth ratio with fixed-width spacing (10 characters for symbol field)
-        symbol_field = f"[{symbol}]({pump_fun_url})".ljust(10)
+        symbol_field = symbol.ljust(10)
         report += (
-            f"{prefix}{emoji} 👀 | 🔗 | {symbol_field} | {growth_ratio:.1f}x\n"
+            f"{prefix}{emoji} 👀 | [{chr(0x1F517)}]({pump_fun_url}) | {symbol_field} | {growth_ratio:.1f}x\n"
         )
 
     # Add footer
