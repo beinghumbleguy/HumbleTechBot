@@ -1187,7 +1187,10 @@ async def growthcheck() -> None:
     current_time = datetime.now(pytz.timezone('America/New_York'))
     to_remove = []
     peak_updates = {}
-    notified_cas = set()  # Track CAs notified for 3x to avoid duplicates
+    # Move notified_cas to module-level to persist across calls
+    if not hasattr(growthcheck, 'notified_cas'):
+        growthcheck.notified_cas = set()  # Initialize if not exists
+    notified_cas = growthcheck.notified_cas  # Use the persistent set
     logger.debug(f"Starting growthcheck with monitored_tokens: {len(monitored_tokens)} tokens")
 
     # Group tokens by CA for cross-channel comparison
@@ -1322,7 +1325,7 @@ async def growthcheck() -> None:
                         parse_mode="Markdown"
                     )
                     logger.info(f"Notified group {group_chat_id} for CA {ca}: {growth_ratio:.1f}x in {time_since}")
-                    notified_cas.add(ca)
+                    notified_cas.add(ca)  # Mark CA as notified
                 except Exception as e:
                     logger.error(f"Failed to notify group {group_chat_id} for CA {ca}: {e}")
 
