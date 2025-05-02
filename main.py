@@ -1343,50 +1343,55 @@ async def daily_summary_report() -> None:
     today_start_ts = today_start.timestamp()
     logger.debug(f"Today start timestamp: {today_start_ts}")
     
-    # Read monitored_tokens.csv
+    # Read vip_growthcheck_log.csv
+    GROWTHCHECK_LOG_CSV_FILE = "vip_growthcheck_log.csv"  # Define the correct file
     qualifying_tokens = []
-    if os.path.exists(MONITORED_TOKENS_CSV_FILE):
-        logger.debug(f"Reading monitored tokens from {MONITORED_TOKENS_CSV_FILE}")
-        with open(MONITORED_TOKENS_CSV_FILE, mode='r', newline='', encoding='utf-8') as f:
+    if os.path.exists(GROWTHCHECK_LOG_CSV_FILE):
+        logger.debug(f"Reading growth check tokens from {GROWTHCHECK_LOG_CSV_FILE}")
+        with open(GROWTHCHECK_LOG_CSV_FILE, mode='r', newline='', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             rows = list(reader)
-            logger.debug(f"Found {len(rows)} total tokens in monitored_tokens.csv")
+            logger.debug(f"Found {len(rows)} total tokens in {GROWTHCHECK_LOG_CSV_FILE}")
             logger.debug(f"CSV columns: {reader.fieldnames}")
             for row in rows:
-                timestamp = float(row["Timestamp"])
-                logger.debug(f"Processing token with CA:ChatID={row['CA:ChatID']}, Timestamp={timestamp}")
+                # Convert Timestamp string to float (Unix timestamp)
+                timestamp_str = row["Timestamp"]
+                timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.timezone('America/New_York')).timestamp()
+                logger.debug(f"Processing token with CA={row['CA']}, Timestamp={timestamp}")
                 if timestamp < today_start_ts:
                     logger.debug(f"Skipping token with timestamp {timestamp} (before today)")
                     continue  # Skip tokens not from today
-                ca, chat_id = row["CA:ChatID"].split(':')
-                chat_id = int(chat_id)
+                chat_id = int(row["ChatID"])
                 logger.debug(f"Checking chat_id {chat_id} against VIP_CHANNEL_IDS {VIP_CHANNEL_IDS}")
                 if chat_id not in VIP_CHANNEL_IDS:
                     logger.debug(f"Skipping token with chat_id {chat_id} (not in VIP channels)")
                     continue  # Only include tokens from VIP channels
-                initial_mc = float(row["InitialMC"])
-                peak_mc = float(row.get("PeakMC", initial_mc))
-                growth_ratio = peak_mc / initial_mc if initial_mc != 0 else 0
-                logger.debug(f"Calculated growth ratio for CA {ca}: {growth_ratio:.1f}x")
+                original_mc = float(row["OriginalMC"])
+                current_mc = float(row["CurrentMC"])
+                growth_ratio = float(row.get("GrowthRatio", 0))  # Use CSV GrowthRatio directly
+                logger.debug(f"Calculated growth ratio for CA {row['CA']}: {growth_ratio:.1f}x")
                 if growth_ratio >= 2.1:
-                    # Extract only the symbol (e.g., $SQUINT) from TokenName
+                    # Extract only the symbol (e.g., $SCHOOL) from TokenName
                     token_name = row.get("TokenName", "$Unknown")
+                    logger.debug(f"Raw TokenName: {token_name}")  # Log raw value for debugging
                     if token_name == "$Unknown":
-                        logger.warning(f"No 'TokenName' column found for CA:ChatID={row['CA:ChatID']}.")
-                    # Take the part starting with $ up to the first space
-                    symbol = token_name.split(' ')[0] if ' ' in token_name else token_name
-                    if not symbol.startswith('$'):
-                        symbol = "$Unknown"  # Fallback if no $ sign
-                    logger.debug(f"Found qualifying token CA={ca}, Growth={growth_ratio:.1f}x, Symbol={symbol}")
+                        logger.warning(f"No 'TokenName' column found for CA={row['CA']}.")
+                    # Extract $SYMBOL by skipping 🟡 and taking the next word
+                    if '🟡 $' in token_name:
+                        symbol = token_name.split('🟡 $')[1].split(' ')[0]
+                        symbol = f"${symbol}"  # Ensure $ prefix
+                    else:
+                        symbol = "$Unknown"  # Fallback if format doesn't match
+                    logger.debug(f"Extracted symbol: {symbol}")
                     qualifying_tokens.append({
                         "symbol": symbol,
-                        "ca": ca,
+                        "ca": row["CA"],
                         "growth_ratio": growth_ratio,
-                        "current_mc": peak_mc,
+                        "current_mc": current_mc,
                         "chat_id": chat_id
                     })
     else:
-        logger.warning(f"Monitored tokens CSV file {MONITORED_TOKENS_CSV_FILE} does not exist")
+        logger.warning(f"Growth check log file {GROWTHCHECK_LOG_CSV_FILE} does not exist")
         return
 
     # Sort tokens by growth ratio (descending)
