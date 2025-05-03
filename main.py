@@ -1,5 +1,5 @@
 # Chunk 1 starts
-from aiogram import Bot, Dispatcher, types, F
+from aiogram import Bot, Dispatcher, types, Router, F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, BotCommand
 from aiogram.filters import Command, BaseFilter
 import asyncio
@@ -1338,6 +1338,12 @@ async def growthcheck() -> None:
     if peak_updates or to_remove:
         save_monitored_tokens()
         logger.info(f"Updated {len(peak_updates)} peak_mcs and removed {len(to_remove)} expired tokens")
+        
+# Assuming these are already defined in your code
+# VIP_CHANNEL_IDS, PUBLIC_CHANNEL_IDS, bot, logger, etc.
+# Also assuming VIP_GROWTH_CSV_FILE is defined as "/app/data/vip_growthcheck_log.csv"
+
+router = Router()
 
 async def daily_summary_report() -> None:
     logger.info("Generating daily summary report")
@@ -1346,8 +1352,8 @@ async def daily_summary_report() -> None:
     today_start_ts = today_start.timestamp()
     logger.debug(f"Today start timestamp: {today_start_ts}")
     
-    # Read vip_growthcheck_log.csv
-    GROWTHCHECK_LOG_CSV_FILE = "vip_growthcheck_log.csv"  # Define the correct file
+    # Read vip_growthcheck_log.csv using the correct path
+    GROWTHCHECK_LOG_CSV_FILE = VIP_GROWTH_CSV_FILE  # Use the defined path /app/data/vip_growthcheck_log.csv
     qualifying_tokens = []
     if os.path.exists(GROWTHCHECK_LOG_CSV_FILE):
         logger.debug(f"Reading growth check tokens from {GROWTHCHECK_LOG_CSV_FILE}")
@@ -1455,7 +1461,13 @@ async def daily_summary_report() -> None:
         logger.info(f"Pinned daily VIP summary report message {message.message_id} in public channel {public_chat_id}")
     except Exception as e:
         logger.error(f"Failed to post or pin daily VIP summary report: {e}")
-        
+
+# Add the /dailysummary command handler
+@router.message(Command("dailysummary"))
+async def cmd_dailysummary(message: types.Message):
+    await daily_summary_report()
+    await message.reply("Daily summary report has been generated and posted to the public channel.")
+    
 # Chunk 4 ends
 """
 # Chunk 5 starts
