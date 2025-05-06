@@ -1387,9 +1387,9 @@ async def daily_summary_report() -> None:
                         logger.warning(f"No 'TokenName' column found for CA={row['CA']}.")
                     # Extract $SYMBOL by splitting on | and taking the part after it
                     if '|' in token_name:
-                        symbol = token_name.split('|')[1].strip().split(' ')[0]
-                         symbol = f"${symbol}" if not symbol.startswith('$') else symbol
-                     else:
+                        symbol = token_name.split('|')[1].strip().split(' ')[0]  # Take the part after | and first word
+                        symbol = f"${symbol}" if not symbol.startswith('$') else symbol  # Ensure $ prefix
+                    else:
                         symbol = "$Unknown"  # Fallback if format doesn't match
                     logger.debug(f"Extracted symbol: {symbol}")
                     qualifying_tokens.append({
