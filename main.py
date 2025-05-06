@@ -1385,10 +1385,10 @@ async def daily_summary_report() -> None:
                     logger.debug(f"Raw TokenName: {token_name}")  # Log raw value for debugging
                     if token_name == "$Unknown":
                         logger.warning(f"No 'TokenName' column found for CA={row['CA']}.")
-                    # Extract $SYMBOL by skipping 🟡 and taking the next word
+                    # Extract $SYMBOL by splitting on | and taking the part after it
                     if '|' in token_name:
                         symbol = token_name.split('|')[1].strip().split(' ')[0]
-                         symbol = f"{symbol}" if symbol.startswith('$') else f"${symbol}"
+                         symbol = f"${symbol}" if not symbol.startswith('$') else symbol
                      else:
                         symbol = "$Unknown"  # Fallback if format doesn't match
                     logger.debug(f"Extracted symbol: {symbol}")
