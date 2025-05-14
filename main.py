@@ -1308,7 +1308,7 @@ async def growthcheck() -> None:
 
             # New sub-chunk: 3x notification to dedicated channel
             time_diff_seconds = (current_time - token_time).total_seconds()
-            if growth_ratio >= 3.0 and time_diff_seconds <= 600 and ca not in notified_cas:
+            if growth_ratio >= 3.0 and time_diff_seconds <= 330 and ca not in notified_cas:
                 group_chat_id = -1002280798125
                 current_mc_str = f"{current_mc / 1000:.1f}K" if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M"
                 growth_ratio_str = f"{growth_ratio:.1f}x"
