@@ -100,8 +100,8 @@ _executor = ThreadPoolExecutor(max_workers=5)
 
 # Global variables with default values
 filter_enabled = True
-PassValue = 1.22
-RangeLow = 1.08
+PassValue = 1.3
+RangeLow = 1.05
 authorized_users = ["@BeingHumbleGuy"]
 additional_user_added = False
 
@@ -867,8 +867,8 @@ async def process_message(message: types.Message) -> None:
             #    InlineKeyboardButton(text="Trojan", url=f"https://t.me/solana_trojanbot?start=r-beinghumbleguy-{ca}")
             #],
             [
-                InlineKeyboardButton(text="Photon", url=f"https://photon-sol.tinyastro.io/en/r/@humbleguy/{ca}"),
-                InlineKeyboardButton(text="Axiom", url=f"https://axiom.trade/t/{ca}/@humbleguy")
+            #    InlineKeyboardButton(text="Photon", url=f"https://photon-sol.tinyastro.io/en/r/@humbleguy/{ca}"),
+            #    InlineKeyboardButton(text="Axiom", url=f"https://axiom.trade/t/{ca}/@humbleguy")
             ]
         ])
 
