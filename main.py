@@ -872,7 +872,7 @@ async def process_message(message: types.Message) -> None:
                  InlineKeyboardButton(text="Trojan", url=f"https://t.me/solana_trojanbot?start=r-beinghumbleguy-{ca}"),
                  InlineKeyboardButton(text="Axiom", url=f"https://axiom.trade/t/{ca}/@humbleguy")
             ],
-            [InlineKeyboardButton(text="👉🔥 JOIN VIP NOW 🔥👉", url="https://t.me/HumbleMoonshotsPay_bot?start=start"]
+            [InlineKeyboardButton(text="👉🔥 JOIN VIP NOW 🔥👉", url="https://t.me/HumbleMoonshotsPay_bot?start=start")]
         ])
 
         # Growth monitoring happens BEFORE editing
