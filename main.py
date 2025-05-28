@@ -869,8 +869,8 @@ async def process_message(message: types.Message) -> None:
             #],
             [
             #    InlineKeyboardButton(text="Photon", url=f"https://photon-sol.tinyastro.io/en/r/@humbleguy/{ca}"),
-                 InlineKeyboardButton(text="Trojan", url=f"https://t.me/solana_trojanbot?start=r-beinghumbleguy-{ca}"),
-                 InlineKeyboardButton(text="Axiom", url=f"https://axiom.trade/t/{ca}/@humbleguy")
+                 # InlineKeyboardButton(text="Trojan", url=f"https://t.me/solana_trojanbot?start=r-beinghumbleguy-{ca}"),
+                 # InlineKeyboardButton(text="Axiom", url=f"https://axiom.trade/t/{ca}/@humbleguy")
             ],
             [InlineKeyboardButton(text="👉🔥 JOIN VIP NOW 🔥👉", url="https://t.me/HumbleMoonshotsPay_bot?start=start")] if not is_vip_channel else []
         ])
