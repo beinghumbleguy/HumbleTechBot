@@ -2243,7 +2243,7 @@ async def generate_pnl_report():
             logger.error(f"Error processing PNL for CA {ca}: {e}")
 
 # Initialize PNL report enabled flag
-pnl_report_enabled = False
+pnl_report_enabled = True
 
 
 # Handler for /mastersetup command to display all filter settings
@@ -2267,6 +2267,7 @@ async def master_setup(message: types.Message):
     response += f"- Bundles Filter Enabled: {BundlesFilterEnabled}\n"
     response += f"- Insiders Filter Enabled: {InsidersFilterEnabled}\n"
     response += f"- KOLs Filter Enabled: {KOLsFilterEnabled}\n"
+    response += f"- PNL Images Enabled: {pnl_report_enabled}\n"
     response += f"- Growth Notifications Enabled: {growth_notifications_enabled}\n\n"
 
     response += "📊 **Threshold Settings**\n"
