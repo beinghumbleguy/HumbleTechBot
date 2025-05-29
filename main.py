@@ -1160,7 +1160,7 @@ async def process_message(message: types.Message) -> None:
     "setbundlesthreshold", "setbundlesfilter", "setinsidersthreshold", "setinsidersfilter", 
     "setkolsthreshold", "setkolsfilter", "adduser", "downloadcsv", "downloadgrowthcsv", 
     "growthnotify", "mastersetup", "resetdefaults",
-    "setbcthreshold", "setbcfilter","setpnlreport","downloadmonitoredtokens"
+    "setbcthreshold", "setbcfilter","setpnlreport","getchatid","downloadmonitoredtokens"
 ]), F.text)
 async def handle_message(message: types.Message) -> None:
     await process_message(message)
@@ -2245,7 +2245,12 @@ async def generate_pnl_report():
 # Initialize PNL report enabled flag
 pnl_report_enabled = True
 
-
+# Handler for /getchatid to get chat id
+@dp.message(Command(commands=["getchatid"]))
+async def get_chat_id(message: types.Message):
+    logger.info(f"Chat ID: {message.chat.id}")
+    await message.answer(f"Chat ID: {message.chat.id}")
+    
 # Handler for /mastersetup command to display all filter settings
 @dp.message(Command(commands=["mastersetup"]))
 async def master_setup(message: types.Message):
@@ -2416,7 +2421,9 @@ async def on_startup():
         BotCommand(command="mastersetup", description="Display all current filter settings"),
         BotCommand(command="resetdefaults", description="Reset all settings to default values"),
         BotCommand(command="downloadmonitoredtokens", description="Get link to download monitored tokens CSV"),
-        BotCommand(command="setpnlreport", description="Enable/disable PNL report generation (Yes/No)")
+        BotCommand(command="setpnlreport", description="Enable/disable PNL report generation (Yes/No)"),
+        BotCommand(command="getchatid", description="Get Chat ID")
+        
     ]
     try:
         await bot.set_my_commands(commands)
