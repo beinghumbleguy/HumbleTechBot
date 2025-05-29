@@ -2199,7 +2199,7 @@ async def generate_pnl_report():
         logger.info("No VIP tokens found for PNL report")
         return
 
-    vip_chat_id = list(VIP_CHANNEL_IDS)[0]  # -1002365061913
+    vip_chat_id = 2497412722 # -1002365061913
     public_chat_id = list(PUBLIC_CHANNEL_IDS)[0]  # -1002272066154
 
     # Process each CA with 10-minute interval
