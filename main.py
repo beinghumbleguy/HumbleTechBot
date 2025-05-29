@@ -2127,30 +2127,124 @@ async def toggle_growth_notify(message: types.Message):
 
 # ... (other handlers like mastersetup, resetdefaults unchanged)
 
+# Chunk 6b starts (continued)
 
-
-# Chunk 6b starts
-@dp.message(Command(commands=["growthnotify"]))
-async def toggle_growth_notify(message: types.Message):
+# Handler for /setpnlreport command to enable/disable PNL report generation
+@dp.message(Command(commands=["setpnlreport"]))
+async def toggle_pnl_report(message: types.Message):
     username = message.from_user.username
-    logger.info(f"Received /growthnotify command from user: @{username}")
+    logger.info(f"Received /setpnlreport command from user: @{username}")
     if not is_authorized(username):
-        await message.answer("⚠️ You are not authorized to use this command.")
-        logger.info(f"Unauthorized /growthnotify attempt by @{username}")
+        await message.answer("⚠️ Only authorized users can use this command.")
+        logger.info(f"Unauthorized /setpnlreport attempt by @{username}")
         return
-    global growth_notifications_enabled
-    text = message.text.lower().replace('/growthnotify', '').strip()
+    global pnl_report_enabled
+    text = message.text.lower().replace('/setpnlreport', '').strip()
     if text == "yes":
-        growth_notifications_enabled = True
-        await message.answer("Growth notifications set to: Yes ✅")
-        logger.info("Growth notifications enabled")
+        pnl_report_enabled = True
+        await message.answer("PNL report generation set to: Yes ✅")
+        logger.info("PNL report generation enabled")
     elif text == "no":
-        growth_notifications_enabled = False
-        await message.answer("Growth notifications set to: No 🚫")
-        logger.info("Growth notifications disabled")
+        pnl_report_enabled = False
+        await message.answer("PNL report generation set to: No ⛔")
+        logger.info("PNL report generation disabled")
     else:
-        await message.answer("Please specify Yes or No after /growthnotify (e.g., /growthnotify Yes) 🤔")
-        logger.info("Invalid /growthnotify input")
+        await message.answer("Please specify Yes or No after /setpnlreport (e.g., /setpnlreport Yes) 🤔")
+        logger.info("Invalid /setpnlreport input")
+
+# Function to generate PNL report for top 10 tokens with 10-minute intervals
+async def generate_pnl_report():
+    if not pnl_report_enabled:
+        logger.info("PNL report generation is disabled, skipping execution")
+        return
+
+    logger.info("Generating PNL report for top 10 tokens with 10-minute intervals")
+    current_time = datetime.now(pytz.timezone('America/New_York'))
+    today_start = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start_ts = today_start.timestamp()
+    logger.debug(f"Today start timestamp: {today_start_ts}")
+
+    qualifying_tokens = []
+    GROWTHCHECK_LOG_CSV_FILE = VIP_GROWTH_CSV_FILE  # /app/data/vip_growthcheck_log.csv
+    if os.path.exists(GROWTHCHECK_LOG_CSV_FILE):
+        logger.debug(f"Reading growth check tokens from {GROWTHCHECK_LOG_CSV_FILE}")
+        with open(GROWTHCHECK_LOG_CSV_FILE, mode='r', newline='', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+            logger.debug(f"Found {len(rows)} total tokens in {GROWTHCHECK_LOG_CSV_FILE}")
+            for row in rows:
+                timestamp_str = row["Timestamp"]
+                timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.timezone('America/New_York')).timestamp()
+                if timestamp < today_start_ts:
+                    logger.debug(f"Skipping token with timestamp {timestamp} (before today)")
+                    continue
+                if int(row["ChatID"]) not in VIP_CHANNEL_IDS:
+                    logger.debug(f"Skipping token with chat_id {row['ChatID']} (not in VIP channels)")
+                    continue
+                growth_ratio = float(row.get("GrowthRatio", 0))
+                qualifying_tokens.append({
+                    "ca": row["CA"],
+                    "growth_ratio": growth_ratio,
+                    "token_name": row.get("TokenName", "$Unknown")
+                })
+    else:
+        logger.warning(f"Growth check log file {GROWTHCHECK_LOG_CSV_FILE} does not exist")
+        return
+
+    # Sort by growth ratio and take top 10
+    qualifying_tokens.sort(key=lambda x: x["growth_ratio"], reverse=True)
+    top_10_tokens = qualifying_tokens[:10]
+
+    if not top_10_tokens:
+        logger.info("No VIP tokens found for PNL report")
+        return
+
+    vip_chat_id = list(VIP_CHANNEL_IDS)[0]  # -1002365061913
+    public_chat_id = list(PUBLIC_CHANNEL_IDS)[0]  # -1002272066154
+
+    # Process each CA with 10-minute interval
+    for i, token in enumerate(top_10_tokens):
+        ca = token["ca"]
+        logger.info(f"Processing PNL for CA {ca} (Token: {token['token_name']}) at index {i}")
+        try:
+            # Send /pnl <ca> command to VIP channel
+            pnl_message = await bot.send_message(
+                chat_id=vip_chat_id,
+                text=f"/pnl {ca}",
+                parse_mode=None
+            )
+            logger.info(f"Sent /pnl {ca} to VIP channel {vip_chat_id}, message_id={pnl_message.message_id}")
+
+            # Wait for PhanesGreenBot to respond with an image (assuming reply within 10 seconds)
+            await asyncio.sleep(10)
+            updates = await bot.get_updates(offset=(pnl_message.message_id + 1), limit=1, timeout=10)
+            if updates and updates[0].message and updates[0].message.photo:
+                photo = updates[0].message.photo[-1]  # Get the highest resolution
+                # Forward to public channel with "Join VIP" button
+                markup = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🌟🚀 Join VIP 🚀🌟", url="https://t.me/HumbleMoonshotsPay_bot?start=start")]
+                ])
+                await bot.forward_message(
+                    chat_id=public_chat_id,
+                    from_chat_id=vip_chat_id,
+                    message_id=updates[0].message.message_id,
+                    reply_markup=markup
+                )
+                logger.info(f"Forwarded PNL image for CA {ca} to public channel {public_chat_id} with Join VIP button")
+            else:
+                logger.warning(f"No image received for CA {ca} from PhanesGreenBot")
+
+            # Wait 10 minutes before next CA (600 seconds), but ensure total time fits within 3 hours
+            if i < len(top_10_tokens) - 1:
+                wait_time = 600  # Fixed 10-minute interval
+                logger.debug(f"Waiting {wait_time} seconds before next PNL check for CA {ca}")
+                await asyncio.sleep(wait_time)
+        except Exception as e:
+            logger.error(f"Error processing PNL for CA {ca}: {e}")
+
+# Initialize PNL report enabled flag
+pnl_report_enabled = False
+
 
 # Handler for /mastersetup command to display all filter settings
 @dp.message(Command(commands=["mastersetup"]))
@@ -2320,7 +2414,8 @@ async def on_startup():
         BotCommand(command="growthnotify", description="Enable/disable growth notifications (Yes/No)"),
         BotCommand(command="mastersetup", description="Display all current filter settings"),
         BotCommand(command="resetdefaults", description="Reset all settings to default values"),
-        BotCommand(command="downloadmonitoredtokens", description="Get link to download monitored tokens CSV")
+        BotCommand(command="downloadmonitoredtokens", description="Get link to download monitored tokens CSV"),
+        BotCommand(command="setpnlreport", description="Enable/disable PNL report generation (Yes/No)")
     ]
     try:
         await bot.set_my_commands(commands)
@@ -2335,6 +2430,8 @@ async def on_startup():
     logger.debug(f"Scheduled growthcheck job every {CHECK_INTERVAL} seconds")
     scheduler.add_job(daily_summary_report, 'interval', seconds=DAILY_REPORT_INTERVAL)
     logger.debug(f"Scheduled daily_summary_report job every {DAILY_REPORT_INTERVAL} seconds")
+    scheduler.add_job(generate_pnl_report, 'interval', seconds=DAILY_REPORT_INTERVAL, max_instances=1)
+    logger.debug(f"Scheduled generate_pnl_report job every {DAILY_REPORT_INTERVAL} seconds with 3-hour execution window")
     scheduler.start()
     logger.debug("Scheduler started")
 
