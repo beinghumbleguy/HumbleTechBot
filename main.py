@@ -1256,7 +1256,7 @@ async def growthcheck() -> None:
 
             initial_mc = data["initial_mc"]
             token_name = data["token_name"]
-            symbol = data["symbol"]
+            # symbol = data["symbol"]
             message_id = data["message_id"]
             timestamp = data["timestamp"]
             growth_ratio = current_mc / initial_mc if initial_mc != 0 else 0
@@ -1281,7 +1281,7 @@ async def growthcheck() -> None:
 
                 growth_message = (
                     f"{emoji} {growth_str} | "
-                    f"💹 From {initial_mc_str} ↗️ **{current_mc_str}** within **{time_since_added}**{symbol_display}"
+                    f"💹 From {initial_mc_str} ↗️ **{current_mc_str}** within **{time_since_added}**"
                 )
 
                 log_to_growthcheck_csv(
