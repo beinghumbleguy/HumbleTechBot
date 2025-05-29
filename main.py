@@ -1275,7 +1275,7 @@ async def growthcheck() -> None:
 
                 emoji = "🚀" if 2 <= growth_ratio < 5 else "🔥" if 5 <= growth_ratio < 10 else "🌙"
                 growth_str = f"**{growth_ratio:.1f}x**"  # Bold growth ratio
-                symbol_display = f" - ${symbol}" if symbol else ""
+                # symbol_display = f" - ${symbol}" if symbol else ""
                 if chat_id in PUBLIC_CHANNEL_IDS and vip_data and vip_growth_ratio and public_growth_ratio and vip_growth_ratio > public_growth_ratio:
                     growth_str += f" (**{vip_growth_ratio:.1f}x** from VIP)"  # Bold VIP growth ratio
 
