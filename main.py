@@ -142,6 +142,7 @@ last_growth_ratios = {}
 # Define channel IDs
 VIP_CHANNEL_IDS = {-1002365061913}
 PUBLIC_CHANNEL_IDS = {-1002272066154}
+VIP_CHAT_IDS = {-1002497412722}
 
 # CSV file paths
 PUBLIC_CSV_FILE = "/app/data/public_ca_filter_log.csv"
@@ -1255,6 +1256,7 @@ async def growthcheck() -> None:
 
             initial_mc = data["initial_mc"]
             token_name = data["token_name"]
+            symbol = data["symbol"]
             message_id = data["message_id"]
             timestamp = data["timestamp"]
             growth_ratio = current_mc / initial_mc if initial_mc != 0 else 0
@@ -1273,12 +1275,13 @@ async def growthcheck() -> None:
 
                 emoji = "🚀" if 2 <= growth_ratio < 5 else "🔥" if 5 <= growth_ratio < 10 else "🌙"
                 growth_str = f"**{growth_ratio:.1f}x**"  # Bold growth ratio
+                symbol_display = f" - ${symbol}" if symbol else ""
                 if chat_id in PUBLIC_CHANNEL_IDS and vip_data and vip_growth_ratio and public_growth_ratio and vip_growth_ratio > public_growth_ratio:
                     growth_str += f" (**{vip_growth_ratio:.1f}x** from VIP)"  # Bold VIP growth ratio
 
                 growth_message = (
                     f"{emoji} {growth_str} | "
-                    f"💹 From {initial_mc_str} ↗️ **{current_mc_str}** within **{time_since_added}**"
+                    f"💹 From {initial_mc_str} ↗️ **{current_mc_str}** within **{time_since_added}**{symbol_display}"
                 )
 
                 log_to_growthcheck_csv(
@@ -2199,7 +2202,8 @@ async def generate_pnl_report():
         logger.info("No VIP tokens found for PNL report")
         return
 
-    vip_chat_id = 2497412722 # -1002365061913
+    # vip_chat_id = 2497412722 # -1002497412722
+    vip_chat_id = list(VIP_CHAT_IDS)[0]  # -1002497412722
     public_chat_id = list(PUBLIC_CHANNEL_IDS)[0]  # -1002272066154
 
     # Process each CA with 10-minute interval
