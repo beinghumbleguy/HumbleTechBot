@@ -100,7 +100,7 @@ _executor = ThreadPoolExecutor(max_workers=5)
 
 # Global variables with default values
 filter_enabled = True
-PassValue = 1.3
+PassValue = 1.24
 RangeLow = 1.05
 authorized_users = ["@BeingHumbleGuy"]
 additional_user_added = False
@@ -2133,24 +2133,24 @@ async def toggle_growth_notify(message: types.Message):
 @dp.message(Command(commands=["setpnlreport"]))
 async def toggle_pnl_report(message: types.Message):
     username = message.from_user.username
-    logger.info(f"Received /setpnlreport command from user: @{username}")
+    logger.info(f"[PNLREPORT] Received /setpnlreport command from user: @{username}")
     if not is_authorized(username):
         await message.answer("⚠️ Only authorized users can use this command.")
-        logger.info(f"Unauthorized /setpnlreport attempt by @{username}")
+        logger.info(f"[PNLREPORT] Unauthorized /setpnlreport attempt by @{username}")
         return
     global pnl_report_enabled
     text = message.text.lower().replace('/setpnlreport', '').strip()
     if text == "yes":
         pnl_report_enabled = True
         await message.answer("PNL report generation set to: Yes ✅")
-        logger.info("PNL report generation enabled")
+        logger.info("[PNLREPORT] PNL report generation enabled")
     elif text == "no":
         pnl_report_enabled = False
         await message.answer("PNL report generation set to: No ⛔")
-        logger.info("PNL report generation disabled")
+        logger.info("[PNLREPORT] PNL report generation disabled")
     else:
         await message.answer("Please specify Yes or No after /setpnlreport (e.g., /setpnlreport Yes) 🤔")
-        logger.info("Invalid /setpnlreport input")
+        logger.info("[PNLREPORT] Invalid /setpnlreport input")
 
 # Function to generate PNL report for top 10 tokens with 10-minute intervals
 async def generate_pnl_report():
