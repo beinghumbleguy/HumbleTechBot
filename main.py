@@ -1164,7 +1164,7 @@ async def process_message(message: types.Message) -> None:
     "setbundlesthreshold", "setbundlesfilter", "setinsidersthreshold", "setinsidersfilter", 
     "setkolsthreshold", "setkolsfilter", "adduser", "downloadcsv", "downloadgrowthcsv", 
     "growthnotify", "mastersetup", "resetdefaults",
-    "setbcthreshold", "setbcfilter","setpnlreport","getchatid","downloadmonitoredtokens"
+    "setbcthreshold", "setbcfilter","setpnlreport","runpnlreport","getchatid","downloadmonitoredtokens"
 ]), F.text)
 async def handle_message(message: types.Message) -> None:
     await process_message(message)
@@ -2484,7 +2484,9 @@ async def on_startup():
         BotCommand(command="resetdefaults", description="Reset all settings to default values"),
         BotCommand(command="downloadmonitoredtokens", description="Get link to download monitored tokens CSV"),
         BotCommand(command="setpnlreport", description="Enable/disable PNL report generation (Yes/No)"),
-        BotCommand(command="getchatid", description="Get Chat ID")
+        BotCommand(command="getchatid", description="Get Chat ID"),
+        BotCommand(command="runpnlreport", description="Run PNL report")
+        
         
     ]
     try:
