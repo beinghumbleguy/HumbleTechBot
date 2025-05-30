@@ -2200,54 +2200,82 @@ async def generate_pnl_report():
     # Sort by growth ratio and take top 10
     qualifying_tokens.sort(key=lambda x: x["growth_ratio"], reverse=True)
     top_10_tokens = qualifying_tokens[:10]
+    logger.info(f"Processing {len(top_10_tokens)} qualifying tokens for PNL report")
 
     if not top_10_tokens:
         logger.info("No VIP tokens found for PNL report")
         return
 
-    # vip_chat_id = 2497412722 # -1002497412722
     vip_chat_id = list(VIP_CHAT_IDS)[0]  # -1002497412722
+    logger.debug(f"Using VIP chat ID: {vip_chat_id}")
     public_chat_id = list(PUBLIC_CHANNEL_IDS)[0]  # -1002272066154
 
     # Process each CA with 10-minute interval
     for i, token in enumerate(top_10_tokens):
         ca = token["ca"]
         logger.info(f"Processing PNL for CA {ca} (Token: {token['token_name']}) at index {i}")
-        try:
-            # Send /pnl <ca> command to VIP channel
-            pnl_message = await bot.send_message(
-                chat_id=vip_chat_id,
-                text=f"/pnl {ca}",
-                parse_mode=None
-            )
-            logger.info(f"Sent /pnl {ca} to VIP channel {vip_chat_id}, message_id={pnl_message.message_id}")
-
-            # Wait for PhanesGreenBot to respond with an image (assuming reply within 10 seconds)
-            await asyncio.sleep(10)
-            updates = await bot.get_updates(offset=(pnl_message.message_id + 1), limit=1, timeout=10)
-            if updates and updates[0].message and updates[0].message.photo:
-                photo = updates[0].message.photo[-1]  # Get the highest resolution
-                # Forward to public channel with "Join VIP" button
-                markup = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🌟🚀 Join VIP 🚀🌟", url="https://t.me/HumbleMoonshotsPay_bot?start=start")]
-                ])
-                await bot.forward_message(
-                    chat_id=public_chat_id,
-                    from_chat_id=vip_chat_id,
-                    message_id=updates[0].message.message_id,
-                    reply_markup=markup
+        max_retries = 3
+        success = False
+        for attempt in range(max_retries):
+            try:
+                # Send /pnl <ca> command to VIP chat
+                pnl_message = await bot.send_message(
+                    chat_id=vip_chat_id,
+                    text=f"/pnl {ca}",
+                    parse_mode=None
                 )
-                logger.info(f"Forwarded PNL image for CA {ca} to public channel {public_chat_id} with Join VIP button")
-            else:
-                logger.warning(f"No image received for CA {ca} from PhanesGreenBot")
+                logger.info(f"Sent /pnl {ca} to VIP chat {vip_chat_id}, message_id={pnl_message.message_id}")
 
-            # Wait 10 minutes before next CA (600 seconds), but ensure total time fits within 3 hours
-            if i < len(top_10_tokens) - 1:
-                wait_time = 600  # Fixed 10-minute interval
-                logger.debug(f"Waiting {wait_time} seconds before next PNL check for CA {ca}")
-                await asyncio.sleep(wait_time)
-        except Exception as e:
-            logger.error(f"Error processing PNL for CA {ca}: {e}")
+                # Wait longer for PhanesGreenBot to respond with an image (increased to 15 seconds)
+                await asyncio.sleep(15)
+                # Fetch updates specifically from the VIP chat
+                updates = []
+                for _ in range(3):  # Retry up to 3 times to fetch the response
+                    updates = await bot.get_updates(offset=pnl_message.message_id, limit=10, timeout=5)
+                    logger.debug(f"Received updates: {updates}")
+                    # Look for a message in the VIP chat with a photo
+                    for update in updates:
+                        if (update.message and update.message.chat.id == vip_chat_id and 
+                            update.message.message_id > pnl_message.message_id and 
+                            hasattr(update.message, 'photo') and update.message.photo):
+                            photo = update.message.photo[-1]  # Get the highest resolution
+                            # Forward to public channel with "Join VIP" button
+                            markup = InlineKeyboardMarkup(inline_keyboard=[
+                                [InlineKeyboardButton(text="🌟🚀 Join VIP 🚀🌟", url="https://t.me/HumbleMoonshotsPay_bot?start=start")]
+                            ])
+                            await bot.forward_message(
+                                chat_id=public_chat_id,
+                                from_chat_id=vip_chat_id,
+                                message_id=update.message.message_id,
+                                reply_markup=markup
+                            )
+                            logger.info(f"Forwarded PNL image for CA {ca} to public channel {public_chat_id} with Join VIP button")
+                            success = True
+                            break
+                    if success:
+                        break
+                    logger.debug(f"No photo found in updates for CA {ca}, retrying...")
+                    await asyncio.sleep(5)  # Wait before retrying
+                if not success:
+                    logger.warning(f"No image received for CA {ca} from PhanesGreenBot after retries")
+
+                break  # Exit retry loop on success or after max retries
+            except Exception as e:
+                logger.error(f"Error processing PNL for CA {ca} on attempt {attempt + 1}: {e}")
+                if "Conflict: terminated by other getUpdates request" in str(e) and attempt < max_retries - 1:
+                    logger.warning(f"Conflict error, retrying after 5 seconds...")
+                    await asyncio.sleep(5)
+                    continue
+                break
+
+        # Enforce 10-minute interval after each token, even on error
+        if i < len(top_10_tokens) - 1:
+            wait_time = 600  # Fixed 10-minute interval
+            logger.debug(f"Waiting {wait_time} seconds before next PNL check for CA {ca}")
+            await asyncio.sleep(wait_time)
+            logger.debug(f"Finished waiting {wait_time} seconds for CA {ca}")
+
+    logger.info("Completed PNL report generation for all tokens")
 
 # Initialize PNL report enabled flag
 pnl_report_enabled = True
