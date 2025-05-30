@@ -12,14 +12,8 @@ from threading import Thread
 import requests
 from bs4 import BeautifulSoup
 import csv
-# from datetime import datetime
-from datetime import datetime, timedelta
-import pytz
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-import asyncio
+from datetime import datetime
 import threading
-from threading import Thread
-
 import secrets
 import time
 import random
@@ -273,7 +267,7 @@ def log_to_csv(ca, token_name, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     csv_file = VIP_CSV_FILE if is_vip_channel else PUBLIC_CSV_FILE
     # Ensure the directory exists
-    os.makedirs(os.path.dirname(csv_file), exist_ok=True)               
+    os.makedirs(os.path.dirname(csv_file), exist_ok=True)
     with csv_lock:
         rows = []
         updated = False
@@ -1169,7 +1163,7 @@ async def process_message(message: types.Message) -> None:
     "setbundlesthreshold", "setbundlesfilter", "setinsidersthreshold", "setinsidersfilter", 
     "setkolsthreshold", "setkolsfilter", "adduser", "downloadcsv", "downloadgrowthcsv", 
     "growthnotify", "mastersetup", "resetdefaults",
-    "setbcthreshold", "setbcfilter","setpnlreport","getchatid","runpnlreport","downloadmonitoredtokens"
+    "setbcthreshold", "setbcfilter","setpnlreport","getchatid","downloadmonitoredtokens"
 ]), F.text)
 async def handle_message(message: types.Message) -> None:
     await process_message(message)
@@ -2141,55 +2135,27 @@ async def toggle_growth_notify(message: types.Message):
 # Chunk 6b starts (continued)
 
 # Handler for /setpnlreport command to enable/disable PNL report generation
-# Chunk 6b starts (continued)
-
-# Handler for /setpnlreport command to enable/disable PNL report generation
 @dp.message(Command(commands=["setpnlreport"]))
 async def toggle_pnl_report(message: types.Message):
     username = message.from_user.username
-    try:
-        logger.info(f"[PNLREPORT] Received /setpnlreport command from user: @{username}")
-        if not is_authorized(username):
-            await message.answer("⚠️ Only authorized users can use this command.")
-            logger.info(f"[PNLREPORT] Unauthorized /setpnlreport attempt by @{username}")
-            return
-        global pnl_report_enabled
-        text = message.text.lower().replace('/setpnlreport', '').strip()
-        if text == "yes":
-            pnl_report_enabled = True
-            await message.answer("PNL report generation set to: Yes ✅")
-            logger.info("[PNLREPORT] PNL report generation enabled")
-        elif text == "no":
-            pnl_report_enabled = False
-            await message.answer("PNL report generation set to: No ⛔")
-            logger.info("[PNLREPORT] PNL report generation disabled")
-        else:
-            await message.answer("Please specify Yes or No after /setpnlreport (e.g., /setpnlreport Yes) 🤔")
-            logger.info("[PNLREPORT] Invalid /setpnlreport input")
-    except Exception as e:
-        logger.error(f"[PNLREPORT] Error in toggle_pnl_report: {e}")
-
-# Handler for /runpnlreport command to manually trigger PNL report generation
-@dp.message(Command(commands=["runpnlreport"]))
-async def run_pnl_report(message: types.Message):
-    username = message.from_user.username
-    try:
-        logger.info(f"[PNLREPORT] Received /runpnlreport command from user: @{username}")
-        if not is_authorized(username):
-            await message.answer("⚠️ Only authorized users can use this command.")
-            logger.info(f"[PNLREPORT] Unauthorized /runpnlreport attempt by @{username}")
-            return
-        if not pnl_report_enabled:
-            await message.answer("PNL report generation is disabled. Enable it with /setpnlreport Yes first. ⛔")
-            logger.info("[PNLREPORT] /runpnlreport skipped because PNL report generation is disabled")
-            return
-        await message.answer("Starting on-demand PNL report generation... 📊")
-        logger.info("[PNLREPORT] Starting on-demand PNL report generation")
-        # Run the PNL report generation in a separate task to avoid blocking the handler
-        asyncio.create_task(generate_pnl_report())
-    except Exception as e:
-        logger.error(f"[PNLREPORT] Error in run_pnl_report: {e}")
-        await message.answer("An error occurred while running the PNL report. Check logs for details. ⚠️")
+    logger.info(f"[PNLREPORT] Received /setpnlreport command from user: @{username}")
+    if not is_authorized(username):
+        await message.answer("⚠️ Only authorized users can use this command.")
+        logger.info(f"[PNLREPORT] Unauthorized /setpnlreport attempt by @{username}")
+        return
+    global pnl_report_enabled
+    text = message.text.lower().replace('/setpnlreport', '').strip()
+    if text == "yes":
+        pnl_report_enabled = True
+        await message.answer("PNL report generation set to: Yes ✅")
+        logger.info("[PNLREPORT] PNL report generation enabled")
+    elif text == "no":
+        pnl_report_enabled = False
+        await message.answer("PNL report generation set to: No ⛔")
+        logger.info("[PNLREPORT] PNL report generation disabled")
+    else:
+        await message.answer("Please specify Yes or No after /setpnlreport (e.g., /setpnlreport Yes) 🤔")
+        logger.info("[PNLREPORT] Invalid /setpnlreport input")
 
 # Function to generate PNL report for top 10 tokens with 10-minute intervals
 async def generate_pnl_report():
@@ -2238,57 +2204,49 @@ async def generate_pnl_report():
         logger.info("No VIP tokens found for PNL report")
         return
 
+    # vip_chat_id = 2497412722 # -1002497412722
     vip_chat_id = list(VIP_CHAT_IDS)[0]  # -1002497412722
-    logger.debug(f"Using VIP chat ID: {vip_chat_id}")
     public_chat_id = list(PUBLIC_CHANNEL_IDS)[0]  # -1002272066154
 
     # Process each CA with 10-minute interval
     for i, token in enumerate(top_10_tokens):
         ca = token["ca"]
         logger.info(f"Processing PNL for CA {ca} (Token: {token['token_name']}) at index {i}")
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                # Send /pnl <ca> command to VIP chat
-                pnl_message = await bot.send_message(
-                    chat_id=vip_chat_id,
-                    text=f"/pnl {ca}",
-                    parse_mode=None
+        try:
+            # Send /pnl <ca> command to VIP channel
+            pnl_message = await bot.send_message(
+                chat_id=vip_chat_id,
+                text=f"/pnl {ca}",
+                parse_mode=None
+            )
+            logger.info(f"Sent /pnl {ca} to VIP channel {vip_chat_id}, message_id={pnl_message.message_id}")
+
+            # Wait for PhanesGreenBot to respond with an image (assuming reply within 10 seconds)
+            await asyncio.sleep(10)
+            updates = await bot.get_updates(offset=(pnl_message.message_id + 1), limit=1, timeout=10)
+            if updates and updates[0].message and updates[0].message.photo:
+                photo = updates[0].message.photo[-1]  # Get the highest resolution
+                # Forward to public channel with "Join VIP" button
+                markup = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🌟🚀 Join VIP 🚀🌟", url="https://t.me/HumbleMoonshotsPay_bot?start=start")]
+                ])
+                await bot.forward_message(
+                    chat_id=public_chat_id,
+                    from_chat_id=vip_chat_id,
+                    message_id=updates[0].message.message_id,
+                    reply_markup=markup
                 )
-                logger.info(f"Sent /pnl {ca} to VIP chat {vip_chat_id}, message_id={pnl_message.message_id}")
+                logger.info(f"Forwarded PNL image for CA {ca} to public channel {public_chat_id} with Join VIP button")
+            else:
+                logger.warning(f"No image received for CA {ca} from PhanesGreenBot")
 
-                # Wait for PhanesGreenBot to respond with an image (assuming reply within 10 seconds)
-                await asyncio.sleep(10)
-                updates = await bot.get_updates(offset=(pnl_message.message_id + 1), limit=1, timeout=10)
-                if updates and updates[0].message and updates[0].message.photo:
-                    photo = updates[0].message.photo[-1]  # Get the highest resolution
-                    # Forward to public channel with "Join VIP" button
-                    markup = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="🌟🚀 Join VIP 🚀🌟", url="https://t.me/HumbleMoonshotsPay_bot?start=start")]
-                    ])
-                    await bot.forward_message(
-                        chat_id=public_chat_id,
-                        from_chat_id=vip_chat_id,
-                        message_id=updates[0].message.message_id,
-                        reply_markup=markup
-                    )
-                    logger.info(f"Forwarded PNL image for CA {ca} to public channel {public_chat_id} with Join VIP button")
-                else:
-                    logger.warning(f"No image received for CA {ca} from PhanesGreenBot")
-
-                # Wait 10 minutes before next CA (600 seconds), but ensure total time fits within 3 hours
-                if i < len(top_10_tokens) - 1:
-                    wait_time = 600  # Fixed 10-minute interval
-                    logger.debug(f"Waiting {wait_time} seconds before next PNL check for CA {ca}")
-                    await asyncio.sleep(wait_time)
-                break  # Success, exit retry loop
-            except Exception as e:
-                if "Conflict: terminated by other getUpdates request" in str(e) and attempt < max_retries - 1:
-                    logger.warning(f"Conflict error on attempt {attempt + 1} for CA {ca}, retrying after 5 seconds...")
-                    await asyncio.sleep(5)
-                    continue
-                logger.error(f"Error processing PNL for CA {ca} after {attempt + 1} attempts: {e}")
-                break
+            # Wait 10 minutes before next CA (600 seconds), but ensure total time fits within 3 hours
+            if i < len(top_10_tokens) - 1:
+                wait_time = 600  # Fixed 10-minute interval
+                logger.debug(f"Waiting {wait_time} seconds before next PNL check for CA {ca}")
+                await asyncio.sleep(wait_time)
+        except Exception as e:
+            logger.error(f"Error processing PNL for CA {ca}: {e}")
 
 # Initialize PNL report enabled flag
 pnl_report_enabled = True
@@ -2438,11 +2396,7 @@ def is_authorized(username):
     logger.info(f"Checking authorization for @{username}: {f'@{username}' in authorized_users}")
     return f"@{username}" in authorized_users  
 
-# Define scheduler as a global variable
-scheduler = None  # Will be initialized in on_startup
-
 async def on_startup():
-    global scheduler
     init_csv()
     load_monitored_tokens()
     commands = [
@@ -2474,8 +2428,8 @@ async def on_startup():
         BotCommand(command="resetdefaults", description="Reset all settings to default values"),
         BotCommand(command="downloadmonitoredtokens", description="Get link to download monitored tokens CSV"),
         BotCommand(command="setpnlreport", description="Enable/disable PNL report generation (Yes/No)"),
-        BotCommand(command="getchatid", description="Get Chat ID"),
-        BotCommand(command="runpnlreport", description="Manually trigger PNL report generation (authorized users only)")
+        BotCommand(command="getchatid", description="Get Chat ID")
+        
     ]
     try:
         await bot.set_my_commands(commands)
@@ -2483,54 +2437,35 @@ async def on_startup():
     except Exception as e:
         logger.error(f"Failed to set bot commands: {e}")
 
-    # Set up the scheduler for growthcheck, daily_summary_report, and pnl_report
+    # Set up the scheduler for growthcheck and daily_summary_report
     logger.debug("Starting scheduler")
     scheduler = AsyncIOScheduler()
     scheduler.add_job(growthcheck, 'interval', seconds=CHECK_INTERVAL)
     logger.debug(f"Scheduled growthcheck job every {CHECK_INTERVAL} seconds")
-
-    # Schedule daily_summary_report to start immediately after startup
-    daily_summary_start = datetime.now(pytz.UTC) + timedelta(seconds=10)  # Small offset to ensure startup completes
-    scheduler.add_job(
-        daily_summary_report,
-        'interval',
-        seconds=DAILY_REPORT_INTERVAL,
-        start_date=daily_summary_start
-    )
-    logger.debug(f"Scheduled daily_summary_report job every {DAILY_REPORT_INTERVAL} seconds, starting at {daily_summary_start}")
-
-    # Schedule generate_pnl_report to start 2 minutes (120 seconds) after daily_summary_report
-    pnl_report_start = daily_summary_start + timedelta(seconds=120)  # 2-minute offset
-    scheduler.add_job(
-        generate_pnl_report,
-        'interval',
-        seconds=DAILY_REPORT_INTERVAL,
-        start_date=pnl_report_start,
-        max_instances=1
-    )
-    logger.debug(f"Scheduled generate_pnl_report job every {DAILY_REPORT_INTERVAL} seconds, starting at {pnl_report_start} (2 minutes after daily_summary_report)")
-
-    scheduler.start()  # Start the scheduler within the async context
+    scheduler.add_job(daily_summary_report, 'interval', seconds=DAILY_REPORT_INTERVAL)
+    logger.debug(f"Scheduled daily_summary_report job every {DAILY_REPORT_INTERVAL} seconds")
+    scheduler.add_job(generate_pnl_report, 'interval', seconds=DAILY_REPORT_INTERVAL, max_instances=1)
+    logger.debug(f"Scheduled generate_pnl_report job every {DAILY_REPORT_INTERVAL} seconds with 3-hour execution window")
+    scheduler.start()
     logger.debug("Scheduler started")
 
 async def on_shutdown():
-    global scheduler
     logger.info("Shutting down bot...")
-    if scheduler and scheduler.running:
-        scheduler.shutdown()  # Gracefully shut down the scheduler
     await bot.session.close()
     await dp.storage.close()
     logger.info("Bot shutdown complete.")
 
 async def main():
     try:
+        await on_startup()
         port = int(os.getenv("PORT", 8080))
         flask_thread = Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False))
         flask_thread.start()
-        await dp.start_polling(bot, on_startup=on_startup, on_shutdown=on_shutdown)
+        await dp.start_polling(bot)
     except Exception as e:
         logger.error(f"Error in main: {e}")
-        raise
+    finally:
+        await on_shutdown()
 
 if __name__ == "__main__":
     asyncio.run(main())
