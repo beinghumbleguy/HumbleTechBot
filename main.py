@@ -2273,8 +2273,9 @@ async def generate_pnl_report(context="scheduled"):
 pnl_report_enabled = True
 
 from aiogram import types
+from aiogram.filters import Command
 
-@dp.message_handler(commands=['runpnlreport'])
+@dp.message(Command(commands=['runpnlreport']))
 async def run_pnl_report_on_demand(message: types.Message):
     # Get the username of the user who sent the command
     username = message.from_user.username
@@ -2305,7 +2306,7 @@ async def run_pnl_report_on_demand(message: types.Message):
     except Exception as e:
         logger.error(f"Error during on-demand PNL report generation: {e}")
         await message.reply(f"Error during PNL report generation: {str(e)}")
-
+        
 
 # Handler for /getchatid to get chat id
 @dp.message(Command(commands=["getchatid"]))
