@@ -14,7 +14,12 @@ from bs4 import BeautifulSoup
 import csv
 # from datetime import datetime
 from datetime import datetime, timedelta
+import pytz
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import asyncio
 import threading
+from threading import Thread
+
 import secrets
 import time
 import random
@@ -2431,7 +2436,11 @@ def is_authorized(username):
     logger.info(f"Checking authorization for @{username}: {f'@{username}' in authorized_users}")
     return f"@{username}" in authorized_users  
 
+# Define scheduler as a global variable
+scheduler = None  # Will be initialized in on_startup
+
 async def on_startup():
+    global scheduler
     init_csv()
     load_monitored_tokens()
     commands = [
@@ -2465,7 +2474,6 @@ async def on_startup():
         BotCommand(command="setpnlreport", description="Enable/disable PNL report generation (Yes/No)"),
         BotCommand(command="getchatid", description="Get Chat ID"),
         BotCommand(command="runpnlreport", description="Manually trigger PNL report generation (authorized users only)")
-        
     ]
     try:
         await bot.set_my_commands(commands)
@@ -2473,53 +2481,54 @@ async def on_startup():
     except Exception as e:
         logger.error(f"Failed to set bot commands: {e}")
 
-# Set up the scheduler for growthcheck and daily_summary_report
-logger.debug("Starting scheduler")
-scheduler = AsyncIOScheduler()
-scheduler.add_job(growthcheck, 'interval', seconds=CHECK_INTERVAL)
-logger.debug(f"Scheduled growthcheck job every {CHECK_INTERVAL} seconds")
+    # Set up the scheduler for growthcheck, daily_summary_report, and pnl_report
+    logger.debug("Starting scheduler")
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(growthcheck, 'interval', seconds=CHECK_INTERVAL)
+    logger.debug(f"Scheduled growthcheck job every {CHECK_INTERVAL} seconds")
 
-# Schedule daily_summary_report to start immediately after startup
-daily_summary_start = datetime.now(pytz.UTC) + timedelta(seconds=10)  # Small offset to ensure startup completes
-scheduler.add_job(
-    daily_summary_report,
-    'interval',
-    seconds=DAILY_REPORT_INTERVAL,
-    start_date=daily_summary_start
-)
-logger.debug(f"Scheduled daily_summary_report job every {DAILY_REPORT_INTERVAL} seconds, starting at {daily_summary_start}")
+    # Schedule daily_summary_report to start immediately after startup
+    daily_summary_start = datetime.now(pytz.UTC) + timedelta(seconds=10)  # Small offset to ensure startup completes
+    scheduler.add_job(
+        daily_summary_report,
+        'interval',
+        seconds=DAILY_REPORT_INTERVAL,
+        start_date=daily_summary_start
+    )
+    logger.debug(f"Scheduled daily_summary_report job every {DAILY_REPORT_INTERVAL} seconds, starting at {daily_summary_start}")
 
-# Schedule generate_pnl_report to start 2 minutes (120 seconds) after daily_summary_report
-pnl_report_start = daily_summary_start + timedelta(seconds=120)  # 2-minute offset
-scheduler.add_job(
-    generate_pnl_report,
-    'interval',
-    seconds=DAILY_REPORT_INTERVAL,
-    start_date=pnl_report_start,
-    max_instances=1
-)
-logger.debug(f"Scheduled generate_pnl_report job every {DAILY_REPORT_INTERVAL} seconds, starting at {pnl_report_start} (2 minutes after daily_summary_report)")
+    # Schedule generate_pnl_report to start 2 minutes (120 seconds) after daily_summary_report
+    pnl_report_start = daily_summary_start + timedelta(seconds=120)  # 2-minute offset
+    scheduler.add_job(
+        generate_pnl_report,
+        'interval',
+        seconds=DAILY_REPORT_INTERVAL,
+        start_date=pnl_report_start,
+        max_instances=1
+    )
+    logger.debug(f"Scheduled generate_pnl_report job every {DAILY_REPORT_INTERVAL} seconds, starting at {pnl_report_start} (2 minutes after daily_summary_report)")
 
-scheduler.start()
-logger.debug("Scheduler started")
+    scheduler.start()  # Start the scheduler within the async context
+    logger.debug("Scheduler started")
 
 async def on_shutdown():
+    global scheduler
     logger.info("Shutting down bot...")
+    if scheduler and scheduler.running:
+        scheduler.shutdown()  # Gracefully shut down the scheduler
     await bot.session.close()
     await dp.storage.close()
     logger.info("Bot shutdown complete.")
 
 async def main():
     try:
-        await on_startup()
         port = int(os.getenv("PORT", 8080))
         flask_thread = Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False))
         flask_thread.start()
-        await dp.start_polling(bot)
+        await dp.start_polling(bot, on_startup=on_startup, on_shutdown=on_shutdown)
     except Exception as e:
         logger.error(f"Error in main: {e}")
-    finally:
-        await on_shutdown()
+        raise
 
 if __name__ == "__main__":
     asyncio.run(main())
