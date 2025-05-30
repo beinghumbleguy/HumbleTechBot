@@ -272,6 +272,8 @@ def log_to_csv(ca, token_name, bs_ratio, bs_ratio_pass, check_low_pass, dev_sold
                original_mc, current_mc, growth_ratio, is_vip_channel):  # Removed market_cap
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     csv_file = VIP_CSV_FILE if is_vip_channel else PUBLIC_CSV_FILE
+    # Ensure the directory exists
+    os.makedirs(os.path.dirname(csv_file), exist_ok=True)               
     with csv_lock:
         rows = []
         updated = False
