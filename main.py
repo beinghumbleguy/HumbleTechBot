@@ -135,6 +135,7 @@ INCREMENT_THRESHOLD = 1.0
 CHECK_INTERVAL = 30  # Changed to 15 seconds from 300
 # DAILY_REPORT_INTERVAL = 14400  # Interval for daily_summary_report (4 hours) in seconds
 DAILY_REPORT_INTERVAL = 7200  # Interval for daily_summary_report (4 hours) in seconds
+PNL_REPORT_INTERVAL = 3600
 MONITORING_DURATION = 21600  # 6 hours in seconds
 monitored_tokens = {}
 last_growth_ratios = {}
@@ -2444,8 +2445,8 @@ async def on_startup():
     logger.debug(f"Scheduled growthcheck job every {CHECK_INTERVAL} seconds")
     scheduler.add_job(daily_summary_report, 'interval', seconds=DAILY_REPORT_INTERVAL)
     logger.debug(f"Scheduled daily_summary_report job every {DAILY_REPORT_INTERVAL} seconds")
-    scheduler.add_job(generate_pnl_report, 'interval', seconds=DAILY_REPORT_INTERVAL, max_instances=1)
-    logger.debug(f"Scheduled generate_pnl_report job every {DAILY_REPORT_INTERVAL} seconds with 3-hour execution window")
+    scheduler.add_job(generate_pnl_report, 'interval', seconds=PNL_REPORT_INTERVAL, max_instances=1)
+    logger.debug(f"Scheduled generate_pnl_report job every {PNL_REPORT_INTERVAL} seconds with 1-hour execution window")
     scheduler.start()
     logger.debug("Scheduler started")
 
