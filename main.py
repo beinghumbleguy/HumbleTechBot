@@ -2226,16 +2226,45 @@ async def generate_pnl_report(context="scheduled"):
                 )
                 logger.info(f"Sent /pnl {ca} to VIP channel {vip_chat_id}, message_id={pnl_message.message_id} ({context})")
 
-                # Wait for PhanesGreenBot to post the first comment with the image (adjusted to 5 seconds based on manual test)
-                await asyncio.sleep(5)
-                # Fetch the first comment/reply on the post
-                comments = await bot.get_forum_topic_messages(
-                    chat_id=vip_chat_id,
-                    message_thread_id=pnl_message.message_id,
-                    limit=1
-                )
-                if comments.messages and comments.messages[0].photo:
-                    photo = comments.messages[0].photo[-1]  # Get the highest resolution
+                # Wait for PhanesGreenBot to post the first comment with the image (initial wait: 10 seconds)
+                await asyncio.sleep(10)
+                logger.debug(f"Attempting to fetch comments for message_id {pnl_message.message_id} ({context})")
+                # Retry fetching comments multiple times
+                photo = None
+                for retry in range(3):
+                    try:
+                        comments = await bot.get_forum_topic_messages(
+                            chat_id=vip_chat_id,
+                            message_thread_id=pnl_message.message_id,
+                            limit=1
+                        )
+                        logger.debug(f"Fetched comments (attempt {retry + 1}): {comments.messages} ({context})")
+                        if comments.messages and comments.messages[0].photo:
+                            photo = comments.messages[0].photo[-1]  # Get the highest resolution
+                            break
+                        logger.debug(f"No comments found on attempt {retry + 1}, retrying in 5 seconds ({context})")
+                        await asyncio.sleep(5)
+                    except Exception as e:
+                        logger.error(f"Error fetching comments on attempt {retry + 1} for CA {ca} ({context}): {e}")
+                        if retry < 2:
+                            await asyncio.sleep(5)
+                            continue
+                        raise
+
+                # Fallback to get_updates if get_forum_topic_messages fails
+                if not photo:
+                    logger.debug(f"Falling back to get_updates for message_id {pnl_message.message_id} ({context})")
+                    updates = await bot.get_updates(offset=pnl_message.message_id, limit=10, timeout=10)
+                    logger.debug(f"Fetched updates: {updates} ({context})")
+                    for update in updates:
+                        if (update.message and update.message.reply_to_message and
+                            update.message.reply_to_message.message_id == pnl_message.message_id and
+                            hasattr(update.message, 'photo') and update.message.photo):
+                            photo = update.message.photo[-1]
+                            logger.debug(f"Found image in updates for CA {ca} ({context})")
+                            break
+
+                if photo:
                     # Send photo directly to public channel with "Join VIP" button
                     markup = InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(text="🌟🚀 Join VIP 🚀🌟", url="https://t.me/HumbleMoonshotsPay_bot?start=start")]
@@ -2249,7 +2278,7 @@ async def generate_pnl_report(context="scheduled"):
                     logger.info(f"Sent PNL image for CA {ca} to public channel {public_chat_id} as channel post ({context})")
                     success = True
                 else:
-                    logger.warning(f"No image found in first comment for CA {ca} from PhanesGreenBot ({context})")
+                    logger.warning(f"No image found in comments or updates for CA {ca} from PhanesGreenBot ({context})")
 
                 break  # Exit retry loop on success or after max retries
             except Exception as e:
