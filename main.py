@@ -858,7 +858,7 @@ async def process_message(message: types.Message) -> None:
         if token_symbol_match:
             details = details.replace(token_symbol, hyperlinked_symbol)
         
-        output_text = f"{details}\n🔗 CA: `{ca}`"  # New text without "Fasol"
+        output_text = f"{details}\n🔗 CA: {ca}"  # New text without "Fasol"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             # [InlineKeyboardButton(text="🌟🚀 Join VIP 🚀🌟", url="https://t.me/HumbleMoonshotsPay_bot?start=start")]
             # [InlineKeyboardButton(text="👉🔥 JOIN VIP NOW 🔥👉", url="https://t.me/HumbleMoonshotsPay_bot?start=start")]
