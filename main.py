@@ -509,7 +509,7 @@ class APISessionManager:
                 "port": 7777,
                 "username": "pool-p1-cc-us",
                 "password": "sf3lefz1yj3zwjvy"
-            } for _ in range(9)
+            } for _ in range(50)
         ]
         self.current_proxy_index = 0
         logger.info(f"Initialized proxy list with {len(self.proxy_list)} proxies")
