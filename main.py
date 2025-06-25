@@ -774,6 +774,7 @@ async def get_gmgn_token_data(mint_address):
         token_data = {}
         price = float(token_info.get("price", 0))
         token_data["price"] = str(price) if price != 0 else "N/A"
+        logger.debug(f"Token Price for CA {mint_address}: {str(price)}")
         token_data["price_1h"] = float(token_info.get("price_1h", 0))
         token_data["price_24h"] = float(token_info.get("price_24h", 0))
         total_supply = float(token_info.get("total_supply", 0))
