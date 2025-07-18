@@ -1312,7 +1312,6 @@ async def growthcheck() -> None:
 
             initial_mc = data["initial_mc"]
             token_name = data["token_name"]
-            # symbol = data["symbol"]
             message_id = data["message_id"]
             timestamp = data["timestamp"]
             growth_ratio = current_mc / initial_mc if initial_mc != 0 else 0
@@ -1331,13 +1330,12 @@ async def growthcheck() -> None:
 
                 emoji = "🚀" if 2 <= growth_ratio < 5 else "🔥" if 5 <= growth_ratio < 10 else "🌙"
                 growth_str = f"**{growth_ratio:.1f}x**"  # Bold growth ratio
-                # symbol_display = f" - ${symbol}" if symbol else ""
                 if chat_id in PUBLIC_CHANNEL_IDS and vip_data and vip_growth_ratio and public_growth_ratio and vip_growth_ratio > public_growth_ratio:
                     growth_str += f" (**{vip_growth_ratio:.1f}x** from VIP)"  # Bold VIP growth ratio
 
                 growth_message = (
                     f"{emoji} {growth_str} | "
-                    f"💹 From {initial_mc_str} ↗️ **{current_mc_str}** within **{time_since_added}**"
+                    f"💹 From {initial_mc_str} ↗️ **{current_mc_str}** within **{time_since_added}** - ${token_name}"
                 )
 
                 log_to_growthcheck_csv(
@@ -1358,7 +1356,7 @@ async def growthcheck() -> None:
                     is_vip_channel=(chat_id in VIP_CHANNEL_IDS)
                 )
 
-                if growth_notifications_enabled:
+                if growth_notifications_enabled and chat_id in VIP_CHANNEL_IDS:
                     try:
                         await bot.send_message(
                             chat_id=chat_id, text=growth_message,
@@ -1367,6 +1365,29 @@ async def growthcheck() -> None:
                         logger.info(f"Sent growth notification for CA {ca} in chat {chat_id}: {growth_message}")
                     except Exception as e:
                         logger.error(f"Failed to send growth notification for CA {ca} in chat {chat_id}: {e}")
+
+                    # Twitter notification for VIP tokens only at 5x, 10x, 15x milestones
+                    if chat_id in VIP_CHANNEL_IDS and growth_ratio >= 5.0:
+                        import tweepy
+                        auth = tweepy.OAuthHandler(os.getenv("X_CONSUMER_KEY"), os.getenv("X_CONSUMER_SECRET"))
+                        auth.set_access_token(os.getenv("X_ACCESS_TOKEN"), os.getenv("X_ACCESS_TOKEN_SECRET"))
+                        api = tweepy.API(auth)
+                        last_ratio = last_growth_ratios.get(key, 0)
+                        next_threshold = 5.0
+                        while next_threshold <= growth_ratio:
+                            if last_ratio < next_threshold <= growth_ratio:
+                                tweet_text = (
+                                    f"🚀 ${token_name} (CA: {ca}) has reached {next_threshold}x growth! "
+                                    f"Initial MC: ${initial_mc_str.replace('**', '')}, Current MC: ${current_mc_str.replace('**', '')}. "
+                                    f"Join VIP: https://t.me/HumbleMoonshotsPay_bot?start=start #Crypto #Solana #Moonshot"
+                                )
+                                try:
+                                    api.update_status(tweet_text)
+                                    logger.info(f"Posted Twitter update for CA {ca} at {next_threshold}x growth")
+                                except Exception as e:
+                                    logger.error(f"Failed to post Twitter update for CA {ca} at {next_threshold}x: {e}")
+                            next_threshold += 5.0
+                        last_growth_ratios[key] = growth_ratio
 
             # New sub-chunk: 3x notification to dedicated channel
             time_diff_seconds = (current_time - token_time).total_seconds()
@@ -1378,7 +1399,7 @@ async def growthcheck() -> None:
                 notify_message = (
                     f"🚀 **{token_name}** hit **{growth_ratio_str}** in **{time_since}**!\n"
                     f"🔗 CA: `{ca}`\n"
-                    f"💰 Current MC: **{current_mc_str}**"
+                    f"💰 Current MC: **{current_mc_str}** - ${token_name}"
                 )
                 try:
                     await bot.send_message(
@@ -1400,10 +1421,6 @@ async def growthcheck() -> None:
     if peak_updates or to_remove:
         save_monitored_tokens()
         logger.info(f"Updated {len(peak_updates)} peak_mcs and removed {len(to_remove)} expired tokens")
-        
-# Assuming these are already defined in your code
-# VIP_CHANNEL_IDS, PUBLIC_CHANNEL_IDS, bot, logger, etc.
-# Also assuming VIP_GROWTH_CSV_FILE is defined as "/app/data/vip_growthcheck_log.csv"
 
 router = Router()
 
