@@ -19,6 +19,7 @@ import time
 import random
 import aiohttp
 import tls_client
+import tweepy
 from fake_useragent import UserAgent
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Dict
@@ -1333,9 +1334,10 @@ async def growthcheck() -> None:
                 if chat_id in PUBLIC_CHANNEL_IDS and vip_data and vip_growth_ratio and public_growth_ratio and vip_growth_ratio > public_growth_ratio:
                     growth_str += f" (**{vip_growth_ratio:.1f}x** from VIP)"  # Bold VIP growth ratio
 
+                symbol = token_data.get("symbol", token_name.split("|")[0] if "|" in token_name else token_name)
                 growth_message = (
                     f"{emoji} {growth_str} | "
-                    f"💹 From {initial_mc_str} ↗️ **{current_mc_str}** within **{time_since_added}** - ${token_name}"
+                    f"💹 From {initial_mc_str} ↗️ **{current_mc_str}** within **{time_since_added}** - ${symbol}"
                 )
 
                 log_to_growthcheck_csv(
@@ -1356,7 +1358,7 @@ async def growthcheck() -> None:
                     is_vip_channel=(chat_id in VIP_CHANNEL_IDS)
                 )
 
-                if growth_notifications_enabled and chat_id in VIP_CHANNEL_IDS:
+                if growth_notifications_enabled:
                     try:
                         await bot.send_message(
                             chat_id=chat_id, text=growth_message,
@@ -1369,25 +1371,34 @@ async def growthcheck() -> None:
                     # Twitter notification for VIP tokens only at 5x, 10x, 15x milestones
                     if chat_id in VIP_CHANNEL_IDS and growth_ratio >= 5.0:
                         import tweepy
-                        auth = tweepy.OAuthHandler(os.getenv("X_CONSUMER_KEY"), os.getenv("X_CONSUMER_SECRET"))
-                        auth.set_access_token(os.getenv("X_ACCESS_TOKEN"), os.getenv("X_ACCESS_TOKEN_SECRET"))
-                        api = tweepy.API(auth)
-                        last_ratio = last_growth_ratios.get(key, 0)
-                        next_threshold = 5.0
-                        while next_threshold <= growth_ratio:
-                            if last_ratio < next_threshold <= growth_ratio:
-                                tweet_text = (
-                                    f"🚀 ${token_name} (CA: {ca}) has reached {next_threshold}x growth! "
-                                    f"Initial MC: ${initial_mc_str.replace('**', '')}, Current MC: ${current_mc_str.replace('**', '')}. "
-                                    f"Join VIP: https://t.me/HumbleMoonshotsPay_bot?start=start #Crypto #Solana #Moonshot"
-                                )
-                                try:
-                                    api.update_status(tweet_text)
-                                    logger.info(f"Posted Twitter update for CA {ca} at {next_threshold}x growth")
-                                except Exception as e:
-                                    logger.error(f"Failed to post Twitter update for CA {ca} at {next_threshold}x: {e}")
-                            next_threshold += 5.0
-                        last_growth_ratios[key] = growth_ratio
+                        consumer_key = os.getenv("X_CONSUMER_KEY")
+                        consumer_secret = os.getenv("X_CONSUMER_SECRET")
+                        access_token = os.getenv("X_ACCESS_TOKEN")
+                        access_token_secret = os.getenv("X_ACCESS_TOKEN_SECRET")
+                        if not all([consumer_key, consumer_secret, access_token, access_token_secret]):
+                            logger.error(f"Missing Twitter API credentials for CA {ca}")
+                        else:
+                            try:
+                                auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
+                                auth.set_access_token(access_token, access_token_secret)
+                                api = tweepy.API(auth)
+                                last_ratio = last_growth_ratios.get(key, 0)
+                                next_threshold = 5.0
+                                while next_threshold <= growth_ratio:
+                                    if last_ratio < next_threshold <= growth_ratio:
+                                        tweet_text = (
+                                            f"🚀 ${symbol} (CA: {ca}) has reached {next_threshold}x growth! "
+                                            f"Initial MC: ${initial_mc_str.replace('**', '')}, "
+                                            f"Current MC: ${current_mc_str.replace('**', '')}. "
+                                            f"Join here: https://t.me/HumbleApes"
+                                            f"#Crypto #Solana #Moonshot"
+                                        )
+                                        api.update_status(tweet_text)
+                                        logger.info(f"Posted Twitter update for CA {ca} at {next_threshold}x growth")
+                                    next_threshold += 5.0
+                                last_growth_ratios[key] = growth_ratio
+                            except Exception as e:
+                                logger.error(f"Failed to post Twitter update for CA {ca} at {next_threshold}x: {e}")
 
             # New sub-chunk: 3x notification to dedicated channel
             time_diff_seconds = (current_time - token_time).total_seconds()
@@ -1399,7 +1410,7 @@ async def growthcheck() -> None:
                 notify_message = (
                     f"🚀 **{token_name}** hit **{growth_ratio_str}** in **{time_since}**!\n"
                     f"🔗 CA: `{ca}`\n"
-                    f"💰 Current MC: **{current_mc_str}** - ${token_name}"
+                    f"💰 Current MC: **{current_mc_str}** - ${symbol}"
                 )
                 try:
                     await bot.send_message(
