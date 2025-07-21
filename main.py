@@ -1,6 +1,6 @@
 # Chunk 1 starts
 from aiogram import Bot, Dispatcher, types, Router, F
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, BotCommand
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, BotCommand, Message
 from aiogram.filters import Command, BaseFilter
 import asyncio
 import logging
