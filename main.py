@@ -162,7 +162,6 @@ logger.info(f"Generated download token: {DOWNLOAD_TOKEN}")
 token_data_cache = TTLCache(maxsize=1000, ttl=3600)
 
 
-
 # Include router in dispatcher
 dp.include_router(router)
 
@@ -180,12 +179,15 @@ async def test_tweet(message: Message):
         await message.reply("Error: Twitter API credentials are missing.")
     else:
         try:
-            auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
-            auth.set_access_token(access_token, access_token_secret)
-            api = tweepy.API(auth)
-            test_tweet_text = "This is a test tweet from growthcheck at 03:05 AM EDT, July 21, 2025 #Test #XAPI"
-            api.update_status(test_tweet_text)
-            logger.debug(f"Posted test tweet: {test_tweet_text}")
+            client = tweepy.Client(
+                consumer_key=consumer_key,
+                consumer_secret=consumer_secret,
+                access_token=access_token,
+                access_token_secret=access_token_secret
+            )
+            test_tweet_text = "This is a test tweet from growthcheck at 04:50 PM EDT, July 21, 2025 #Test #XAPI"
+            response = client.create_tweet(text=test_tweet_text)
+            logger.debug(f"Posted test tweet: {test_tweet_text}, Response: {response}")
             logger.info(f"Posted test tweet: {test_tweet_text}")
             await message.reply("Test tweet posted successfully!")
         except Exception as e:
