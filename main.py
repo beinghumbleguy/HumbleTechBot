@@ -90,6 +90,7 @@ if not TOKEN:
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 app = Flask(__name__)
+router = Router()
 
 # Thread locks for safe CSV writing
 csv_lock = Lock()
@@ -160,6 +161,38 @@ logger.info(f"Generated download token: {DOWNLOAD_TOKEN}")
 # Initialize cache for API responses (TTL of 1 hour)
 token_data_cache = TTLCache(maxsize=1000, ttl=3600)
 
+
+
+# Include router in dispatcher
+dp.include_router(router)
+
+# Test tweet command handler
+@router.message(F.text.startswith('/testtweet'))
+async def test_tweet(message: Message):
+    logger.debug(f"Received /testtweet command in chat {message.chat.id}")
+    consumer_key = os.getenv("X_CONSUMER_KEY")
+    consumer_secret = os.getenv("X_CONSUMER_SECRET")
+    access_token = os.getenv("X_ACCESS_TOKEN")
+    access_token_secret = os.getenv("X_ACCESS_TOKEN_SECRET")
+    if not all([consumer_key, consumer_secret, access_token, access_token_secret]):
+        logger.debug(f"Missing Twitter API credentials for test tweet in chat {message.chat.id}")
+        logger.error(f"Missing Twitter API credentials for test tweet in chat {message.chat.id}")
+        await message.reply("Error: Twitter API credentials are missing.")
+    else:
+        try:
+            auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
+            auth.set_access_token(access_token, access_token_secret)
+            api = tweepy.API(auth)
+            test_tweet_text = "This is a test tweet from growthcheck at 03:05 AM EDT, July 21, 2025 #Test #XAPI"
+            api.update_status(test_tweet_text)
+            logger.debug(f"Posted test tweet: {test_tweet_text}")
+            logger.info(f"Posted test tweet: {test_tweet_text}")
+            await message.reply("Test tweet posted successfully!")
+        except Exception as e:
+            logger.debug(f"Failed to post test tweet in chat {message.chat.id}: {e}")
+            logger.error(f"Failed to post test tweet in chat {message.chat.id}: {e}")
+            await message.reply(f"Failed to post test tweet: {e}")
+            
 # Initialize CSV files with headers
 def init_csv():
     data_dir = "/app/data"
@@ -1430,34 +1463,6 @@ async def growthcheck() -> None:
                     logger.debug(f"Failed to notify group {group_chat_id} for CA {ca}: {e}")
                     logger.error(f"Failed to notify group {group_chat_id} for CA {ca}: {e}")
 
-        # Add TG command to post a test tweet
-        @router.message(F.text.startswith('/testtweet'))
-        async def test_tweet(message: types.Message):
-            logger.debug(f"Received /testtweet command in chat {message.chat.id}")
-            import tweepy
-            consumer_key = os.getenv("X_CONSUMER_KEY")
-            consumer_secret = os.getenv("X_CONSUMER_SECRET")
-            access_token = os.getenv("X_ACCESS_TOKEN")
-            access_token_secret = os.getenv("X_ACCESS_TOKEN_SECRET")
-            if not all([consumer_key, consumer_secret, access_token, access_token_secret]):
-                logger.debug(f"Missing Twitter API credentials for test tweet in chat {message.chat.id}")
-                logger.error(f"Missing Twitter API credentials for test tweet in chat {message.chat.id}")
-                await message.reply("Error: Twitter API credentials are missing.")
-            else:
-                try:
-                    auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
-                    auth.set_access_token(access_token, access_token_secret)
-                    api = tweepy.API(auth)
-                    test_tweet_text = "This is a test tweet from growthcheck at 02:45 AM EDT, July 21, 2025 #Test #XAPI"
-                    api.update_status(test_tweet_text)
-                    logger.debug(f"Posted test tweet: {test_tweet_text}")
-                    logger.info(f"Posted test tweet: {test_tweet_text}")
-                    await message.reply("Test tweet posted successfully!")
-                except Exception as e:
-                    logger.debug(f"Failed to post test tweet in chat {message.chat.id}: {e}")
-                    logger.error(f"Failed to post test tweet in chat {message.chat.id}: {e}")
-                    await message.reply(f"Failed to post test tweet: {e}")
-
     # Apply updates after iteration
     for key, peak_mc in peak_updates.items():
         monitored_tokens[key]["peak_mc"] = peak_mc
@@ -1468,7 +1473,7 @@ async def growthcheck() -> None:
         save_monitored_tokens()
         logger.debug(f"Updated {len(peak_updates)} peak_mcs and removed {len(to_remove)} expired tokens")
         logger.info(f"Updated {len(peak_updates)} peak_mcs and removed {len(to_remove)} expired tokens")
-
+        
 router = Router()
 
 async def daily_summary_report() -> None:
