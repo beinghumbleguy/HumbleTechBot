@@ -1431,7 +1431,7 @@ async def growthcheck() -> None:
                     logger.error(f"Failed to notify group {group_chat_id} for CA {ca}: {e}")
 
         # Add TG command to post a test tweet
-        @router.message(commands=["testtweet"])
+        @router.message(F.text.startswith('/testtweet'))
         async def test_tweet(message: types.Message):
             logger.debug(f"Received /testtweet command in chat {message.chat.id}")
             import tweepy
@@ -1448,7 +1448,7 @@ async def growthcheck() -> None:
                     auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
                     auth.set_access_token(access_token, access_token_secret)
                     api = tweepy.API(auth)
-                    test_tweet_text = "This is a test tweet from growthcheck at 02:28 AM EDT, July 21, 2025 #Test #XAPI"
+                    test_tweet_text = "This is a test tweet from growthcheck at 02:45 AM EDT, July 21, 2025 #Test #XAPI"
                     api.update_status(test_tweet_text)
                     logger.debug(f"Posted test tweet: {test_tweet_text}")
                     logger.info(f"Posted test tweet: {test_tweet_text}")
