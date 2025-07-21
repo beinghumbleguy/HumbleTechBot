@@ -1334,10 +1334,10 @@ async def growthcheck() -> None:
                 if chat_id in PUBLIC_CHANNEL_IDS and vip_data and vip_growth_ratio and public_growth_ratio and vip_growth_ratio > public_growth_ratio:
                     growth_str += f" (**{vip_growth_ratio:.1f}x** from VIP)"  # Bold VIP growth ratio
 
-                symbol = token_data.get("symbol", token_name.split("|")[0] if "|" in token_name else token_name)
+                symbol = token_name.split("|")[1].strip() if "|" in token_name else token_name
                 growth_message = (
                     f"{emoji} {growth_str} | "
-                    f"💹 From {initial_mc_str} ↗️ **{current_mc_str}** within **{time_since_added}** - ${symbol}"
+                    f"💹 From {initial_mc_str} ↗️ **{current_mc_str}** within **{time_since_added}** - {symbol}"
                 )
 
                 log_to_growthcheck_csv(
@@ -1364,8 +1364,10 @@ async def growthcheck() -> None:
                             chat_id=chat_id, text=growth_message,
                             parse_mode="Markdown", reply_to_message_id=message_id
                         )
+                        logger.debug(f"Sent growth notification for CA {ca} in chat {chat_id}: {growth_message}")
                         logger.info(f"Sent growth notification for CA {ca} in chat {chat_id}: {growth_message}")
                     except Exception as e:
+                        logger.debug(f"Failed to send growth notification for CA {ca} in chat {chat_id}: {e}")
                         logger.error(f"Failed to send growth notification for CA {ca} in chat {chat_id}: {e}")
 
                     # Twitter notification for VIP tokens only at 5x, 10x, 15x milestones
@@ -1376,6 +1378,7 @@ async def growthcheck() -> None:
                         access_token = os.getenv("X_ACCESS_TOKEN")
                         access_token_secret = os.getenv("X_ACCESS_TOKEN_SECRET")
                         if not all([consumer_key, consumer_secret, access_token, access_token_secret]):
+                            logger.debug(f"Missing Twitter API credentials for CA {ca}")
                             logger.error(f"Missing Twitter API credentials for CA {ca}")
                         else:
                             try:
@@ -1387,17 +1390,19 @@ async def growthcheck() -> None:
                                 while next_threshold <= growth_ratio:
                                     if last_ratio < next_threshold <= growth_ratio:
                                         tweet_text = (
-                                            f"🚀 ${symbol} (CA: {ca}) has reached {next_threshold}x growth! "
+                                            f"🚀 {symbol} (CA: {ca}) has reached {next_threshold}x growth! "
                                             f"Initial MC: ${initial_mc_str.replace('**', '')}, "
                                             f"Current MC: ${current_mc_str.replace('**', '')}. "
-                                            f"Join here: https://t.me/HumbleApes"
+                                            f"Join VIP: https://t.me/HumbleMoonshotsPay_bot?start=start "
                                             f"#Crypto #Solana #Moonshot"
                                         )
                                         api.update_status(tweet_text)
+                                        logger.debug(f"Posted Twitter update for CA {ca} at {next_threshold}x growth")
                                         logger.info(f"Posted Twitter update for CA {ca} at {next_threshold}x growth")
                                     next_threshold += 5.0
                                 last_growth_ratios[key] = growth_ratio
                             except Exception as e:
+                                logger.debug(f"Failed to post Twitter update for CA {ca} at {next_threshold}x: {e}")
                                 logger.error(f"Failed to post Twitter update for CA {ca} at {next_threshold}x: {e}")
 
             # New sub-chunk: 3x notification to dedicated channel
@@ -1410,7 +1415,7 @@ async def growthcheck() -> None:
                 notify_message = (
                     f"🚀 **{token_name}** hit **{growth_ratio_str}** in **{time_since}**!\n"
                     f"🔗 CA: `{ca}`\n"
-                    f"💰 Current MC: **{current_mc_str}** - ${symbol}"
+                    f"💰 Current MC: **{current_mc_str}** - {symbol}"
                 )
                 try:
                     await bot.send_message(
@@ -1418,10 +1423,40 @@ async def growthcheck() -> None:
                         text=notify_message,
                         parse_mode="Markdown"
                     )
+                    logger.debug(f"Notified group {group_chat_id} for CA {ca}: {growth_ratio:.1f}x in {time_since}")
                     logger.info(f"Notified group {group_chat_id} for CA {ca}: {growth_ratio:.1f}x in {time_since}")
                     notified_cas.add(ca)  # Mark CA as notified
                 except Exception as e:
+                    logger.debug(f"Failed to notify group {group_chat_id} for CA {ca}: {e}")
                     logger.error(f"Failed to notify group {group_chat_id} for CA {ca}: {e}")
+
+        # Add TG command to post a test tweet
+        @router.message(commands=["testtweet"])
+        async def test_tweet(message: types.Message):
+            logger.debug(f"Received /testtweet command in chat {message.chat.id}")
+            import tweepy
+            consumer_key = os.getenv("X_CONSUMER_KEY")
+            consumer_secret = os.getenv("X_CONSUMER_SECRET")
+            access_token = os.getenv("X_ACCESS_TOKEN")
+            access_token_secret = os.getenv("X_ACCESS_TOKEN_SECRET")
+            if not all([consumer_key, consumer_secret, access_token, access_token_secret]):
+                logger.debug(f"Missing Twitter API credentials for test tweet in chat {message.chat.id}")
+                logger.error(f"Missing Twitter API credentials for test tweet in chat {message.chat.id}")
+                await message.reply("Error: Twitter API credentials are missing.")
+            else:
+                try:
+                    auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
+                    auth.set_access_token(access_token, access_token_secret)
+                    api = tweepy.API(auth)
+                    test_tweet_text = "This is a test tweet from growthcheck at 02:28 AM EDT, July 21, 2025 #Test #XAPI"
+                    api.update_status(test_tweet_text)
+                    logger.debug(f"Posted test tweet: {test_tweet_text}")
+                    logger.info(f"Posted test tweet: {test_tweet_text}")
+                    await message.reply("Test tweet posted successfully!")
+                except Exception as e:
+                    logger.debug(f"Failed to post test tweet in chat {message.chat.id}: {e}")
+                    logger.error(f"Failed to post test tweet in chat {message.chat.id}: {e}")
+                    await message.reply(f"Failed to post test tweet: {e}")
 
     # Apply updates after iteration
     for key, peak_mc in peak_updates.items():
@@ -1431,6 +1466,7 @@ async def growthcheck() -> None:
         last_growth_ratios.pop(key, None)
     if peak_updates or to_remove:
         save_monitored_tokens()
+        logger.debug(f"Updated {len(peak_updates)} peak_mcs and removed {len(to_remove)} expired tokens")
         logger.info(f"Updated {len(peak_updates)} peak_mcs and removed {len(to_remove)} expired tokens")
 
 router = Router()
