@@ -1218,7 +1218,7 @@ async def process_message(message: types.Message) -> None:
     "setbundlesthreshold", "setbundlesfilter", "setinsidersthreshold", "setinsidersfilter", 
     "setkolsthreshold", "setkolsfilter", "adduser", "downloadcsv", "downloadgrowthcsv", 
     "growthnotify", "mastersetup", "resetdefaults",
-    "setbcthreshold", "setbcfilter","setpnlreport","runpnlreport","getchatid","downloadmonitoredtokens"
+    "setbcthreshold", "setbcfilter","setpnlreport","testtweet","runpnlreport","getchatid","downloadmonitoredtokens"
 ]), F.text)
 async def handle_message(message: types.Message) -> None:
     await process_message(message)
