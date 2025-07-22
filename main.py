@@ -30,7 +30,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Enable debug logging
 # New comment
-
+"""
 import os
 import base64
 import hashlib
@@ -51,6 +51,7 @@ print(f"Generated code_challenge: {code_challenge}")
 os.environ['X_CODE_VERIFIER'] = code_verifier
 print(f"code_verifier saved to environment as X_CODE_VERIFIER")
 print(f"Generated code_verifier: {code_verifier}")
+"""
 
 # Chunk 1 (partial update)
 
@@ -123,8 +124,8 @@ _executor = ThreadPoolExecutor(max_workers=5)
 
 # Global variables with default values
 filter_enabled = True
-PassValue = 1.24
-RangeLow = 1.05
+PassValue = 1.27
+RangeLow = 1.09
 authorized_users = ["@BeingHumbleGuy"]
 additional_user_added = False
 
@@ -135,7 +136,7 @@ CheckLowEnabled = True
 # New filter thresholds
 DevSoldThreshold = "Yes"
 DevSoldLeft = 7.0
-Top10Threshold = 34.0
+Top10Threshold = 46.0
 SnipersThreshold = 9.0
 BundlesThreshold = 8.0
 InsidersThreshold = 9.0
@@ -190,23 +191,30 @@ dp.include_router(router)
 @router.message(F.text.startswith('/testtweet'))
 async def test_tweet(message: Message):
     logger.debug(f"Received /testtweet command in chat {message.chat.id}")
-    consumer_key = os.getenv("X_CONSUMER_KEY")
-    consumer_secret = os.getenv("X_CONSUMER_SECRET")
-    access_token = os.getenv("X_ACCESS_TOKEN")
-    access_token_secret = os.getenv("X_ACCESS_TOKEN_SECRET")
-    if not all([consumer_key, consumer_secret, access_token, access_token_secret]):
-        logger.debug(f"Missing Twitter API credentials for test tweet in chat {message.chat.id}")
-        logger.error(f"Missing Twitter API credentials for test tweet in chat {message.chat.id}")
-        await message.reply("Error: Twitter API credentials are missing.")
+    client_id = os.getenv("X_CLIENT_ID")
+    client_secret = os.getenv("X_CLIENT_SECRET")
+    code_verifier = os.getenv("X_CODE_VERIFIER")  # Add this to environment
+    access_token = os.getenv("X_ACCESS_TOKEN")    # Obtained from token exchange
+    if not all([client_id, client_secret, code_verifier, access_token]):
+        logger.debug(f"Missing OAuth 2.0 credentials for test tweet in chat {message.chat.id}")
+        logger.error(f"Missing OAuth 2.0 credentials for test tweet in chat {message.chat.id}")
+        await message.reply("Error: OAuth 2.0 credentials are missing.")
     else:
         try:
-            client = tweepy.Client(
-                consumer_key=consumer_key,
-                consumer_secret=consumer_secret,
-                access_token=access_token,
-                access_token_secret=access_token_secret
+            oauth2_user_handler = tweepy.OAuth2UserHandler(
+                client_id=client_id,
+                client_secret=client_secret,
+                redirect_uri="https://humbletechbot-production.up.railway.app/callback",
+                scope="tweet.write",
+                access_token=access_token
             )
-            test_tweet_text = "This is a test tweet from growthcheck at 04:50 PM EDT, July 21, 2025 #Test #XAPI"
+            client = tweepy.Client(
+                consumer_key=client_id,
+                consumer_secret=client_secret,
+                access_token=access_token,
+                oauth2_user_handler=oauth2_user_handler
+            )
+            test_tweet_text = "This is a test tweet from growthcheck at 05:40 PM EDT, July 21, 2025 #Test #XAPI"
             response = client.create_tweet(text=test_tweet_text)
             logger.debug(f"Posted test tweet: {test_tweet_text}, Response: {response}")
             logger.info(f"Posted test tweet: {test_tweet_text}")
