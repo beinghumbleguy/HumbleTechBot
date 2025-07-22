@@ -31,6 +31,27 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 # Enable debug logging
 # New comment
 
+import os
+import base64
+import hashlib
+import secrets
+
+# Generate a random code_verifier (43-128 characters)
+code_verifier = secrets.token_urlsafe(32)  # Generates ~43-44 characters, URL-safe
+print(f"Generated code_verifier: {code_verifier}")
+
+# Hash the code_verifier with SHA-256
+code_challenge_bytes = hashlib.sha256(code_verifier.encode('utf-8')).digest()
+
+# Base64-URL encode the hash
+code_challenge = base64.urlsafe_b64encode(code_challenge_bytes).rstrip(b'=').decode('utf-8')
+print(f"Generated code_challenge: {code_challenge}")
+
+# Save code_verifier for later use (e.g., in environment variables or a file)
+os.environ['X_CODE_VERIFIER'] = code_verifier
+print(f"code_verifier saved to environment as X_CODE_VERIFIER")
+print(f"Generated code_verifier: {code_verifier}")
+
 # Chunk 1 (partial update)
 
 import logging
