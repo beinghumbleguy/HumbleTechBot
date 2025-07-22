@@ -191,21 +191,23 @@ dp.include_router(router)
 @router.message(F.text.startswith('/testtweet'))
 async def test_tweet(message: Message):
     logger.debug(f"Received /testtweet command in chat {message.chat.id}")
+    client_id = os.getenv("X_CLIENT_ID")
+    client_secret = os.getenv("X_CLIENT_SECRET")
     access_token = os.getenv("X_ACCESS_TOKEN")  # Obtained from OAuth 2.0 flow
-    if not access_token:
-        logger.debug(f"Missing OAuth 2.0 access token for test tweet in chat {message.chat.id}")
-        logger.error(f"Missing OAuth 2.0 access token for test tweet in chat {message.chat.id}")
-        await message.reply("Error: OAuth 2.0 access token is missing.")
+    if not all([client_id, client_secret, access_token]):
+        logger.debug(f"Missing OAuth 2.0 credentials for test tweet in chat {message.chat.id}")
+        logger.error(f"Missing OAuth 2.0 credentials for test tweet in chat {message.chat.id}")
+        await message.reply("Error: OAuth 2.0 credentials (Client ID, Client Secret, or Access Token) are missing.")
     else:
         try:
             client = tweepy.Client(
-                access_token=access_token,  # Use only the access token for OAuth 2.0
-                bearer_token=None,  # Not used for user context auth
-                consumer_key=None,  # Not needed for OAuth 2.0 with access token
-                consumer_secret=None,  # Not needed for OAuth 2.0 with access token
-                access_token_secret=None  # Not used for OAuth 2.0
+                consumer_key=client_id,
+                consumer_secret=client_secret,
+                access_token=access_token,
+                access_token_secret=None,  # Not used for OAuth 2.0
+                bearer_token=None  # Not used for user context auth
             )
-            test_tweet_text = "This is a test tweet from growthcheck at 01:50 AM EDT, July 22, 2025 #Test #XAPI"
+            test_tweet_text = "This is a test tweet from growthcheck at 02:00 AM EDT, July 22, 2025 #Test #XAPI"
             response = client.create_tweet(text=test_tweet_text)
             logger.debug(f"Posted test tweet: {test_tweet_text}, Response: {response}")
             logger.info(f"Posted test tweet: {test_tweet_text}")
