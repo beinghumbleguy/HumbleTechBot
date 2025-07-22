@@ -193,7 +193,7 @@ async def test_tweet(message: Message):
     logger.debug(f"Received /testtweet command in chat {message.chat.id}")
     client_id = os.getenv("X_CLIENT_ID")
     client_secret = os.getenv("X_CLIENT_SECRET")
-    access_token = os.getenv("X_ACCESS_TOKEN")  # Obtained from token exchange
+    access_token = os.getenv("X_ACCESS_TOKEN")  # Obtained from OAuth 2.0 flow
     if not all([client_id, client_secret, access_token]):
         logger.debug(f"Missing OAuth 2.0 credentials for test tweet in chat {message.chat.id}")
         logger.error(f"Missing OAuth 2.0 credentials for test tweet in chat {message.chat.id}")
@@ -201,12 +201,14 @@ async def test_tweet(message: Message):
     else:
         try:
             client = tweepy.Client(
+                bearer_token=None,  # Not used here, only for app-only auth
                 consumer_key=client_id,
                 consumer_secret=client_secret,
                 access_token=access_token,
-                access_token_secret=None  # Not used with OAuth 2.0
+                access_token_secret=None,  # Explicitly set to None for OAuth 2.0
+                oauth2_access_token=access_token  # Explicit OAuth 2.0 token
             )
-            test_tweet_text = "This is a test tweet from growthcheck at 01:30 AM EDT, July 22, 2025 #Test #XAPI"
+            test_tweet_text = "This is a test tweet from growthcheck at 01:40 AM EDT, July 22, 2025 #Test #XAPI"
             response = client.create_tweet(text=test_tweet_text)
             logger.debug(f"Posted test tweet: {test_tweet_text}, Response: {response}")
             logger.info(f"Posted test tweet: {test_tweet_text}")
