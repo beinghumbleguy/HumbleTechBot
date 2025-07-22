@@ -187,34 +187,26 @@ token_data_cache = TTLCache(maxsize=1000, ttl=3600)
 # Include router in dispatcher
 dp.include_router(router)
 
-# Test tweet command handler
+# Test tweet command handler with OAuth 2.0
 @router.message(F.text.startswith('/testtweet'))
 async def test_tweet(message: Message):
     logger.debug(f"Received /testtweet command in chat {message.chat.id}")
     client_id = os.getenv("X_CLIENT_ID")
     client_secret = os.getenv("X_CLIENT_SECRET")
-    code_verifier = os.getenv("X_CODE_VERIFIER")  # Add this to environment
-    access_token = os.getenv("X_ACCESS_TOKEN")    # Obtained from token exchange
-    if not all([client_id, client_secret, code_verifier, access_token]):
+    access_token = os.getenv("X_ACCESS_TOKEN")  # Obtained from token exchange
+    if not all([client_id, client_secret, access_token]):
         logger.debug(f"Missing OAuth 2.0 credentials for test tweet in chat {message.chat.id}")
         logger.error(f"Missing OAuth 2.0 credentials for test tweet in chat {message.chat.id}")
-        await message.reply("Error: OAuth 2.0 credentials are missing.")
+        await message.reply("Error: OAuth 2.0 credentials (Client ID, Client Secret, or Access Token) are missing.")
     else:
         try:
-            oauth2_user_handler = tweepy.OAuth2UserHandler(
-                client_id=client_id,
-                client_secret=client_secret,
-                redirect_uri="https://humbletechbot-production.up.railway.app/callback",
-                scope="tweet.write",
-                access_token=access_token
-            )
             client = tweepy.Client(
                 consumer_key=client_id,
                 consumer_secret=client_secret,
                 access_token=access_token,
-                oauth2_user_handler=oauth2_user_handler
+                access_token_secret=None  # Not used with OAuth 2.0
             )
-            test_tweet_text = "This is a test tweet from growthcheck at 05:40 PM EDT, July 21, 2025 #Test #XAPI"
+            test_tweet_text = "This is a test tweet from growthcheck at 01:30 AM EDT, July 22, 2025 #Test #XAPI"
             response = client.create_tweet(text=test_tweet_text)
             logger.debug(f"Posted test tweet: {test_tweet_text}, Response: {response}")
             logger.info(f"Posted test tweet: {test_tweet_text}")
