@@ -36,6 +36,7 @@ import base64
 import hashlib
 import secrets
 
+"""
 code_verifier = secrets.token_urlsafe(32)
 print(f"code_verifier: {code_verifier}")
 code_challenge_bytes = hashlib.sha256(code_verifier.encode('utf-8')).digest()
@@ -52,7 +53,7 @@ import base64
 # Retrieve credentials (use environment variables or replace placeholders)
 client_id = os.getenv("X_CLIENT_ID", "ck00cUFPMFY5c3NGbkcyU3BpcEU6MTpjaQ")  # Your Client ID
 client_secret = os.getenv("X_CLIENT_SECRET", "<your_client_secret_here>")  # Replace with your Client Secret
-code = "Nng0VDQwS0FRT1FEX3lQcXh2MHhzQlkzWDVUWHVzUmtVT0k3TTM4OU16SGFuOjE3NTMzMzUzNTA3Njg6MTowOmFjOjE"  # The code from the redirect
+code = "VVprRHNaV2prVWszd3BXNzg1a1c0QTVTZm41Y2oyQTJZcHpXTmlhMFhLUXNIOjE3NTMzMzcyODM2OTE6MTowOmFjOjE"  # The code from the redirect
 code_verifier = os.getenv("X_CODE_VERIFIER", "<your_code_verifier_here>")  # Replace with your code_verifier
 redirect_uri = "https://humbletechbot-production.up.railway.app/api/auth/callback/twitter"  # Match the used URI
 
@@ -88,7 +89,7 @@ if response.status_code == 200:
     print("Update Railway with this X_ACCESS_TOKEN value.")
 else:
     print(f"Error: {response.status_code} - {response.text}")
-"""
+
 # Note: For production, save the token securely in Railway, not just locally
 
 # Chunk 1 (partial update)
