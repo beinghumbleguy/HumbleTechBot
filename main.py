@@ -46,25 +46,31 @@ print(f"code_verifier: {code_verifier}")
 """
 import requests
 import os
+import base64
 
-# Retrieve credentials from environment or hardcode for this one-time run (securely)
-client_id = os.getenv("X_CLIENT_ID", "<your_client_id_here>")  # Replace with actual ID if not in env
-client_secret = os.getenv("X_CLIENT_SECRET", "<your_client_secret_here>")  # Replace with actual secret if not in env
-code = "Nng0VDQwS0FRT1FEX3lQcXh2MHhzQlkzWDVUWHVzUmtVT0k3TTM4OU16SGFuOjE3NTMzMzUzNTA3Njg6MTowOmFjOjE"  # Replace with the code from the redirect
-code_verifier = os.getenv("X_CODE_VERIFIER", "<your_code_verifier_here>")  # Replace with actual verifier if not in env
-redirect_uri = "https://humbletechbot-production.up.railway.app/api/auth/callback/twitter"
+# Retrieve credentials (use environment variables or replace placeholders)
+client_id = os.getenv("X_CLIENT_ID", "ck00cUFPMFY5c3NGbkcyU3BpcEU6MTpjaQ")  # Your Client ID
+client_secret = os.getenv("X_CLIENT_SECRET", "<your_client_secret_here>")  # Replace with your Client Secret
+code = "Nng0VDQwS0FRT1FEX3lQcXh2MHhzQlkzWDVUWHVzUmtVT0k3TTM4OU16SGFuOjE3NTMzMzUzNTA3Njg6MTowOmFjOjE"  # The code from the redirect
+code_verifier = os.getenv("X_CODE_VERIFIER", "<your_code_verifier_here>")  # Replace with your code_verifier
+redirect_uri = "https://humbletechbot-production.up.railway.app/api/auth/callback/twitter"  # Match the used URI
+
+# Create Basic Authentication header
+auth_string = f"{client_id}:{client_secret}"
+auth_header = base64.b64encode(auth_string.encode()).decode()
+headers = {
+    "Authorization": f"Basic {auth_header}",
+    "Content-Type": "application/x-www-form-urlencoded"
+}
 
 # Prepare the request
 url = "https://api.twitter.com/2/oauth2/token"
 data = {
-    "client_id": client_id,
-    "client_secret": client_secret,
     "code": code,
     "grant_type": "authorization_code",
     "redirect_uri": redirect_uri,
     "code_verifier": code_verifier
 }
-headers = {"Content-Type": "application/x-www-form-urlencoded"}
 
 # Make the POST request
 response = requests.post(url, data=data, headers=headers)
@@ -73,12 +79,12 @@ response = requests.post(url, data=data, headers=headers)
 if response.status_code == 200:
     token_data = response.json()
     access_token = token_data["access_token"]
-    print(f"Access Token here: {access_token}")
+    print(f"Access Token: {access_token}")
     if "refresh_token" in token_data:
         print(f"Refresh Token: {token_data['refresh_token']}")
-    # Update this token in Railway manually or via environment variable
+    # Update this token in Railway manually
     os.environ["X_ACCESS_TOKEN"] = access_token  # Temporary local set
-    print("Access token set in environment. Update Railway with this value.")
+    print("Update Railway with this X_ACCESS_TOKEN value.")
 else:
     print(f"Error: {response.status_code} - {response.text}")
 
