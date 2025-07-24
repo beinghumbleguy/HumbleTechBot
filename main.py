@@ -35,7 +35,7 @@ import os
 import base64
 import hashlib
 import secrets
-"""
+
 code_verifier = secrets.token_urlsafe(32)
 print(f"code_verifier: {code_verifier}")
 code_challenge_bytes = hashlib.sha256(code_verifier.encode('utf-8')).digest()
@@ -43,6 +43,7 @@ code_challenge = base64.urlsafe_b64encode(code_challenge_bytes).rstrip(b'=').dec
 print(f"code_challenge: {code_challenge}")
 os.environ['X_CODE_VERIFIER'] = code_verifier  # Store temporarily
 print(f"code_verifier: {code_verifier}")
+
 """
 import requests
 import os
@@ -87,7 +88,7 @@ if response.status_code == 200:
     print("Update Railway with this X_ACCESS_TOKEN value.")
 else:
     print(f"Error: {response.status_code} - {response.text}")
-
+"""
 # Note: For production, save the token securely in Railway, not just locally
 
 # Chunk 1 (partial update)
