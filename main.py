@@ -35,7 +35,7 @@ import os
 import base64
 import hashlib
 import secrets
-
+"""
 code_verifier = secrets.token_urlsafe(32)
 print(f"code_verifier: {code_verifier}")
 code_challenge_bytes = hashlib.sha256(code_verifier.encode('utf-8')).digest()
@@ -43,6 +43,46 @@ code_challenge = base64.urlsafe_b64encode(code_challenge_bytes).rstrip(b'=').dec
 print(f"code_challenge: {code_challenge}")
 os.environ['X_CODE_VERIFIER'] = code_verifier  # Store temporarily
 print(f"code_verifier: {code_verifier}")
+"""
+import requests
+import os
+
+# Retrieve credentials from environment or hardcode for this one-time run (securely)
+client_id = os.getenv("X_CLIENT_ID", "<your_client_id_here>")  # Replace with actual ID if not in env
+client_secret = os.getenv("X_CLIENT_SECRET", "<your_client_secret_here>")  # Replace with actual secret if not in env
+code = "Nng0VDQwS0FRT1FEX3lQcXh2MHhzQlkzWDVUWHVzUmtVT0k3TTM4OU16SGFuOjE3NTMzMzUzNTA3Njg6MTowOmFjOjE"  # Replace with the code from the redirect
+code_verifier = os.getenv("X_CODE_VERIFIER", "<your_code_verifier_here>")  # Replace with actual verifier if not in env
+redirect_uri = "https://humbletechbot-production.up.railway.app/api/auth/callback/twitter"
+
+# Prepare the request
+url = "https://api.twitter.com/2/oauth2/token"
+data = {
+    "client_id": client_id,
+    "client_secret": client_secret,
+    "code": code,
+    "grant_type": "authorization_code",
+    "redirect_uri": redirect_uri,
+    "code_verifier": code_verifier
+}
+headers = {"Content-Type": "application/x-www-form-urlencoded"}
+
+# Make the POST request
+response = requests.post(url, data=data, headers=headers)
+
+# Check and print the response
+if response.status_code == 200:
+    token_data = response.json()
+    access_token = token_data["access_token"]
+    print(f"Access Token: {access_token}")
+    if "refresh_token" in token_data:
+        print(f"Refresh Token: {token_data['refresh_token']}")
+    # Update this token in Railway manually or via environment variable
+    os.environ["X_ACCESS_TOKEN"] = access_token  # Temporary local set
+    print("Access token set in environment. Update Railway with this value.")
+else:
+    print(f"Error: {response.status_code} - {response.text}")
+
+# Note: For production, save the token securely in Railway, not just locally
 
 # Chunk 1 (partial update)
 
