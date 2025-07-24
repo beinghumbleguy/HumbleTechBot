@@ -73,7 +73,7 @@ response = requests.post(url, data=data, headers=headers)
 if response.status_code == 200:
     token_data = response.json()
     access_token = token_data["access_token"]
-    print(f"Access Token: {access_token}")
+    print(f"Access Token here: {access_token}")
     if "refresh_token" in token_data:
         print(f"Refresh Token: {token_data['refresh_token']}")
     # Update this token in Railway manually or via environment variable
