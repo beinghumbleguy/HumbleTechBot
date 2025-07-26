@@ -230,6 +230,7 @@ token_data_cache = TTLCache(maxsize=1000, ttl=3600)
 dp.include_router(router)
 
 # Test tweet command handler with OAuth 2.0
+logger.debug("Using updated test_tweet function with bearer_token")
 @router.message(F.text.startswith('/testtweet'))
 async def test_tweet(message: Message):
     logger.debug(f"Received /testtweet command in chat {message.chat.id}")
@@ -249,7 +250,7 @@ async def test_tweet(message: Message):
                 access_token=None,  # Explicitly disable OAuth 1.0a
                 access_token_secret=None
             )
-            test_tweet_text = "This is a test tweet from growthcheck at 03:05 AM EDT, July 26, 2025 #Test #XAPI"
+            test_tweet_text = "This is a test tweet from growthcheck at 03:00 AM EDT, July 27, 2025 #Test #XAPI"
             response = client.create_tweet(text=test_tweet_text)
             logger.debug(f"Posted test tweet: {test_tweet_text}, Response: {response}")
             logger.info(f"Posted test tweet: {test_tweet_text}")
