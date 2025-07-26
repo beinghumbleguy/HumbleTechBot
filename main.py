@@ -233,24 +233,17 @@ dp.include_router(router)
 logger.debug("Using updated test_tweet function with bearer_token")
 @router.message(F.text.startswith('/testtweet'))
 async def test_tweet(message: Message):
+    logger.debug("Using updated test_tweet function with bearer_token")
     logger.debug(f"Received /testtweet command in chat {message.chat.id}")
-    client_id = os.getenv("X_CLIENT_ID")
-    client_secret = os.getenv("X_CLIENT_SECRET")
     access_token = os.getenv("X_ACCESS_TOKEN")
-    if not all([client_id, client_secret, access_token]):
-        logger.debug(f"Missing OAuth 2.0 credentials for test tweet in chat {message.chat.id}")
-        logger.error(f"Missing OAuth 2.0 credentials for test tweet in chat {message.chat.id}")
-        await message.reply("Error: OAuth 2.0 credentials (Client ID, Client Secret, or Access Token) are missing.")
+    if not access_token:
+        logger.debug(f"Missing OAuth 2.0 access token for test tweet in chat {message.chat.id}")
+        logger.error(f"Missing OAuth 2.0 access token for test tweet in chat {message.chat.id}")
+        await message.reply("Error: OAuth 2.0 access token is missing.")
     else:
         try:
-            client = tweepy.Client(
-                bearer_token=access_token,  # OAuth 2.0 Bearer token
-                consumer_key=client_id,
-                consumer_secret=client_secret,
-                access_token=None,  # Explicitly disable OAuth 1.0a
-                access_token_secret=None
-            )
-            test_tweet_text = "This is a test tweet from growthcheck at 03:00 AM EDT, July 27, 2025 #Test #XAPI"
+            client = tweepy.Client(bearer_token=access_token)  # Minimal config for OAuth 2.0
+            test_tweet_text = "This is a test tweet from growthcheck at 03:30 AM EDT, July 26, 2025 #Test #XAPI"
             response = client.create_tweet(text=test_tweet_text)
             logger.debug(f"Posted test tweet: {test_tweet_text}, Response: {response}")
             logger.info(f"Posted test tweet: {test_tweet_text}")
