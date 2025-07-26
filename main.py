@@ -243,13 +243,13 @@ async def test_tweet(message: Message):
     else:
         try:
             client = tweepy.Client(
+                bearer_token=access_token,  # OAuth 2.0 Bearer token
                 consumer_key=client_id,
                 consumer_secret=client_secret,
-                access_token=access_token,
-                access_token_secret=None,
-                bearer_token=None
+                access_token=None,  # Avoid OAuth 1.0a
+                access_token_secret=None
             )
-            test_tweet_text = "This is a test tweet from growthcheck at 01:45 AM EDT, July 26, 2025 #Test #XAPI"
+            test_tweet_text = "This is a test tweet from growthcheck at 02:50 AM EDT, July 26, 2025 #Test #XAPI"
             response = client.create_tweet(text=test_tweet_text)
             logger.debug(f"Posted test tweet: {test_tweet_text}, Response: {response}")
             logger.info(f"Posted test tweet: {test_tweet_text}")
