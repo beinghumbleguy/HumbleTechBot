@@ -7,7 +7,7 @@ import logging
 import os
 import csv
 import re
-from flask import Flask, send_file, request, abort
+from flask import Flask, send_file, request, abort, jsonify
 from threading import Thread
 import requests
 from bs4 import BeautifulSoup
@@ -36,14 +36,15 @@ import base64
 import hashlib
 import secrets
 
-"""
+
 code_verifier = secrets.token_urlsafe(32)
 print(f"code_verifier: {code_verifier}")
 code_challenge_bytes = hashlib.sha256(code_verifier.encode('utf-8')).digest()
 code_challenge = base64.urlsafe_b64encode(code_challenge_bytes).rstrip(b'=').decode('utf-8')
 print(f"code_challenge: {code_challenge}")
 os.environ['X_CODE_VERIFIER'] = code_verifier  # Store temporarily
-print(f"code_verifier: {code_verifier}")
+
+
 
 """
 import requests
@@ -91,7 +92,7 @@ else:
     print(f"Error: {response.status_code} - {response.text}")
 
 # Note: For production, save the token securely in Railway, not just locally
-
+"""
 # Chunk 1 (partial update)
 
 import logging
@@ -232,7 +233,7 @@ async def test_tweet(message: Message):
     logger.debug(f"Received /testtweet command in chat {message.chat.id}")
     client_id = os.getenv("X_CLIENT_ID")
     client_secret = os.getenv("X_CLIENT_SECRET")
-    access_token = os.getenv("X_ACCESS_TOKEN")  # Obtained from OAuth 2.0 flow
+    access_token = os.getenv("X_ACCESS_TOKEN")
     if not all([client_id, client_secret, access_token]):
         logger.debug(f"Missing OAuth 2.0 credentials for test tweet in chat {message.chat.id}")
         logger.error(f"Missing OAuth 2.0 credentials for test tweet in chat {message.chat.id}")
@@ -243,10 +244,10 @@ async def test_tweet(message: Message):
                 consumer_key=client_id,
                 consumer_secret=client_secret,
                 access_token=access_token,
-                access_token_secret=None,  # Not used for OAuth 2.0
-                bearer_token=None  # Not used for user context auth
+                access_token_secret=None,
+                bearer_token=None
             )
-            test_tweet_text = "This is a test tweet from growthcheck at 02:00 AM EDT, July 22, 2025 #Test #XAPI"
+            test_tweet_text = "This is a test tweet from growthcheck at 01:45 AM EDT, July 26, 2025 #Test #XAPI"
             response = client.create_tweet(text=test_tweet_text)
             logger.debug(f"Posted test tweet: {test_tweet_text}, Response: {response}")
             logger.info(f"Posted test tweet: {test_tweet_text}")
@@ -2667,6 +2668,7 @@ def is_authorized(username):
     logger.info(f"Checking authorization for @{username}: {f'@{username}' in authorized_users}")
     return f"@{username}" in authorized_users  
 
+# Scheduler and startup setup
 async def on_startup():
     init_csv()
     load_monitored_tokens()
@@ -2701,8 +2703,6 @@ async def on_startup():
         BotCommand(command="setpnlreport", description="Enable/disable PNL report generation (Yes/No)"),
         BotCommand(command="getchatid", description="Get Chat ID"),
         BotCommand(command="runpnlreport", description="Run PNL report")
-        
-        
     ]
     try:
         await bot.set_my_commands(commands)
@@ -2727,6 +2727,41 @@ async def on_shutdown():
     await bot.session.close()
     await dp.storage.close()
     logger.info("Bot shutdown complete.")
+
+# Flask route to handle OAuth callback with token exchange
+@app.route('/api/auth/callback/twitter', methods=['GET'])
+def handle_callback():
+    code = request.args.get('code')
+    if code:
+        logger.debug(f"Received OAuth code: {code}")
+        client_id = os.getenv("X_CLIENT_ID")
+        client_secret = os.getenv("X_CLIENT_SECRET")
+        code_verifier = os.getenv("X_CODE_VERIFIER")
+        redirect_uri = "https://humbletechbot-production.up.railway.app/api/auth/callback/twitter"
+        auth_string = f"{client_id}:{client_secret}"
+        auth_header = base64.b64encode(auth_string.encode()).decode()
+        headers = {
+            "Authorization": f"Basic {auth_header}",
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+        data = {
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": redirect_uri,
+            "code_verifier": code_verifier
+        }
+        response = requests.post("https://api.twitter.com/2/oauth2/token", data=data, headers=headers)
+        if response.status_code == 200:
+            token_data = response.json()
+            access_token = token_data["access_token"]
+            os.environ["X_ACCESS_TOKEN"] = access_token  # Temporary local set
+            logger.info(f"Obtained access token: {access_token}")
+            return jsonify({"message": "Access token obtained", "access_token": access_token}), 200
+        else:
+            error_text = response.text
+            logger.error(f"Token exchange failed: {response.status_code} - {error_text}")
+            return jsonify({"error": "Token exchange failed", "details": error_text}), response.status_code
+    return jsonify({"error": "No code parameter found"}), 400
 
 async def main():
     try:
