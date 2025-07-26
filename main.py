@@ -29,11 +29,11 @@ import aiogram
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Enable debug logging
-# New comment
 
-"""
-import os
 import base64
+
+# New comment
+import os
 import hashlib
 import secrets
 
@@ -44,7 +44,7 @@ code_challenge_bytes = hashlib.sha256(code_verifier.encode('utf-8')).digest()
 code_challenge = base64.urlsafe_b64encode(code_challenge_bytes).rstrip(b'=').decode('utf-8')
 print(f"code_challenge: {code_challenge}")
 os.environ['X_CODE_VERIFIER'] = code_verifier  # Store temporarily
-"""
+
 
 
 """
