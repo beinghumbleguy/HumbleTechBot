@@ -1356,10 +1356,14 @@ async def growthcheck() -> None:
     current_time = datetime.now(pytz.timezone('America/New_York'))
     to_remove = []
     peak_updates = {}
-    # Move notified_cas to module-level to persist across calls
+    # Move notified_cas to module-level to persist across calls for Telegram
     if not hasattr(growthcheck, 'notified_cas'):
-        growthcheck.notified_cas = set()  # Initialize if not exists
-    notified_cas = growthcheck.notified_cas  # Use the persistent set
+        growthcheck.notified_cas = set()  # For Telegram 2.3x+ notifications
+    notified_cas = growthcheck.notified_cas
+    # New set for Twitter notifications to avoid interference
+    if not hasattr(growthcheck, 'notified_cas_twitter'):
+        growthcheck.notified_cas_twitter = set()
+    notified_cas_twitter = growthcheck.notified_cas_twitter
     logger.debug(f"Starting growthcheck with monitored_tokens: {len(monitored_tokens)} tokens")
 
     # Group tokens by CA for cross-channel comparison
@@ -1478,39 +1482,6 @@ async def growthcheck() -> None:
                         logger.debug(f"Failed to send growth notification for CA {ca} in chat {chat_id}: {e}")
                         logger.error(f"Failed to send growth notification for CA {ca} in chat {chat_id}: {e}")
 
-                # Twitter notification for VIP tokens at 3x+ growth
-                if chat_id in VIP_CHANNEL_IDS and growth_ratio >= 3.0 and ca not in notified_cas:
-                    import tweepy
-                    client = tweepy.Client(
-                        bearer_token=os.getenv("X_BEARER_TOKEN"),
-                        consumer_key=os.getenv("X_CONSUMER_KEY"),
-                        consumer_secret=os.getenv("X_CONSUMER_SECRET"),
-                        access_token=os.getenv("X_ACCESS_TOKEN"),
-                        access_token_secret=os.getenv("X_ACCESS_TOKEN_SECRET")
-                    )
-                    current_mc_str_plain = f"{current_mc / 1000:.1f}K" if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M"
-                    tweet_variations = [
-                        f"🌟 Big news! {token_name} (${symbol}) just hit 3x+ growth at ${current_mc_str_plain} MC! CA: {ca} Join us: https://t.me/HumbleApes #Crypto #Moonshot #Solana",
-                        f"🎉 Exciting move! {token_name} (${symbol}) soared 3x+ to ${current_mc_str_plain} MC. CA: {ca} Join us: https://t.me/HumbleApes #Blockchain #CryptoGem",
-                        f"🔥 Hot pick! {token_name} (${symbol}) reached 3x+ growth at ${current_mc_str_plain} MC. CA: {ca} Join us: https://t.me/HumbleApes #DeFi #Altcoin",
-                        f"🚀 Breaking! {token_name} (${symbol}) climbed 3x+ to ${current_mc_str_plain} MC. CA: {ca} Join us: https://t.me/HumbleApes #CryptoTrading #SolanaGem",
-                        f"💎 Alert! {token_name} (${symbol}) hit 3x+ growth at ${current_mc_str_plain} MC. CA: {ca} Join us: https://t.me/HumbleApes #Cryptocurrency #MoonCoin"
-                    ]
-                    import random
-                    tweet_text = random.choice(tweet_variations)
-                    try:
-                        response = client.create_tweet(text=tweet_text)
-                        if response and response.data and response.data.get("id"):
-                            logger.debug(f"Posted Twitter update for CA {ca} at {growth_ratio:.1f}x growth: {tweet_text}")
-                            logger.info(f"Posted Twitter update for CA {ca} at {growth_ratio:.1f}x growth: {tweet_text}")
-                            notified_cas.add(ca)  # Mark CA as notified to prevent repeats
-                        else:
-                            logger.debug(f"Failed to verify Twitter update for CA {ca}: {response}")
-                            logger.error(f"Failed to verify Twitter update for CA {ca}: {response}")
-                    except Exception as e:
-                        logger.debug(f"Failed to post Twitter update for CA {ca} at {growth_ratio:.1f}x: {e}")
-                        logger.error(f"Failed to post Twitter update for CA {ca} at {growth_ratio:.1f}x: {e}")
-
             # New sub-chunk: 3x notification to dedicated channel
             time_diff_seconds = (current_time - token_time).total_seconds()
             if growth_ratio >= 2.3 and time_diff_seconds <= 150 and ca not in notified_cas:
@@ -1531,10 +1502,45 @@ async def growthcheck() -> None:
                     )
                     logger.debug(f"Notified group {group_chat_id} for CA {ca}: {growth_ratio:.1f}x in {time_since}")
                     logger.info(f"Notified group {group_chat_id} for CA {ca}: {growth_ratio:.1f}x in {time_since}")
-                    notified_cas.add(ca)  # Mark CA as notified
+                    notified_cas.add(ca)  # Mark CA as notified for Telegram
                 except Exception as e:
                     logger.debug(f"Failed to notify group {group_chat_id} for CA {ca}: {e}")
                     logger.error(f"Failed to notify group {group_chat_id} for CA {ca}: {e}")
+
+            # Twitter notification for VIP tokens at 3x+ growth, independent of Telegram
+            if chat_id in VIP_CHANNEL_IDS and growth_ratio >= 3.0 and ca not in notified_cas_twitter:
+                import tweepy
+                client = tweepy.Client(
+                    bearer_token=os.getenv("X_BEARER_TOKEN"),
+                    consumer_key=os.getenv("X_CONSUMER_KEY"),
+                    consumer_secret=os.getenv("X_CONSUMER_SECRET"),
+                    access_token=os.getenv("X_ACCESS_TOKEN"),
+                    access_token_secret=os.getenv("X_ACCESS_TOKEN_SECRET")
+                )
+                initial_mc_str_plain = f"{initial_mc / 1000:.1f}K" if initial_mc < 1_000_000 else f"{initial_mc / 1_000_000:.1f}M"
+                current_mc_str_plain = f"{current_mc / 1000:.1f}K" if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M"
+                roi_percent = profit_percent if profit_percent > 0 else 0
+                tweet_variations = [
+                    f"🌟 {token_name} just hit 3x+ growth!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nCA: {ca} Join us: https://t.me/HumbleApes #solana #pump #bonk",
+                    f"🎉 {token_name} soared 3x+!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nCA: {ca} Join us: https://t.me/HumbleApes #solana #pump #bonk",
+                    f"🔥 {token_name} reached 3x+ growth!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nCA: {ca} Join us: https://t.me/HumbleApes #solana #pump #bonk",
+                    f"🚀 {token_name} climbed 3x+!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nCA: {ca} Join us: https://t.me/HumbleApes #solana #pump #bonk",
+                    f"💎 {token_name} hit 3x+ growth!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nCA: {ca} Join us: https://t.me/HumbleApes #solana #pump #bonk"
+                ]
+                import random
+                tweet_text = random.choice(tweet_variations)
+                try:
+                    response = client.create_tweet(text=tweet_text)
+                    if response and response.data and response.data.get("id"):
+                        logger.debug(f"Posted Twitter update for CA {ca} at {growth_ratio:.1f}x growth: {tweet_text}")
+                        logger.info(f"Posted Twitter update for CA {ca} at {growth_ratio:.1f}x growth: {tweet_text}")
+                        notified_cas_twitter.add(ca)  # Mark CA as notified for Twitter
+                    else:
+                        logger.debug(f"Failed to verify Twitter update for CA {ca}: {response}")
+                        logger.error(f"Failed to verify Twitter update for CA {ca}: {response}")
+                except Exception as e:
+                    logger.debug(f"Failed to post Twitter update for CA {ca} at {growth_ratio:.1f}x: {e}")
+                    logger.error(f"Failed to post Twitter update for CA {ca} at {growth_ratio:.1f}x: {e}")
 
     # Apply updates after iteration
     for key, peak_mc in peak_updates.items():
