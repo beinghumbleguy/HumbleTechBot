@@ -240,39 +240,33 @@ import tweepy
 @router.message(F.text.startswith('/testtweet'))
 async def test_tweet(message: Message):
     try:
+        bearer_token = os.getenv("X_BEARER_TOKEN")
         consumer_key = os.getenv("X_CONSUMER_KEY")
         consumer_secret = os.getenv("X_CONSUMER_SECRET")
         access_token = os.getenv("X_ACCESS_TOKEN")
         access_token_secret = os.getenv("X_ACCESS_TOKEN_SECRET")
 
-        if not all([consumer_key, consumer_secret, access_token, access_token_secret]):
-            await message.reply("❌ Error: Missing one or more Twitter OAuth credentials.")
+        if not all([bearer_token, consumer_key, consumer_secret, access_token, access_token_secret]):
+            await message.reply("❌ Error: Missing one or more Twitter OAuth 2.0 credentials.")
             return
 
-        # Authenticate
-        auth = tweepy.OAuth1UserHandler(
-            consumer_key,
-            consumer_secret,
-            access_token,
-            access_token_secret
+        # Use Twitter API v2 Client
+        client = tweepy.Client(
+            consumer_key=consumer_key,
+            consumer_secret=consumer_secret,
+            access_token=access_token,
+            access_token_secret=access_token_secret
         )
-        api = tweepy.API(auth)
 
-        # Verify credentials
-        user = api.verify_credentials()
-        print(f"✅ Authenticated as: {user.screen_name}")
+        tweet_text = "🚀 This is a test tweet from Humble Gems via v2 API"
+        response = client.create_tweet(text=tweet_text)
 
-        # Post tweet
-        tweet_text = "🚀 This is a test tweet from Humble Gems"
-        status = api.update_status(tweet_text)
-
-        # Compose tweet link
-        tweet_url = f"https://twitter.com/{user.screen_name}/status/{status.id}"
-        await message.reply(f"✅ Test tweet posted successfully!\n🔗 {tweet_url}")
-
+        if response and response.data and response.data.get("id"):
+            await message.reply("✅ Test tweet posted successfully via v2 API!")
+        else:
+            await message.reply(f"⚠️ Something went wrong: {response}")
     except Exception as e:
-        print(f"❌ Failed to post tweet: {e}")
-        await message.reply(f"❌ Failed to post test tweet:\n{e}")
+        await message.reply(f"❌ Failed to post tweet:\n{e}")
         
 # Initialize CSV files with headers
 def init_csv():
