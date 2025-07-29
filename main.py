@@ -249,23 +249,29 @@ async def test_tweet(message: Message):
             await message.reply("❌ Error: Missing one or more Twitter OAuth credentials.")
             return
 
+        # Authenticate
         auth = tweepy.OAuth1UserHandler(
             consumer_key,
             consumer_secret,
             access_token,
             access_token_secret
         )
-
         api = tweepy.API(auth)
-        tweet_text = "🚀 This is a test tweet from GrowthCheck using OAuth 1.0a! #XAPI #BotTest"
-        # api.update_status(tweet_text)
+
+        # Verify credentials
         user = api.verify_credentials()
         print(f"✅ Authenticated as: {user.screen_name}")
 
-        await message.reply("✅ Test tweet posted successfully!")
+        # Post tweet
+        tweet_text = "🚀 This is a test tweet from Humble Gems"
+        status = api.update_status(tweet_text)
+
+        # Compose tweet link
+        tweet_url = f"https://twitter.com/{user.screen_name}/status/{status.id}"
+        await message.reply(f"✅ Test tweet posted successfully!\n🔗 {tweet_url}")
 
     except Exception as e:
-        print(f"❌ Failed auth: {e}")
+        print(f"❌ Failed to post tweet: {e}")
         await message.reply(f"❌ Failed to post test tweet:\n{e}")
         
 # Initialize CSV files with headers
