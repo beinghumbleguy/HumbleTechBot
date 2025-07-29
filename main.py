@@ -1478,40 +1478,38 @@ async def growthcheck() -> None:
                         logger.debug(f"Failed to send growth notification for CA {ca} in chat {chat_id}: {e}")
                         logger.error(f"Failed to send growth notification for CA {ca} in chat {chat_id}: {e}")
 
-                    # Twitter notification for VIP tokens only at 5x, 10x, 15x milestones
-                    if chat_id in VIP_CHANNEL_IDS and growth_ratio >= 5.0:
-                        import tweepy
-                        consumer_key = os.getenv("X_CONSUMER_KEY")
-                        consumer_secret = os.getenv("X_CONSUMER_SECRET")
-                        access_token = os.getenv("X_ACCESS_TOKEN")
-                        access_token_secret = os.getenv("X_ACCESS_TOKEN_SECRET")
-                        if not all([consumer_key, consumer_secret, access_token, access_token_secret]):
-                            logger.debug(f"Missing Twitter API credentials for CA {ca}")
-                            logger.error(f"Missing Twitter API credentials for CA {ca}")
+                # Twitter notification for VIP tokens at 3x+ growth
+                if chat_id in VIP_CHANNEL_IDS and growth_ratio >= 3.0 and ca not in notified_cas:
+                    import tweepy
+                    client = tweepy.Client(
+                        bearer_token=os.getenv("X_BEARER_TOKEN"),
+                        consumer_key=os.getenv("X_CONSUMER_KEY"),
+                        consumer_secret=os.getenv("X_CONSUMER_SECRET"),
+                        access_token=os.getenv("X_ACCESS_TOKEN"),
+                        access_token_secret=os.getenv("X_ACCESS_TOKEN_SECRET")
+                    )
+                    current_mc_str_plain = f"{current_mc / 1000:.1f}K" if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M"
+                    tweet_variations = [
+                        f"🌟 Big news! {token_name} (${symbol}) just hit 3x+ growth at ${current_mc_str_plain} MC! CA: {ca} Join us: https://t.me/HumbleApes #Crypto #Moonshot #Solana",
+                        f"🎉 Exciting move! {token_name} (${symbol}) soared 3x+ to ${current_mc_str_plain} MC. CA: {ca} Join us: https://t.me/HumbleApes #Blockchain #CryptoGem",
+                        f"🔥 Hot pick! {token_name} (${symbol}) reached 3x+ growth at ${current_mc_str_plain} MC. CA: {ca} Join us: https://t.me/HumbleApes #DeFi #Altcoin",
+                        f"🚀 Breaking! {token_name} (${symbol}) climbed 3x+ to ${current_mc_str_plain} MC. CA: {ca} Join us: https://t.me/HumbleApes #CryptoTrading #SolanaGem",
+                        f"💎 Alert! {token_name} (${symbol}) hit 3x+ growth at ${current_mc_str_plain} MC. CA: {ca} Join us: https://t.me/HumbleApes #Cryptocurrency #MoonCoin"
+                    ]
+                    import random
+                    tweet_text = random.choice(tweet_variations)
+                    try:
+                        response = client.create_tweet(text=tweet_text)
+                        if response and response.data and response.data.get("id"):
+                            logger.debug(f"Posted Twitter update for CA {ca} at {growth_ratio:.1f}x growth: {tweet_text}")
+                            logger.info(f"Posted Twitter update for CA {ca} at {growth_ratio:.1f}x growth: {tweet_text}")
+                            notified_cas.add(ca)  # Mark CA as notified to prevent repeats
                         else:
-                            try:
-                                auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
-                                auth.set_access_token(access_token, access_token_secret)
-                                api = tweepy.API(auth)
-                                last_ratio = last_growth_ratios.get(key, 0)
-                                next_threshold = 5.0
-                                while next_threshold <= growth_ratio:
-                                    if last_ratio < next_threshold <= growth_ratio:
-                                        tweet_text = (
-                                            f"🚀 {symbol} (CA: {ca}) has reached {next_threshold}x growth! "
-                                            f"Initial MC: ${initial_mc_str.replace('**', '')}, "
-                                            f"Current MC: ${current_mc_str.replace('**', '')}. "
-                                            f"Join VIP: https://t.me/HumbleMoonshotsPay_bot?start=start "
-                                            f"#Crypto #Solana #Moonshot"
-                                        )
-                                        api.update_status(tweet_text)
-                                        logger.debug(f"Posted Twitter update for CA {ca} at {next_threshold}x growth")
-                                        logger.info(f"Posted Twitter update for CA {ca} at {next_threshold}x growth")
-                                    next_threshold += 5.0
-                                last_growth_ratios[key] = growth_ratio
-                            except Exception as e:
-                                logger.debug(f"Failed to post Twitter update for CA {ca} at {next_threshold}x: {e}")
-                                logger.error(f"Failed to post Twitter update for CA {ca} at {next_threshold}x: {e}")
+                            logger.debug(f"Failed to verify Twitter update for CA {ca}: {response}")
+                            logger.error(f"Failed to verify Twitter update for CA {ca}: {response}")
+                    except Exception as e:
+                        logger.debug(f"Failed to post Twitter update for CA {ca} at {growth_ratio:.1f}x: {e}")
+                        logger.error(f"Failed to post Twitter update for CA {ca} at {growth_ratio:.1f}x: {e}")
 
             # New sub-chunk: 3x notification to dedicated channel
             time_diff_seconds = (current_time - token_time).total_seconds()
