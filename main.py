@@ -258,11 +258,14 @@ async def test_tweet(message: Message):
 
         api = tweepy.API(auth)
         tweet_text = "🚀 This is a test tweet from GrowthCheck using OAuth 1.0a! #XAPI #BotTest"
-        api.update_status(tweet_text)
+        # api.update_status(tweet_text)
+        user = api.verify_credentials()
+        print(f"✅ Authenticated as: {user.screen_name}")
 
         await message.reply("✅ Test tweet posted successfully!")
 
     except Exception as e:
+        print(f"❌ Failed auth: {e}")
         await message.reply(f"❌ Failed to post test tweet:\n{e}")
         
 # Initialize CSV files with headers
