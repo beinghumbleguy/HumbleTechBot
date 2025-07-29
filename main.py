@@ -166,8 +166,8 @@ _executor = ThreadPoolExecutor(max_workers=5)
 
 # Global variables with default values
 filter_enabled = True
-PassValue = 1.27
-RangeLow = 1.09
+PassValue = 1.3
+RangeLow = 1.08
 authorized_users = ["@BeingHumbleGuy"]
 additional_user_added = False
 
@@ -177,20 +177,20 @@ CheckLowEnabled = True
 
 # New filter thresholds
 DevSoldThreshold = "Yes"
-DevSoldLeft = 7.0
-Top10Threshold = 46.0
-SnipersThreshold = 9.0
-BundlesThreshold = 8.0
-InsidersThreshold = 9.0
+DevSoldLeft = 6.0
+Top10Threshold = 52.0
+SnipersThreshold = 10.0
+BundlesThreshold = 3.0
+InsidersThreshold = 3.0
 KOLsThreshold = 0.0
-BondingCurveThreshold = 75.0
+BondingCurveThreshold = 80.0
 
 # New filter toggles
 DevSoldFilterEnabled = True
 Top10FilterEnabled = True
-SniphersFilterEnabled = False
+SniphersFilterEnabled = True
 BundlesFilterEnabled = True
-InsidersFilterEnabled = False
+InsidersFilterEnabled = True
 KOLsFilterEnabled = True
 BondingCurveFilterEnabled = True
 
