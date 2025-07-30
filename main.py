@@ -1360,7 +1360,7 @@ async def growthcheck() -> None:
     if not hasattr(growthcheck, 'notified_cas'):
         growthcheck.notified_cas = set()  # For Telegram 2.3x+ notifications
     notified_cas = growthcheck.notified_cas
-    # New set for Twitter notifications to avoid interference
+    # New set for Twitter notifications to avoid interference and track first 3x
     if not hasattr(growthcheck, 'notified_cas_twitter'):
         growthcheck.notified_cas_twitter = set()
     notified_cas_twitter = growthcheck.notified_cas_twitter
@@ -1507,8 +1507,8 @@ async def growthcheck() -> None:
                     logger.debug(f"Failed to notify group {group_chat_id} for CA {ca}: {e}")
                     logger.error(f"Failed to notify group {group_chat_id} for CA {ca}: {e}")
 
-            # Twitter notification for VIP tokens at 3x+ growth, independent of Telegram
-            if chat_id in VIP_CHANNEL_IDS and growth_ratio >= 3.0 and ca not in notified_cas_twitter:
+            # Twitter notification for first channel (VIP or Public) to reach 3x+ growth
+            if (chat_id in VIP_CHANNEL_IDS or chat_id in PUBLIC_CHANNEL_IDS) and growth_ratio >= 3.0 and ca not in notified_cas_twitter:
                 import tweepy
                 client = tweepy.Client(
                     bearer_token=os.getenv("X_BEARER_TOKEN"),
@@ -1521,11 +1521,11 @@ async def growthcheck() -> None:
                 current_mc_str_plain = f"{current_mc / 1000:.1f}K" if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M"
                 roi_percent = profit_percent if profit_percent > 0 else 0
                 tweet_variations = [
-                    f"🌟 {token_name} just hit 3x+ growth!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nCA: {ca} Join us: https://t.me/HumbleApes #solana #pump #bonk",
-                    f"🎉 {token_name} soared 3x+!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nCA: {ca} Join us: https://t.me/HumbleApes #solana #pump #bonk",
-                    f"🔥 {token_name} reached 3x+ growth!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nCA: {ca} Join us: https://t.me/HumbleApes #solana #pump #bonk",
-                    f"🚀 {token_name} climbed 3x+!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nCA: {ca} Join us: https://t.me/HumbleApes #solana #pump #bonk",
-                    f"💎 {token_name} hit 3x+ growth!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nCA: {ca} Join us: https://t.me/HumbleApes #solana #pump #bonk"
+                    f"🌟 {token_name} just hit 3x+ growth!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nJoin us: https://t.me/HumbleApes\n#solana #pump #bonk",
+                    f"🎉 {token_name} soared 3x+!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nJoin us: https://t.me/HumbleApes\n#solana #pump #bonk",
+                    f"🔥 {token_name} reached 3x+ growth!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nJoin us: https://t.me/HumbleApes\n#solana #pump #bonk",
+                    f"🚀 {token_name} climbed 3x+!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nJoin us: https://t.me/HumbleApes\n#solana #pump #bonk",
+                    f"💎 {token_name} hit 3x+ growth!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nJoin us: https://t.me/HumbleApes\n#solana #pump #bonk"
                 ]
                 import random
                 tweet_text = random.choice(tweet_variations)
@@ -1534,7 +1534,7 @@ async def growthcheck() -> None:
                     if response and response.data and response.data.get("id"):
                         logger.debug(f"Posted Twitter update for CA {ca} at {growth_ratio:.1f}x growth: {tweet_text}")
                         logger.info(f"Posted Twitter update for CA {ca} at {growth_ratio:.1f}x growth: {tweet_text}")
-                        notified_cas_twitter.add(ca)  # Mark CA as notified for Twitter
+                        notified_cas_twitter.add(ca)  # Mark CA as notified for Twitter to prevent duplicates
                     else:
                         logger.debug(f"Failed to verify Twitter update for CA {ca}: {response}")
                         logger.error(f"Failed to verify Twitter update for CA {ca}: {response}")
