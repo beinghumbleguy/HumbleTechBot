@@ -1521,11 +1521,11 @@ async def growthcheck() -> None:
                 current_mc_str_plain = f"{current_mc / 1000:.1f}K" if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M"
                 roi_percent = profit_percent if profit_percent > 0 else 0
                 tweet_variations = [
-                    f"🌟 {token_name} just hit 3x+ growth!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nJoin us: https://t.me/HumbleApes\n#solana #pump #bonk",
-                    f"🎉 {token_name} soared 3x+!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nJoin us: https://t.me/HumbleApes\n#solana #pump #bonk",
-                    f"🔥 {token_name} reached 3x+ growth!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nJoin us: https://t.me/HumbleApes\n#solana #pump #bonk",
-                    f"🚀 {token_name} climbed 3x+!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nJoin us: https://t.me/HumbleApes\n#solana #pump #bonk",
-                    f"💎 {token_name} hit 3x+ growth!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nJoin us: https://t.me/HumbleApes\n#solana #pump #bonk"
+                    f"🌟 {token_name} just hit 3x+ growth!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nCA: {ca} Join us: https://t.me/HumbleApes\n#solana #pump #bonk",
+                    f"🎉 {token_name} soared 3x+!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nCA: {ca} Join us: https://t.me/HumbleApes\n#solana #pump #bonk",
+                    f"🔥 {token_name} reached 3x+ growth!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nCA: {ca} Join us: https://t.me/HumbleApes\n#solana #pump #bonk",
+                    f"🚀 {token_name} climbed 3x+!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nCA: {ca} Join us: https://t.me/HumbleApes\n#solana #pump #bonk",
+                    f"💎 {token_name} hit 3x+ growth!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nCA: {ca} Join us: https://t.me/HumbleApes\n#solana #pump #bonk"
                 ]
                 import random
                 tweet_text = random.choice(tweet_variations)
