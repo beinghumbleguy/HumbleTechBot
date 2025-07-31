@@ -267,8 +267,11 @@ async def test_tweet(message: Message):
         font_large = ImageFont.truetype(font_path, 60)
         font_small = ImageFont.truetype(font_path, 36)
 
+
         # Draw token name
-        w, h = draw.textsize(token_name, font=font_large)
+        bbox = draw.textbbox((0, 0), token_name, font=font_large)
+        w = bbox[2] - bbox[0]
+        h = bbox[3] - bbox[1]
         draw.text(((base.width - w) / 2, 70), token_name, font=font_large, fill="white")
 
         draw.text((120, 200), "Entry MC", font=font_small, fill="#A9A9A9")
