@@ -1039,6 +1039,7 @@ async def process_message(message: types.Message) -> None:
                  # InlineKeyboardButton(text="Axiom", url=f"https://axiom.trade/t/{ca}/@humbleguy")
             ],
             [InlineKeyboardButton(text="👉🔥 JOIN VIP NOW 🔥👉", url="https://t.me/HumbleMoonshotsPay_bot?start=start")] if not is_vip_channel else []
+            [InlineKeyboardButton(text="👉 Claim 0.1 SOL in Fasol Bot 👉", url="https://t.me/fasol_robot?start=ref_humbleguy")]
         ])
 
         # Growth monitoring happens BEFORE editing
