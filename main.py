@@ -242,82 +242,60 @@ async def test_tweet(message: Message):
     try:
         import tweepy
         from PIL import Image, ImageDraw, ImageFont
-        import io
-        import os
+        import io, os
 
-        # Load environment variables for Twitter API
-        bearer_token = os.getenv("X_BEARER_TOKEN")
+        # Load Twitter API keys from environment
         consumer_key = os.getenv("X_CONSUMER_KEY")
         consumer_secret = os.getenv("X_CONSUMER_SECRET")
         access_token = os.getenv("X_ACCESS_TOKEN")
         access_token_secret = os.getenv("X_ACCESS_TOKEN_SECRET")
 
-        if not all([bearer_token, consumer_key, consumer_secret, access_token, access_token_secret]):
-            await message.reply("❌ Error: Missing one or more Twitter OAuth credentials.")
+        if not all([consumer_key, consumer_secret, access_token, access_token_secret]):
+            await message.reply("❌ Missing Twitter credentials")
             return
 
         # Sample data
-        token_name = "USELESS"
+        token_name = "TECHLESS"
         entry_mc = "$166K"
         current_mc = "$337K"
         profit = "+102%"
 
-        # Load base template
-        template_path = "assets/card_template.png"
-        font_path = "assets/OpenSans-Bold.ttf"
-        base = Image.open(template_path).convert("RGBA")
+        # Load image template and draw text
+        base = Image.open("assets/card_template.png").convert("RGBA")
         draw = ImageDraw.Draw(base)
-
-        # Load font sizes
+        font_path = "assets/OpenSans-Bold.ttf"
         font_large = ImageFont.truetype(font_path, 60)
-        font_medium = ImageFont.truetype(font_path, 40)
         font_small = ImageFont.truetype(font_path, 36)
 
-        # Token name (centered)
-        text = token_name
-        text_w, text_h = draw.textsize(text, font=font_large)
-        draw.text(((base.width - text_w) / 2, 70), text, font=font_large, fill="white")
+        # Draw token name
+        w, h = draw.textsize(token_name, font=font_large)
+        draw.text(((base.width - w) / 2, 70), token_name, font=font_large, fill="white")
 
-        # Entry MC
         draw.text((120, 200), "Entry MC", font=font_small, fill="#A9A9A9")
         draw.text((base.width - 220, 200), entry_mc, font=font_small, fill="white")
 
-        # Current MC
         draw.text((120, 300), "Current MC", font=font_small, fill="#A9A9A9")
         draw.text((base.width - 220, 300), current_mc, font=font_small, fill="white")
 
-        # Profit
         draw.text((120, 400), "Profit", font=font_small, fill="#A9A9A9")
         draw.text((base.width - 220, 400), profit, font=font_small, fill="#00FF99")
 
-        # Save image to BytesIO
+        # Save to memory
         img_bytes = io.BytesIO()
         base.save(img_bytes, format='PNG')
         img_bytes.seek(0)
 
-        # Post tweet with image
-        client = tweepy.Client(
-            bearer_token=bearer_token,
-            consumer_key=consumer_key,
-            consumer_secret=consumer_secret,
-            access_token=access_token,
-            access_token_secret=access_token_secret
-        )
+        # v1.1 Auth for media + tweet
+        auth = tweepy.OAuth1UserHandler(consumer_key, consumer_secret, access_token, access_token_secret)
+        api = tweepy.API(auth)
 
-        upload_client = tweepy.API(auth=tweepy.OAuth1UserHandler(
-            consumer_key, consumer_secret, access_token, access_token_secret
-        ))
-        media = upload_client.media_upload(filename="card.png", file=img_bytes)
+        # Upload and post tweet
+        media = api.media_upload(filename="card.png", file=img_bytes)
+        tweet = api.update_status(status="🚀 This is a test tweet with image from Humble Gems!", media_ids=[media.media_id])
 
-        tweet_text = "🚀 This is a test tweet with image from Humble Gems!"
-        response = client.create_tweet(text=tweet_text, media_ids=[media.media_id_string])
-
-        if response and response.data and response.data.get("id"):
-            await message.reply("✅ Test tweet with image posted successfully!")
-        else:
-            await message.reply(f"⚠️ Something went wrong: {response}")
+        await message.reply("✅ Tweet posted: https://x.com/user/status/" + str(tweet.id))
     except Exception as e:
-        await message.reply(f"❌ Failed to post tweet:\n{e}")
+        await message.reply(f"❌ Tweet failed: {e}")
 
         
 # Initialize CSV files with headers
