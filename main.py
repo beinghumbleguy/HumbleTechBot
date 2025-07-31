@@ -240,66 +240,33 @@ import tweepy
 @router.message(F.text.startswith('/testtweet'))
 async def test_tweet(message: Message):
     try:
-        import tweepy
-        from PIL import Image, ImageDraw, ImageFont
-        import io, os
-
-        # Load Twitter API keys from environment
+        bearer_token = os.getenv("X_BEARER_TOKEN")
         consumer_key = os.getenv("X_CONSUMER_KEY")
         consumer_secret = os.getenv("X_CONSUMER_SECRET")
         access_token = os.getenv("X_ACCESS_TOKEN")
         access_token_secret = os.getenv("X_ACCESS_TOKEN_SECRET")
 
-        if not all([consumer_key, consumer_secret, access_token, access_token_secret]):
-            await message.reply("❌ Missing Twitter credentials")
+        if not all([bearer_token, consumer_key, consumer_secret, access_token, access_token_secret]):
+            await message.reply("❌ Error: Missing one or more Twitter OAuth 2.0 credentials.")
             return
 
-        # Sample data
-        token_name = "TECHLESS"
-        entry_mc = "$166K"
-        current_mc = "$337K"
-        profit = "+102%"
+        # Use Twitter API v2 Client
+        client = tweepy.Client(
+            consumer_key=consumer_key,
+            consumer_secret=consumer_secret,
+            access_token=access_token,
+            access_token_secret=access_token_secret
+        )
 
-        # Load image template and draw text
-        base = Image.open("assets/card_template.png").convert("RGBA")
-        draw = ImageDraw.Draw(base)
-        font_path = "assets/OpenSans-Bold.ttf"
-        font_large = ImageFont.truetype(font_path, 60)
-        font_small = ImageFont.truetype(font_path, 36)
+        tweet_text = "🚀 This is a test tweet from Humble Gems via v2 API"
+        response = client.create_tweet(text=tweet_text)
 
-
-        # Draw token name
-        bbox = draw.textbbox((0, 0), token_name, font=font_large)
-        w = bbox[2] - bbox[0]
-        h = bbox[3] - bbox[1]
-        draw.text(((base.width - w) / 2, 70), token_name, font=font_large, fill="white")
-
-        draw.text((120, 200), "Entry MC", font=font_small, fill="#A9A9A9")
-        draw.text((base.width - 220, 200), entry_mc, font=font_small, fill="white")
-
-        draw.text((120, 300), "Current MC", font=font_small, fill="#A9A9A9")
-        draw.text((base.width - 220, 300), current_mc, font=font_small, fill="white")
-
-        draw.text((120, 400), "Profit", font=font_small, fill="#A9A9A9")
-        draw.text((base.width - 220, 400), profit, font=font_small, fill="#00FF99")
-
-        # Save to memory
-        img_bytes = io.BytesIO()
-        base.save(img_bytes, format='PNG')
-        img_bytes.seek(0)
-
-        # v1.1 Auth for media + tweet
-        auth = tweepy.OAuth1UserHandler(consumer_key, consumer_secret, access_token, access_token_secret)
-        api = tweepy.API(auth)
-
-        # Upload and post tweet
-        media = api.media_upload(filename="card.png", file=img_bytes)
-        tweet = api.update_status(status="🚀 This is a test tweet with image from Humble Gems!", media_ids=[media.media_id])
-
-        await message.reply("✅ Tweet posted: https://x.com/user/status/" + str(tweet.id))
+        if response and response.data and response.data.get("id"):
+            await message.reply("✅ Test tweet posted successfully via v2 API!")
+        else:
+            await message.reply(f"⚠️ Something went wrong: {response}")
     except Exception as e:
-        await message.reply(f"❌ Tweet failed: {e}")
-
+        await message.reply(f"❌ Failed to post tweet:\n{e}")
         
 # Initialize CSV files with headers
 def init_csv():
@@ -1389,99 +1356,193 @@ async def growthcheck() -> None:
     current_time = datetime.now(pytz.timezone('America/New_York'))
     to_remove = []
     peak_updates = {}
+    # Move notified_cas to module-level to persist across calls for Telegram
     if not hasattr(growthcheck, 'notified_cas'):
-        growthcheck.notified_cas = set()
+        growthcheck.notified_cas = set()  # For Telegram 2.3x+ notifications
     notified_cas = growthcheck.notified_cas
-
+    # New set for Twitter notifications to avoid interference and track first 3x
     if not hasattr(growthcheck, 'notified_cas_twitter'):
         growthcheck.notified_cas_twitter = set()
     notified_cas_twitter = growthcheck.notified_cas_twitter
+    logger.debug(f"Starting growthcheck with monitored_tokens: {len(monitored_tokens)} tokens")
 
-    def calculate_token_age(timestamp):
-        now = datetime.now()
-        token_time = datetime.fromtimestamp(timestamp)
-        age = now - token_time
-        total_seconds = int(age.total_seconds())
-        hours = total_seconds // 3600
-        minutes = (total_seconds % 3600) // 60
+    # Group tokens by CA for cross-channel comparison
+    tokens_by_ca = {}
+    for key in list(monitored_tokens.keys()):
+        ca, chat_id = key.split(':')
+        chat_id = int(chat_id)
+        if ca not in tokens_by_ca:
+            tokens_by_ca[ca] = {}
+        tokens_by_ca[ca][chat_id] = monitored_tokens[key]
 
-        if hours and minutes:
-            return f"{hours}h {minutes}m"
-        elif hours:
-            return f"{hours}h"
-        else:
-            return f"{minutes}m"
+    for ca, channel_data in tokens_by_ca.items():
+        token_data = await get_token_market_cap(ca)
+        if "error" in token_data:
+            logger.debug(f"Skipping CA {ca} due to API error: {token_data['error']}")
+            continue
+        current_mc = token_data["market_cap"]
+        if current_mc is None or current_mc == 0:
+            logger.debug(f"Skipping CA {ca} due to invalid current_mc: {current_mc}")
+            continue
 
-    # ... existing logic remains unchanged until we reach the Twitter block
+        # Process each channel (VIP and Public) independently
+        vip_chat_id = list(VIP_CHANNEL_IDS)[0] if VIP_CHANNEL_IDS else None
+        public_chat_id = list(PUBLIC_CHANNEL_IDS)[0] if PUBLIC_CHANNEL_IDS else None
 
-    if (chat_id in VIP_CHANNEL_IDS or chat_id in PUBLIC_CHANNEL_IDS) and growth_ratio >= 3.0 and ca not in notified_cas_twitter:
-        import tweepy
-        from PIL import Image, ImageDraw, ImageFont
-        import io
-        import random
+        vip_data = channel_data.get(vip_chat_id) if vip_chat_id else None
+        public_data = channel_data.get(public_chat_id) if public_chat_id else None
 
-        client = tweepy.Client(
-            bearer_token=os.getenv("X_BEARER_TOKEN"),
-            consumer_key=os.getenv("X_CONSUMER_KEY"),
-            consumer_secret=os.getenv("X_CONSUMER_SECRET"),
-            access_token=os.getenv("X_ACCESS_TOKEN"),
-            access_token_secret=os.getenv("X_ACCESS_TOKEN_SECRET")
-        )
+        # Calculate growth ratios
+        vip_growth_ratio = None
+        public_growth_ratio = None
 
-        initial_mc_str_plain = f"{initial_mc / 1000:.1f}K" if initial_mc < 1_000_000 else f"{initial_mc / 1_000_000:.1f}M"
-        current_mc_str_plain = f"{current_mc / 1000:.1f}K" if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M"
-        roi_percent = profit_percent if profit_percent > 0 else 0
-        token_age = calculate_token_age(timestamp)
+        if vip_data:
+            vip_initial_mc = vip_data["initial_mc"]
+            vip_growth_ratio = current_mc / vip_initial_mc if vip_initial_mc != 0 else 0
+            if current_mc > vip_data.get("peak_mc", vip_initial_mc):
+                peak_updates[f"{ca}:{vip_chat_id}"] = current_mc
+                logger.debug(f"Queued peak_mc update for CA {ca} in VIP to {current_mc}")
 
-        tweet_variations = [
-            f"🚀 {token_name} just hit **3x+**!\n💰 Initial: ${initial_mc_str_plain} → ${current_mc_str_plain}\n🎯 ROI: {roi_percent:.0f}% | 🕒 Age: {token_age}\n🔗 CA: {ca}\nJoin alerts: https://t.me/HumbleApes\n#Solana #Crypto #Alpha",
-            f"🔥 Pump alert: {token_name} 3x+!\nMC: ${initial_mc_str_plain} ➜ ${current_mc_str_plain}\nROI: {roi_percent:.0f}% | Age: {token_age}\n{ca}\nJoin us ➤ https://t.me/HumbleApes\n#Solana #Pump",
-            f"🎉 {token_name} popped 3x!\nStart: ${initial_mc_str_plain}\nNow: ${current_mc_str_plain}\nGain: {roi_percent:.0f}%\n🕒 {token_age} | CA: {ca}\nFollow: https://t.me/HumbleApes\n#Solana #Trending",
-            f"💎 Gem spotted: {token_name} ➜ 3x\n📊 From ${initial_mc_str_plain} to ${current_mc_str_plain}\n⏱️ Age: {token_age} | ROI: {roi_percent:.0f}%\n📍 CA: {ca}\nMore gems: https://t.me/HumbleApes\n#Solana #CryptoGems",
-            f"🌙 {token_name} hit the moon (3x+)!\nFrom ${initial_mc_str_plain} → ${current_mc_str_plain}\nROI: {roi_percent:.0f}% | 🕒 {token_age}\nCA: {ca}\nJoin: https://t.me/HumbleApes\n#Solana #Moonshot"
-        ]
+        if public_data:
+            public_initial_mc = public_data["initial_mc"]
+            public_growth_ratio = current_mc / public_initial_mc if public_initial_mc != 0 else 0
+            if current_mc > public_data.get("peak_mc", public_initial_mc):
+                peak_updates[f"{ca}:{public_chat_id}"] = current_mc
+                logger.debug(f"Queued peak_mc update for CA {ca} in Public to {current_mc}")
 
-        tweet_text = random.choice(tweet_variations)
+        # Check expiration and process notifications
+        for chat_id, data in channel_data.items():
+            token_time = datetime.fromtimestamp(data["timestamp"], pytz.timezone('America/New_York'))
+            time_diff = (current_time - token_time).total_seconds() / 3600
+            if time_diff > 6:  # 6 hours
+                to_remove.append(f"{ca}:{chat_id}")
+                logger.debug(f"CA {ca} in chat {chat_id} expired (time_diff: {time_diff:.2f}h)")
+                continue
 
-        try:
-            # Load the image template
-            template_path = "assets/card_template.png"
-            img = Image.open(template_path).convert("RGBA")
-            draw = ImageDraw.Draw(img)
+            if chat_id not in VIP_CHANNEL_IDS and chat_id not in PUBLIC_CHANNEL_IDS:
+                logger.debug(f"Skipping CA {ca} in chat {chat_id} (not VIP or Public)")
+                continue
 
-            # Define text style
-            font_path = "assets/OpenSans-Bold.ttf"
-            font_large = ImageFont.truetype(font_path, 40)
-            font_small = ImageFont.truetype(font_path, 28)
+            initial_mc = data["initial_mc"]
+            token_name = data["token_name"]
+            message_id = data["message_id"]
+            timestamp = data["timestamp"]
+            growth_ratio = current_mc / initial_mc if initial_mc != 0 else 0
+            profit_percent = ((current_mc - initial_mc) / initial_mc) * 100 if initial_mc != 0 else 0
 
-            # Add dynamic text
-            draw.text((60, 90), token_name, font=font_large, fill="white")
-            draw.text((60, 180), f"Current MC: ${current_mc_str_plain}", font=font_small, fill="white")
-            draw.text((60, 240), f"ROI: {roi_percent:.0f}%", font=font_small, fill="white")
-            draw.text((60, 300), f"Age: {token_age}", font=font_small, fill="white")
-            draw.text((60, 360), f"CA: {ca[:6]}...{ca[-4:]}", font=font_small, fill="white")
-            draw.text((60, 420), "@HumbleApes", font=font_small, fill="#00BFFF")
+            # Check notification threshold
+            key = f"{ca}:{chat_id}"
+            last_ratio = last_growth_ratios.get(key, 1.0)
+            next_threshold = int(last_ratio) + INCREMENT_THRESHOLD
 
-            # Save image to BytesIO
-            image_bytes = io.BytesIO()
-            img.save(image_bytes, format='PNG')
-            image_bytes.seek(0)
+            if growth_ratio >= GROWTH_THRESHOLD and growth_ratio >= next_threshold:
+                last_growth_ratios[key] = growth_ratio
+                time_since_added = calculate_time_since(timestamp)
+                initial_mc_str = f"**{initial_mc / 1000:.1f}K**" if initial_mc < 1_000_000 else f"**{initial_mc / 1_000_000:.1f}M**"
+                current_mc_str = f"**{current_mc / 1000:.1f}K**" if current_mc < 1_000_000 else f"**{current_mc / 1_000_000:.1f}M**"
 
-            # Upload to Twitter and post
-            media = client.media_upload(filename="card.png", file=image_bytes)
-            response = client.create_tweet(text=tweet_text, media_ids=[media.media_id_string])
+                emoji = "🚀" if 2 <= growth_ratio < 5 else "🔥" if 5 <= growth_ratio < 10 else "🌙"
+                growth_str = f"**{growth_ratio:.1f}x**"  # Bold growth ratio
+                if chat_id in PUBLIC_CHANNEL_IDS and vip_data and vip_growth_ratio and public_growth_ratio and vip_growth_ratio > public_growth_ratio:
+                    growth_str += f" (**{vip_growth_ratio:.1f}x** from VIP)"  # Bold VIP growth ratio
 
-            if response and response.data and response.data.get("id"):
-                logger.debug(f"Tweeted CA {ca} at {growth_ratio:.1f}x: {tweet_text}")
-                logger.info(f"Tweeted CA {ca} at {growth_ratio:.1f}x: {tweet_text}")
-                notified_cas_twitter.add(ca)
-            else:
-                logger.warning(f"Twitter response invalid for CA {ca}: {response}")
-        except Exception as e:
-            logger.error(f"Twitter post failed for CA {ca}: {e}")
+                symbol = token_name.split("|")[1].strip() if "|" in token_name else token_name
+                growth_message = (
+                    f"{emoji} {growth_str} | "
+                    f"💹 From {initial_mc_str} ↗️ **{current_mc_str}** within **{time_since_added}** - {symbol}"
+                )
 
-    # ... rest of the growthcheck function cleanup
+                log_to_growthcheck_csv(
+                    chat_id=chat_id, channel_id=chat_id, message_id=message_id,
+                    token_name=token_name, ca=ca, original_mc=initial_mc,
+                    current_mc=current_mc, growth_ratio=growth_ratio,
+                    profit_percent=profit_percent, time_since_added=time_since_added,
+                    is_vip_channel=(chat_id in VIP_CHANNEL_IDS)
+                )
+                log_to_csv(
+                    ca=ca, token_name=token_name, bs_ratio=None, bs_ratio_pass=None,
+                    check_low_pass=None, dev_sold=None, dev_sold_left_value=None,
+                    dev_sold_pass=None, top_10=None, top_10_pass=None, snipers=None,
+                    snipers_pass=None, bundles=None, bundles_pass=None, insiders=None,
+                    insiders_pass=None, kols=None, kols_pass=None, bonding_curve=None,
+                    bc_pass=None, overall_pass=None, original_mc=initial_mc,
+                    current_mc=current_mc, growth_ratio=growth_ratio,
+                    is_vip_channel=(chat_id in VIP_CHANNEL_IDS)
+                )
 
+                if growth_notifications_enabled:
+                    try:
+                        await bot.send_message(
+                            chat_id=chat_id, text=growth_message,
+                            parse_mode="Markdown", reply_to_message_id=message_id
+                        )
+                        logger.debug(f"Sent growth notification for CA {ca} in chat {chat_id}: {growth_message}")
+                        logger.info(f"Sent growth notification for CA {ca} in chat {chat_id}: {growth_message}")
+                    except Exception as e:
+                        logger.debug(f"Failed to send growth notification for CA {ca} in chat {chat_id}: {e}")
+                        logger.error(f"Failed to send growth notification for CA {ca} in chat {chat_id}: {e}")
+
+            # New sub-chunk: 3x notification to dedicated channel
+            time_diff_seconds = (current_time - token_time).total_seconds()
+            if growth_ratio >= 2.3 and time_diff_seconds <= 150 and ca not in notified_cas:
+                group_chat_id = -1002280798125
+                current_mc_str = f"{current_mc / 1000:.1f}K" if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M"
+                growth_ratio_str = f"{growth_ratio:.1f}x"
+                time_since = calculate_time_since(timestamp)
+                notify_message = (
+                    f"🚀 **{token_name}** hit **{growth_ratio_str}** in **{time_since}**!\n"
+                    f"🔗 CA: `{ca}`\n"
+                    f"💰 Current MC: **{current_mc_str}** - {symbol}"
+                )
+                try:
+                    await bot.send_message(
+                        chat_id=group_chat_id,
+                        text=notify_message,
+                        parse_mode="Markdown"
+                    )
+                    logger.debug(f"Notified group {group_chat_id} for CA {ca}: {growth_ratio:.1f}x in {time_since}")
+                    logger.info(f"Notified group {group_chat_id} for CA {ca}: {growth_ratio:.1f}x in {time_since}")
+                    notified_cas.add(ca)  # Mark CA as notified for Telegram
+                except Exception as e:
+                    logger.debug(f"Failed to notify group {group_chat_id} for CA {ca}: {e}")
+                    logger.error(f"Failed to notify group {group_chat_id} for CA {ca}: {e}")
+
+            # Twitter notification for first channel (VIP or Public) to reach 3x+ growth
+            if (chat_id in VIP_CHANNEL_IDS or chat_id in PUBLIC_CHANNEL_IDS) and growth_ratio >= 3.0 and ca not in notified_cas_twitter:
+                import tweepy
+                client = tweepy.Client(
+                    bearer_token=os.getenv("X_BEARER_TOKEN"),
+                    consumer_key=os.getenv("X_CONSUMER_KEY"),
+                    consumer_secret=os.getenv("X_CONSUMER_SECRET"),
+                    access_token=os.getenv("X_ACCESS_TOKEN"),
+                    access_token_secret=os.getenv("X_ACCESS_TOKEN_SECRET")
+                )
+                initial_mc_str_plain = f"{initial_mc / 1000:.1f}K" if initial_mc < 1_000_000 else f"{initial_mc / 1_000_000:.1f}M"
+                current_mc_str_plain = f"{current_mc / 1000:.1f}K" if current_mc < 1_000_000 else f"{current_mc / 1_000_000:.1f}M"
+                roi_percent = profit_percent if profit_percent > 0 else 0
+                tweet_variations = [
+                    f"🌟 {token_name} just hit 3x+ growth!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nCA: {ca} Join us: https://t.me/HumbleApes\n#solana #pump #bonk",
+                    f"🎉 {token_name} soared 3x+!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nCA: {ca} Join us: https://t.me/HumbleApes\n#solana #pump #bonk",
+                    f"🔥 {token_name} reached 3x+ growth!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nCA: {ca} Join us: https://t.me/HumbleApes\n#solana #pump #bonk",
+                    f"🚀 {token_name} climbed 3x+!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nCA: {ca} Join us: https://t.me/HumbleApes\n#solana #pump #bonk",
+                    f"💎 {token_name} hit 3x+ growth!\nInitial MC: ${initial_mc_str_plain}\nCurrent MC: ${current_mc_str_plain}\nROI: {roi_percent:.0f}%\nCA: {ca} Join us: https://t.me/HumbleApes\n#solana #pump #bonk"
+                ]
+                import random
+                tweet_text = random.choice(tweet_variations)
+                try:
+                    response = client.create_tweet(text=tweet_text)
+                    if response and response.data and response.data.get("id"):
+                        logger.debug(f"Posted Twitter update for CA {ca} at {growth_ratio:.1f}x growth: {tweet_text}")
+                        logger.info(f"Posted Twitter update for CA {ca} at {growth_ratio:.1f}x growth: {tweet_text}")
+                        notified_cas_twitter.add(ca)  # Mark CA as notified for Twitter to prevent duplicates
+                    else:
+                        logger.debug(f"Failed to verify Twitter update for CA {ca}: {response}")
+                        logger.error(f"Failed to verify Twitter update for CA {ca}: {response}")
+                except Exception as e:
+                    logger.debug(f"Failed to post Twitter update for CA {ca} at {growth_ratio:.1f}x: {e}")
+                    logger.error(f"Failed to post Twitter update for CA {ca} at {growth_ratio:.1f}x: {e}")
+
+    # Apply updates after iteration
     for key, peak_mc in peak_updates.items():
         monitored_tokens[key]["peak_mc"] = peak_mc
     for key in to_remove:
@@ -1489,6 +1550,8 @@ async def growthcheck() -> None:
         last_growth_ratios.pop(key, None)
     if peak_updates or to_remove:
         save_monitored_tokens()
+        logger.debug(f"Updated {len(peak_updates)} peak_mcs and removed {len(to_remove)} expired tokens")
+        logger.info(f"Updated {len(peak_updates)} peak_mcs and removed {len(to_remove)} expired tokens")
         
 router = Router()
 
