@@ -841,36 +841,53 @@ async def get_gmgn_token_data(mint_address: str):
         return {"error": f"Failed to process API response for CA {mint_address}: {str(e)}"}
 
 
-async def get_token_market_cap(mint_address):
-    token_data_raw = await api_session_manager.fetch_token_data(mint_address)
-    logger.debug(f"Received raw market cap data for CA {mint_address}: {token_data_raw}")
-    if "error" in token_data_raw:
-        logger.error(f"Error from fetch_token_data for CA {mint_address}: {token_data_raw['error']}")
-        return {"market_cap": 0}
-
+async def get_token_market_cap(mint_address: str):
     try:
-        token_info = None
-        if isinstance(token_data_raw, dict) and "data" in token_data_raw and isinstance(token_data_raw.get("data"), dict) and "tokens" in token_data_raw["data"]:
-            if not isinstance(token_data_raw["data"]["tokens"], list):
-                logger.warning(f"Invalid 'tokens' key in response for CA {mint_address}: {token_data_raw}")
-                return {"market_cap": 0}
-            if len(token_data_raw["data"]["tokens"]) == 0:
-                logger.warning(f"No tokens found in API response for CA {mint_address}: {token_data_raw}")
-                return {"market_cap": 0}
-            token_info = token_data_raw["data"]["tokens"][0]
-        elif isinstance(token_data_raw, dict) and "address" in token_data_raw:
-            token_info = token_data_raw
-        else:
-            logger.warning(f"Invalid response structure for CA {mint_address}: {token_data_raw}")
+        token_data_raw = await api_session_manager.fetch_token_data(mint_address)
+        logger.debug(f"Received raw market cap data for CA {mint_address}: {token_data_raw}")
+
+        # Check for API error
+        if not token_data_raw or "error" in token_data_raw:
+            logger.error(f"Error from fetch_token_data for CA {mint_address}: {token_data_raw.get('error')}")
             return {"market_cap": 0}
 
-        price = float(token_info.get("price", 0))
-        total_supply = float(token_info.get("total_supply", 0))
+        # Handle nested response structure
+        if isinstance(token_data_raw, dict):
+            if "data" in token_data_raw and isinstance(token_data_raw["data"], dict):
+                tokens = token_data_raw["data"].get("tokens")
+                if isinstance(tokens, list) and len(tokens) > 0:
+                    token_info = tokens[0]  # take the first token
+                elif "address" in token_data_raw["data"]:
+                    token_info = token_data_raw["data"]  # fallback
+                else:
+                    logger.warning(f"No valid token found in API response for CA {mint_address}: {token_data_raw}")
+                    return {"market_cap": 0}
+            elif "address" in token_data_raw:
+                token_info = token_data_raw
+            else:
+                logger.warning(f"Invalid response structure for CA {mint_address}: {token_data_raw}")
+                return {"market_cap": 0}
+        else:
+            logger.warning(f"Unexpected API response type for CA {mint_address}: {type(token_data_raw)}")
+            return {"market_cap": 0}
+
+        # Safely parse price and total_supply
+        def safe_float(key):
+            try:
+                return float(token_info.get(key, 0) or 0)
+            except (ValueError, TypeError):
+                return 0
+
+        price = safe_float("price")
+        total_supply = safe_float("total_supply")
         market_cap = price * total_supply
+
         return {"market_cap": market_cap}
+
     except Exception as e:
-        logger.error(f"Error fetching market cap for CA {mint_address}: {str(e)}")
+        logger.error(f"Unexpected error fetching market cap for CA {mint_address}: {e}")
         return {"market_cap": 0}
+
 
 # Chunk 2 ends
 
