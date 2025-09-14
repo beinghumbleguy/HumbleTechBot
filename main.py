@@ -846,19 +846,23 @@ async def get_token_market_cap(mint_address: str):
         token_data_raw = await api_session_manager.fetch_token_data(mint_address)
         logger.debug(f"Received raw market cap data for CA {mint_address}: {token_data_raw}")
 
-        # Check for API error
+        # Early exit if API returned an error
         if not token_data_raw or "error" in token_data_raw:
             logger.error(f"Error from fetch_token_data for CA {mint_address}: {token_data_raw.get('error')}")
             return {"market_cap": 0}
 
-        # Handle nested response structure
+        # Determine structure: flattened object or nested
         if isinstance(token_data_raw, dict):
-            if "data" in token_data_raw and isinstance(token_data_raw["data"], dict):
+            # Flattened object (new API format)
+            if "price" in token_data_raw and "market_cap" in token_data_raw:
+                token_info = token_data_raw
+            # Nested structure fallback
+            elif "data" in token_data_raw and isinstance(token_data_raw["data"], dict):
                 tokens = token_data_raw["data"].get("tokens")
                 if isinstance(tokens, list) and len(tokens) > 0:
-                    token_info = tokens[0]  # take the first token
+                    token_info = tokens[0]
                 elif "address" in token_data_raw["data"]:
-                    token_info = token_data_raw["data"]  # fallback
+                    token_info = token_data_raw["data"]
                 else:
                     logger.warning(f"No valid token found in API response for CA {mint_address}: {token_data_raw}")
                     return {"market_cap": 0}
@@ -872,15 +876,9 @@ async def get_token_market_cap(mint_address: str):
             return {"market_cap": 0}
 
         # Safely parse price and total_supply
-        def safe_float(key):
-            try:
-                return float(token_info.get(key, 0) or 0)
-            except (ValueError, TypeError):
-                return 0
-
-        price = safe_float("price")
-        total_supply = safe_float("total_supply")
-        market_cap = price * total_supply
+        price = float(token_info.get("price", 0) or 0)
+        total_supply = float(token_info.get("total_supply", 0) or 0)
+        market_cap = float(token_info.get("market_cap", price * total_supply) or (price * total_supply))
 
         return {"market_cap": market_cap}
 
