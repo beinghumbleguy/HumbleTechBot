@@ -795,7 +795,7 @@ def format_market_cap(market_cap: float) -> str:
         return f"{market_cap:.2f}"
     return "N/A"
 
-async def get_gmgn_token_data(mint_address):
+async def get_gmgn_token_data(mint_address: str):
     if mint_address in token_data_cache:
         logger.info(f"Returning cached data for CA: {mint_address}")
         return token_data_cache[mint_address]
@@ -807,58 +807,39 @@ async def get_gmgn_token_data(mint_address):
         return {"error": token_data_raw["error"]}
 
     try:
-        # Handle Cloudflare challenge indicators
-        if "cf-ray" in token_data_raw.get("headers", {}):
-            logger.info(f"Cloudflare headers detected for CA {mint_address}, possible CAPTCHA challenge")
+        # token_data_raw should already be a cleaned dict from CoinGecko
+        token_data = {
+            "price": float(token_data_raw.get("price", 0)),
+            "price_1h": float(token_data_raw.get("price_1h", 0)),
+            "price_24h": float(token_data_raw.get("price_24h", 0)),
+            "circulating_supply": float(token_data_raw.get("circulating_supply", 0)),
+            "market_cap": float(token_data_raw.get("market_cap", 0)),
+            "market_cap_str": format_market_cap(float(token_data_raw.get("market_cap", 0))),
+            "liquidity": float(token_data_raw.get("liquidity", 0)),
+            "liquidity_str": format_market_cap(float(token_data_raw.get("liquidity", 0))),
+            "volume_24h": float(token_data_raw.get("volume_24h", 0)),
+            "swaps_24h": token_data_raw.get("swaps_24h", 0),
+            "top_10_holder_rate": float(token_data_raw.get("top_10_holder_rate", 0)),
+            "renounced_mint": bool(token_data_raw.get("renounced_mint", False)),
+            "renounced_freeze_account": bool(token_data_raw.get("renounced_freeze_account", False)),
+            "contract": mint_address,
+            "name": token_data_raw.get("name", "Unknown"),
+            "symbol": token_data_raw.get("symbol", ""),
+            "hot_level": int(token_data_raw.get("hot_level", 0))
+        }
 
-        # Check if response is a single token object or wrapped in 'data' with 'tokens' list
-        token_info = None
-        if isinstance(token_data_raw, dict) and "data" in token_data_raw and isinstance(token_data_raw.get("data"), dict) and "tokens" in token_data_raw["data"]:
-            if not isinstance(token_data_raw["data"]["tokens"], list):
-                logger.warning(f"Invalid 'tokens' key in response for CA {mint_address}: {token_data_raw}")
-                return {"error": f"No valid token data returned from API for CA {mint_address}"}
-            if len(token_data_raw["data"]["tokens"]) == 0:
-                logger.warning(f"No tokens found in API response for CA {mint_address}: {token_data_raw}")
-                return {"error": f"Token not found for CA {mint_address} on gmgn.ai. Please verify the contract address."}
-            token_info = token_data_raw["data"]["tokens"][0]
-        elif isinstance(token_data_raw, dict) and "address" in token_data_raw:
-            token_info = token_data_raw  # Direct token object
-        else:
-            logger.warning(f"Invalid response structure for CA {mint_address}: {token_data_raw}")
-            return {"error": f"Invalid API response for CA {mint_address}: expected token object or tokens list"}
-
-        logger.debug(f"Token info for CA {mint_address}: {token_info}")
-        
-        token_data = {}
-        price = float(token_info.get("price", 0))
-        token_data["price"] = str(price) if price != 0 else "N/A"
-        logger.debug(f"Token Price for CA {mint_address}: {str(price)}")
-        token_data["price_1h"] = float(token_info.get("price_1h", 0))
-        token_data["price_24h"] = float(token_info.get("price_24h", 0))
-        total_supply = float(token_info.get("total_supply", 0))
-        token_data["circulating_supply"] = total_supply
-        token_data["market_cap"] = price * total_supply
-        token_data["market_cap_str"] = format_market_cap(token_data["market_cap"])
-        token_data["liquidity"] = float(token_info.get("liquidity", 0))
-        token_data["liquidity_str"] = format_market_cap(token_data["liquidity"])
-        token_data["volume_24h"] = float(token_info.get("volume_24h", 0))
-        token_data["swaps_24h"] = token_info.get("swaps_24h", 0)
-        token_data["top_10_holder_rate"] = float(token_info.get("top_10_holder_rate", 0)) * 100
-        token_data["renounced_mint"] = bool(token_info.get("renounced_mint", False))
-        token_data["renounced_freeze_account"] = bool(token_info.get("renounced_freeze_account", False))
-        token_data["contract"] = mint_address
-        token_data["name"] = token_info.get("name", "Unknown")
-        token_data["symbol"] = token_info.get("symbol", "")
-        token_data["hot_level"] = int(token_info.get("hot_level", 0))
-
-        logger.debug(f"Processed token data for CA {mint_address}: market_cap={token_data['market_cap']:.2f}, symbol={token_data['symbol']}, hot_level={token_data['hot_level']}")
+        logger.debug(
+            f"Processed token data for CA {mint_address}: "
+            f"MC={token_data['market_cap']:.2f}, Symbol={token_data['symbol']}, Hot={token_data['hot_level']}"
+        )
         token_data_cache[mint_address] = token_data
         logger.info(f"Cached token data for CA: {mint_address}")
         return token_data
 
     except Exception as e:
-        logger.error(f"Error processing API response for CA {mint_address}: {str(e)}, Raw response: {token_data_raw}")
+        logger.error(f"Error processing API response for CA {mint_address}: {str(e)}, Raw: {token_data_raw}")
         return {"error": f"Failed to process API response for CA {mint_address}: {str(e)}"}
+
 
 async def get_token_market_cap(mint_address):
     token_data_raw = await api_session_manager.fetch_token_data(mint_address)
