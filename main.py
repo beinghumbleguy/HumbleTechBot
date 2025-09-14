@@ -595,7 +595,7 @@ class APISessionManager:
         self._session_max_requests = 100
         self.max_retries = 5
         self.retry_delay = 2  # 2 seconds to mitigate rate-limiting
-        self.base_url = "https://gmgn.ai/defi/quotation/v1/tokens/sol"  # Updated to Link Bot endpoint
+        self.base_url = "https://gmgn.ai/defi/quotation/v1/tokens/sol"  # Old GMGN, not used anymore
         self._executor = ThreadPoolExecutor(max_workers=4)
         self.ua = UserAgent()
 
@@ -666,7 +666,7 @@ class APISessionManager:
         current_time = time.time()
         session_expired = (current_time - self._session_created_at) > self._session_max_age
         too_many_requests = self._session_requests >= self._session_max_requests
-        
+
         if self.session is None or force or session_expired or too_many_requests:
             self.session = cloudscraper.create_scraper(
                 browser={
@@ -679,7 +679,7 @@ class APISessionManager:
             self.headers_dict["User-Agent"] = user_agent
             self.session.headers.update(self.headers_dict)
             logger.debug(f"Randomized User-Agent: {user_agent}")
-            
+
             if use_proxy and self.proxy_list:
                 proxy_dict = await self.get_proxy()
                 if proxy_dict:
@@ -690,99 +690,100 @@ class APISessionManager:
             else:
                 self.session.proxies = None
                 logger.debug("Proceeding without proxy as per request.")
-            
+
             self._session_created_at = current_time
             self._session_requests = 0
             logger.debug("Created new cloudscraper session")
 
     async def _run_in_executor(self, func, *args, **kwargs):
         return await asyncio.get_event_loop().run_in_executor(
-            self._executor, 
+            self._executor,
             lambda: func(*args, **kwargs)
         )
 
-async def fetch_token_data(self, mint_address):
-    logger.debug(f"Fetching data for mint_address: {mint_address}")
-    await self.randomize_session()
-    if not self.session:
-        logger.error("Cloudscraper session not initialized")
-        return {"error": "Cloudscraper session not initialized"}
+    async def fetch_token_data(self, mint_address):
+        logger.debug(f"Fetching data for mint_address: {mint_address}")
+        await self.randomize_session()
+        if not self.session:
+            logger.error("Cloudscraper session not initialized")
+            return {"error": "Cloudscraper session not initialized"}
 
-    self._session_requests += 1
-    url = f"https://api.coingecko.com/api/v3/onchain/networks/solana/tokens/multi/{mint_address}"
-    api_key = os.getenv("COINGECKO_API_KEY")
-    headers = dict(self.headers_dict)
-    if api_key:
-        headers["x-cg-pro-api-key"] = api_key
+        self._session_requests += 1
+        url = f"https://api.coingecko.com/api/v3/onchain/networks/solana/tokens/multi/{mint_address}"
+        api_key = os.getenv("COINGECKO_API_KEY")
+        headers = dict(self.headers_dict)
+        if api_key:
+            headers["x-cg-pro-api-key"] = api_key
 
-    for attempt in range(self.max_retries):
-        try:
-            response = await self._run_in_executor(
-                self.session.get,
-                url,
-                headers=headers,
-                timeout=15
-            )
-            headers_log = {k: v for k, v in response.headers.items()}
-            logger.debug(
-                f"Attempt {attempt + 1} for CA {mint_address} - "
-                f"Status: {response.status_code}, Response length: {len(response.text)}, "
-                f"Headers: {headers_log}"
-            )
-
-            if response.status_code != 200:
-                if response.status_code == 429:
-                    logger.warning(f"Rate limited on attempt {attempt + 1} for CA {mint_address}")
-                    delay = self.retry_delay * (2 ** attempt) * 2
-                    await asyncio.sleep(delay)
-                else:
-                    logger.warning(f"Non-200 status {response.status_code} for CA {mint_address}: {response.text[:100]}")
-                if attempt == self.max_retries - 1:
-                    return {"error": f"HTTP {response.status_code} for CA {mint_address}"}
-                await asyncio.sleep(self.retry_delay * (2 ** attempt))
-                continue
-
-            # Ensure JSON
-            if "application/json" not in response.headers.get("Content-Type", "").lower():
-                return {"error": f"Unexpected Content-Type: {response.headers.get('Content-Type')}"}
-
+        for attempt in range(self.max_retries):
             try:
-                json_data = response.json()
-                logger.debug(f"Raw CoinGecko response for CA {mint_address} (first 500 chars): {response.text[:500]}")
+                response = await self._run_in_executor(
+                    self.session.get,
+                    url,
+                    headers=headers,
+                    timeout=15
+                )
+                headers_log = {k: v for k, v in response.headers.items()}
+                logger.debug(
+                    f"Attempt {attempt + 1} for CA {mint_address} - "
+                    f"Status: {response.status_code}, Response length: {len(response.text)}, "
+                    f"Headers: {headers_log}"
+                )
 
-                if not json_data or "data" not in json_data or len(json_data["data"]) == 0:
-                    return {"error": f"No token data for {mint_address}"}
+                if response.status_code != 200:
+                    if response.status_code == 429:
+                        logger.warning(f"Rate limited on attempt {attempt + 1} for CA {mint_address}")
+                        delay = self.retry_delay * (2 ** attempt) * 2
+                        await asyncio.sleep(delay)
+                    else:
+                        logger.warning(f"Non-200 status {response.status_code} for CA {mint_address}: {response.text[:100]}")
+                    if attempt == self.max_retries - 1:
+                        return {"error": f"HTTP {response.status_code} for CA {mint_address}"}
+                    await asyncio.sleep(self.retry_delay * (2 ** attempt))
+                    continue
 
-                attributes = json_data["data"][0]["attributes"]
-                price = float(attributes.get("price_usd") or 0)
-                mc = float(attributes.get("market_cap_usd") or attributes.get("fdv_usd") or 0)
-                liquidity = float(attributes.get("total_reserve_in_usd") or 0)
-                volume_24h = float((attributes.get("volume_usd") or {}).get("h24") or 0)
+                # Ensure JSON
+                if "application/json" not in response.headers.get("Content-Type", "").lower():
+                    return {"error": f"Unexpected Content-Type: {response.headers.get('Content-Type')}"}
 
-                token_data = {
-                    "price": price,
-                    "market_cap": mc,
-                    "market_cap_str": format_market_cap(mc),
-                    "liquidity": liquidity,
-                    "liquidity_str": format_market_cap(liquidity),
-                    "volume_24h": volume_24h,
-                    "contract": mint_address,
-                    "name": attributes.get("name", "Unknown"),
-                    "symbol": attributes.get("symbol", "")
-                }
-                return token_data
+                try:
+                    json_data = response.json()
+                    logger.debug(f"Raw CoinGecko response for CA {mint_address} (first 500 chars): {response.text[:500]}")
+
+                    if not json_data or "data" not in json_data or len(json_data["data"]) == 0:
+                        return {"error": f"No token data for {mint_address}"}
+
+                    attributes = json_data["data"][0]["attributes"]
+                    price = float(attributes.get("price_usd") or 0)
+                    mc = float(attributes.get("market_cap_usd") or attributes.get("fdv_usd") or 0)
+                    liquidity = float(attributes.get("total_reserve_in_usd") or 0)
+                    volume_24h = float((attributes.get("volume_usd") or {}).get("h24") or 0)
+
+                    token_data = {
+                        "price": price,
+                        "market_cap": mc,
+                        "market_cap_str": format_market_cap(mc),
+                        "liquidity": liquidity,
+                        "liquidity_str": format_market_cap(liquidity),
+                        "volume_24h": volume_24h,
+                        "contract": mint_address,
+                        "name": attributes.get("name", "Unknown"),
+                        "symbol": attributes.get("symbol", "")
+                    }
+                    return token_data
+
+                except Exception as e:
+                    logger.error(f"Error parsing CoinGecko response for CA {mint_address}: {e}")
+                    return {"error": f"Invalid response parse for {mint_address}: {e}"}
 
             except Exception as e:
-                logger.error(f"Error parsing CoinGecko response for CA {mint_address}: {e}")
-                return {"error": f"Invalid response parse for {mint_address}: {e}"}
+                logger.warning(f"Attempt {attempt + 1} for CA {mint_address} failed: {e}")
+                if attempt < self.max_retries - 1:
+                    await asyncio.sleep(self.retry_delay * (2 ** attempt))
 
-        except Exception as e:
-            logger.warning(f"Attempt {attempt + 1} for CA {mint_address} failed: {e}")
-            if attempt < self.max_retries - 1:
-                await asyncio.sleep(self.retry_delay * (2 ** attempt))
+        return {"error": f"Failed to fetch data for CA {mint_address} after {self.max_retries} attempts"}
 
-    return {"error": f"Failed to fetch data for CA {mint_address} after {self.max_retries} attempts"}
-
+# Global instance
 api_session_manager = APISessionManager()
 
 def format_market_cap(market_cap: float) -> str:
