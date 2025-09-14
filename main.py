@@ -713,7 +713,7 @@ class APISessionManager:
         api_key = os.getenv("COINGECKO_API_KEY")
         headers = dict(self.headers_dict)
         if api_key:
-            headers["x-cg-pro-api-key"] = api_key
+            headers["x-cg-demo-api-key"] = api_key
 
         for attempt in range(self.max_retries):
             try:
