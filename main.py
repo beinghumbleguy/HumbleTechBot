@@ -974,7 +974,7 @@ async def process_message(message: types.Message) -> None:
             # [InlineKeyboardButton(text="👉🔥 JOIN VIP NOW 🔥👉", url="https://t.me/HumbleMoonshotsPay_bot?start=start")]
             # if not is_vip_channel else [],
             [
-                InlineKeyboardButton(text="Buy on Fasol", url=f"https://t.me/fasol_robot?start=ref_humbleguy_ca_{ca}"),
+                InlineKeyboardButton(text="Buy on Fasol - 25% Cashback", url=f"https://t.me/fasol_robot?start=ref_humbleguy_ca_{ca}"),
                 # InlineKeyboardButton(text="Bloom", url=f"https://t.me/BloomSolana_bot?start=ref_humbleguy_ca_{ca}")
             ],
             #[
