@@ -180,7 +180,7 @@ DevSoldThreshold = "Yes"
 DevSoldLeft = 6.0
 Top10Threshold = 52.0
 SnipersThreshold = 15.0
-BundlesThreshold = 3.0
+BundlesThreshold = 5.0
 InsidersThreshold = 3.0
 KOLsThreshold = 0.0
 BondingCurveThreshold = 80.0
@@ -190,7 +190,7 @@ DevSoldFilterEnabled = True
 Top10FilterEnabled = True
 SniphersFilterEnabled = True
 BundlesFilterEnabled = True
-InsidersFilterEnabled = True
+InsidersFilterEnabled = False
 KOLsFilterEnabled = True
 BondingCurveFilterEnabled = True
 
@@ -202,7 +202,8 @@ CHECK_INTERVAL = 60  # Changed to 30 seconds from 300
 # DAILY_REPORT_INTERVAL = 14400  # Interval for daily_summary_report (4 hours) in seconds
 DAILY_REPORT_INTERVAL = 7200  # Interval for daily_summary_report (4 hours) in seconds
 PNL_REPORT_INTERVAL = 21600 # 6 hours
-MONITORING_DURATION = 21600  # 6 hours in seconds
+#MONITORING_DURATION = 21600  # 6 hours in seconds
+MONITORING_DURATION = 14400  # 4 hours in seconds
 monitored_tokens = {}
 last_growth_ratios = {}
 
