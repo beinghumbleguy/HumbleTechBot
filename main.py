@@ -703,87 +703,87 @@ class APISessionManager:
         )
 
     async def fetch_token_data(self, mint_address):
-    logger.debug(f"Fetching data for mint_address: {mint_address}")
+        logger.debug(f"Fetching data for mint_address: {mint_address}")
 
-    # Always use a fresh direct session for CoinGecko (no proxy)
-    if not self.session:
-        self.session = cloudscraper.create_scraper()
-    self._session_requests += 1
+        # Always use a fresh direct session for CoinGecko (no proxy)
+        if not self.session:
+            self.session = cloudscraper.create_scraper()
+        self._session_requests += 1
 
-    url = f"https://pro-api.coingecko.com/api/v3/onchain/networks/solana/tokens/multi/{mint_address}"
-    api_key = os.getenv("COINGECKO_API_KEY")
-    headers = dict(self.headers_dict)
-    if api_key:
-        headers["x-cg-pro-api-key"] = api_key
+        url = f"https://pro-api.coingecko.com/api/v3/onchain/networks/solana/tokens/multi/{mint_address}"
+        api_key = os.getenv("COINGECKO_API_KEY")
+        headers = dict(self.headers_dict)
+        if api_key:
+            headers["x-cg-pro-api-key"] = api_key
 
-    for attempt in range(self.max_retries):
-        try:
-            response = await self._run_in_executor(
-                self.session.get,
-                url,
-                headers=headers,
-                timeout=15
-            )
-            headers_log = {k: v for k, v in response.headers.items()}
-            logger.debug(
-                f"Attempt {attempt + 1} for CA {mint_address} - "
-                f"Status: {response.status_code}, Response length: {len(response.text)}, "
-                f"Headers: {headers_log}"
-            )
+        for attempt in range(self.max_retries):
+            try:
+                response = await self._run_in_executor(
+                    self.session.get,
+                    url,
+                    headers=headers,
+                    timeout=15
+                )
+                headers_log = {k: v for k, v in response.headers.items()}
+                logger.debug(
+                    f"Attempt {attempt + 1} for CA {mint_address} - "
+                    f"Status: {response.status_code}, Response length: {len(response.text)}, "
+                    f"Headers: {headers_log}"
+                )
 
-            if response.status_code != 200:
-                if response.status_code == 429:
-                    logger.warning(f"Rate limited on attempt {attempt + 1} for CA {mint_address}")
-                    delay = self.retry_delay * (2 ** attempt) * 2
-                    await asyncio.sleep(delay)
-                else:
-                    logger.warning(f"Non-200 status {response.status_code} for CA {mint_address}: {response.text[:100]}")
-                if attempt == self.max_retries - 1:
-                    return {"error": f"HTTP {response.status_code} for CA {mint_address}"}
-                await asyncio.sleep(self.retry_delay * (2 ** attempt))
-                continue
+                if response.status_code != 200:
+                    if response.status_code == 429:
+                        logger.warning(f"Rate limited on attempt {attempt + 1} for CA {mint_address}")
+                        delay = self.retry_delay * (2 ** attempt) * 2
+                        await asyncio.sleep(delay)
+                    else:
+                        logger.warning(f"Non-200 status {response.status_code} for CA {mint_address}: {response.text[:100]}")
+                    if attempt == self.max_retries - 1:
+                        return {"error": f"HTTP {response.status_code} for CA {mint_address}"}
+                    await asyncio.sleep(self.retry_delay * (2 ** attempt))
+                    continue
 
-            if "application/json" not in response.headers.get("Content-Type", "").lower():
-                return {"error": f"Unexpected Content-Type: {response.headers.get('Content-Type')}"}
+                if "application/json" not in response.headers.get("Content-Type", "").lower():
+                    return {"error": f"Unexpected Content-Type: {response.headers.get('Content-Type')}"}
 
-            json_data = response.json()
-            logger.debug(f"Raw CoinGecko response for CA {mint_address} (first 500 chars): {response.text[:500]}")
+                json_data = response.json()
+                logger.debug(f"Raw CoinGecko response for CA {mint_address} (first 500 chars): {response.text[:500]}")
 
-            if not json_data or "data" not in json_data or len(json_data["data"]) == 0:
-                return {"error": f"No token data for {mint_address}"}
+                if not json_data or "data" not in json_data or len(json_data["data"]) == 0:
+                    return {"error": f"No token data for {mint_address}"}
 
-            attributes = json_data["data"][0]["attributes"]
-            price = float(attributes.get("price_usd") or 0)
-            mc = float(attributes.get("market_cap_usd") or attributes.get("fdv_usd") or 0)
-            liquidity = float(attributes.get("total_reserve_in_usd") or 0)
+                attributes = json_data["data"][0]["attributes"]
+                price = float(attributes.get("price_usd") or 0)
+                mc = float(attributes.get("market_cap_usd") or attributes.get("fdv_usd") or 0)
+                liquidity = float(attributes.get("total_reserve_in_usd") or 0)
 
-            volume_24h = 0.0
-            volume_usd = attributes.get("volume_usd", {})
-            if isinstance(volume_usd, dict) and "h24" in volume_usd:
-                try:
-                    volume_24h = float(volume_usd["h24"])
-                except (TypeError, ValueError):
-                    logger.warning(f"Invalid h24 volume value for {mint_address}: {volume_usd['h24']}")
+                volume_24h = 0.0
+                volume_usd = attributes.get("volume_usd", {})
+                if isinstance(volume_usd, dict) and "h24" in volume_usd:
+                    try:
+                        volume_24h = float(volume_usd["h24"])
+                    except (TypeError, ValueError):
+                        logger.warning(f"Invalid h24 volume value for {mint_address}: {volume_usd['h24']}")
 
-            token_data = {
-                "price": price,
-                "market_cap": mc,
-                "market_cap_str": format_market_cap(mc),
-                "liquidity": liquidity,
-                "liquidity_str": format_market_cap(liquidity),
-                "volume_24h": volume_24h,
-                "contract": mint_address,
-                "name": attributes.get("name", "Unknown"),
-                "symbol": attributes.get("symbol", "")
-            }
-            return token_data
+                token_data = {
+                    "price": price,
+                    "market_cap": mc,
+                    "market_cap_str": format_market_cap(mc),
+                    "liquidity": liquidity,
+                    "liquidity_str": format_market_cap(liquidity),
+                    "volume_24h": volume_24h,
+                    "contract": mint_address,
+                    "name": attributes.get("name", "Unknown"),
+                    "symbol": attributes.get("symbol", "")
+                }
+                return token_data
 
-        except Exception as e:
-            logger.warning(f"Attempt {attempt + 1} for CA {mint_address} failed: {e}")
-            if attempt < self.max_retries - 1:
-                await asyncio.sleep(self.retry_delay * (2 ** attempt))
+            except Exception as e:
+                logger.warning(f"Attempt {attempt + 1} for CA {mint_address} failed: {e}")
+                if attempt < self.max_retries - 1:
+                    await asyncio.sleep(self.retry_delay * (2 ** attempt))
 
-    return {"error": f"Failed to fetch data for CA {mint_address} after {self.max_retries} attempts"}
+        return {"error": f"Failed to fetch data for CA {mint_address} after {self.max_retries} attempts"}
 
 # Global instance
 api_session_manager = APISessionManager()
