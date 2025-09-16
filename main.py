@@ -203,7 +203,7 @@ CHECK_INTERVAL = 60  # Changed to 30 seconds from 300
 DAILY_REPORT_INTERVAL = 7200  # Interval for daily_summary_report (4 hours) in seconds
 PNL_REPORT_INTERVAL = 21600 # 6 hours
 #MONITORING_DURATION = 21600  # 6 hours in seconds
-MONITORING_DURATION = 14400  # 4 hours in seconds
+MONITORING_DURATION = 7200  # 2 hours in seconds
 monitored_tokens = {}
 last_growth_ratios = {}
 
