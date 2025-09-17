@@ -203,7 +203,7 @@ CHECK_INTERVAL = 60  # Changed to 30 seconds from 300
 DAILY_REPORT_INTERVAL = 7200  # Interval for daily_summary_report (4 hours) in seconds
 PNL_REPORT_INTERVAL = 21600 # 6 hours
 #MONITORING_DURATION = 21600  # 6 hours in seconds
-MONITORING_DURATION = 7200  # 2 hours in seconds
+MONITORING_DURATION = 5400  # 2 hours in seconds
 monitored_tokens = {}
 last_growth_ratios = {}
 
@@ -1363,7 +1363,7 @@ async def growthcheck() -> None:
         for chat_id, data in channel_data.items():
             token_time = datetime.fromtimestamp(data["timestamp"], pytz.timezone('America/New_York'))
             time_diff = (current_time - token_time).total_seconds() / 3600
-            if time_diff > 6:  # 6 hours
+            if time_diff > 3:  # 6 hours
                 to_remove.append(f"{ca}:{chat_id}")
                 logger.debug(f"CA {ca} in chat {chat_id} expired (time_diff: {time_diff:.2f}h)")
                 continue
